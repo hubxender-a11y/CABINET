@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+**/node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -19,6 +20,11 @@
 
 # production
 /build
+/backend/dist
+/backend/.agents/
+/backend/.claude/
+/backend/.cursor/
+/backend/.devin/
 
 # misc
 .DS_Store
@@ -26,12 +32,16 @@
 
 # debug
 npm-debug.log*
+app.log
+app.err
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+!/backend/.env.example
 
 # vercel
 .vercel

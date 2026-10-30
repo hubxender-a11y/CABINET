@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc;
+  --foreground: #0f172a;
 }
 
 @theme inline {
@@ -12,15 +12,107 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
+  min-height: 100vh;
+  margin: 0;
+  background: radial-gradient(circle at top, #eff6ff 0%, #f8fafc 30%, #f1f5f9 100%);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.document-letterhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 3px solid #d7ab2f;
+  padding-bottom: 1rem;
+}
+
+.document-letterhead-logo {
+  display: block;
+  width: min(250px, 58%);
+  height: auto;
+  object-fit: contain;
+}
+
+.document-letterhead-meta {
+  color: #475569;
+  font-size: 0.7rem;
+  line-height: 1.6;
+  text-align: right;
+}
+
+.document-letterhead-name {
+  color: #0a4b80;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.document-footer {
+  margin-top: 2rem;
+  border-top: 4px solid #d7ab2f;
+  background: #0a4b80;
+  padding: 0.85rem 1rem;
+  color: #ffffff;
+  font-size: 0.65rem;
+  line-height: 1.65;
+  text-align: center;
+}
+
+.document-footer-legal {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.document-footer span {
+  padding-inline: 0.2rem;
+  color: #f3d577;
+}
+
+@media print {
+  @page {
+    margin: 16mm;
+  }
+
+  body {
+    background: #ffffff;
+    print-color-adjust: exact;
+  }
+
+  .screen-only {
+    display: none !important;
+  }
+
+  .invoice-page-shell,
+  .invoice-page-shell > div {
+    display: block !important;
+  }
+
+  .invoice-document {
+    max-width: none !important;
+    border: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .document-letterhead,
+  .document-footer {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
 }

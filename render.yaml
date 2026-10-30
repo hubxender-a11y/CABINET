@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: factura-rdc-api
+    runtime: node
+    plan: starter
+    rootDir: backend
+    buildCommand: npm ci && npm run db:generate && npm run build
+    startCommand: npm run db:deploy && npm run start:prod
+    healthCheckPath: /api/auth/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: DEFAULT_COMPANY_ID
+        value: 5eecf1f8-a90e-4e8f-a01b-6eaa7a7c8e20
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
