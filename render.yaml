@@ -2,7 +2,7 @@ services:
   - type: web
     name: factura-rdc-api
     runtime: node
-    plan: starter
+    plan: free
     rootDir: backend
     buildCommand: npm ci && npm run db:generate && npm run build
     startCommand: npm run db:deploy && npm run start:prod

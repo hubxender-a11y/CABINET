@@ -38,8 +38,8 @@ npm test -- --runInBand
 ## Déploiement
 
 - **Frontend** : déployer le dossier racine comme projet Next.js sur Vercel et configurer `NEXT_PUBLIC_API_URL` avec l’URL publique de l’API suivie de `/api`.
-- **API** : utiliser le Blueprint `render.yaml` avec le dossier racine du dépôt. Fournir l’URL Neon dans `DATABASE_URL`, l’URL de production du frontend dans `FRONTEND_ORIGIN`, et un email/mot de passe administrateur forts dans les variables du service.
+- **API** : utiliser le Blueprint `render.yaml` avec le dossier racine du dépôt. Fournir l’URL Prisma Postgres dans `DATABASE_URL`, l’URL de production du frontend dans `FRONTEND_ORIGIN`, et un email/mot de passe administrateur forts dans les variables du service.
 - Render génère automatiquement `JWT_SECRET`. Le démarrage applique les migrations versionnées puis lance NestJS.
 - Configurer les variables secrètes uniquement dans les tableaux de bord sécurisés des fournisseurs. Ne commitez aucun fichier `.env` et ne partagez pas les secrets dans le chat.
 
-Le niveau Render Starter est payant. Confirmez le coût actuel chez Render avant de créer le service. Les comptes Vercel Hobby peuvent être limités aux usages personnels/non commerciaux; vérifiez le plan applicable à votre cabinet avant d’y héberger un usage professionnel.
+Le Blueprint est configuré temporairement sur Render Free à la demande du propriétaire. Ce niveau peut mettre le service en veille et n’est pas garanti pour un usage professionnel en production; passez à un plan adapté avant d’y traiter des données réelles. Les comptes Vercel Hobby peuvent être limités aux usages personnels/non commerciaux; vérifiez le plan applicable à votre cabinet.
