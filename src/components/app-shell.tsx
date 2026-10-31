@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Receipt, Settings, Users, Wallet, BarChart3, ShieldCheck, BookOpenCheck, Coins } from "lucide-react";
+import { LayoutDashboard, Receipt, Settings, Users, Wallet, BarChart3, ShieldCheck, BookOpenCheck, Coins, Package, Truck, Boxes } from "lucide-react";
 import { AUTH_TOKEN_KEY } from "@/lib/api";
 
 const navItems = [
@@ -13,6 +13,9 @@ const navItems = [
   { href: "/expenses", label: "Charges du cabinet", icon: Coins },
   { href: "/reports", label: "États & rapports", icon: BarChart3 },
   { href: "/fiscal", label: "Fiscalité & échéances", icon: BookOpenCheck },
+  { href: "/products", label: "Produits & fournitures", icon: Package },
+  { href: "/purchases", label: "Fournisseurs & achats", icon: Truck },
+  { href: "/stocks", label: "Stocks & mouvements", icon: Boxes },
   { href: "/users", label: "Équipe & permissions", icon: ShieldCheck },
   { href: "/settings", label: "Paramètres du cabinet", icon: Settings },
 ];

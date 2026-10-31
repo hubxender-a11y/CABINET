@@ -7,13 +7,16 @@ import {
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
+import { AuthenticatedRequest, AuthenticatedUser } from './authenticated-user';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { PrismaService } from '../database/prisma.service';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -30,19 +33,39 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Authentification requise.');
     }
 
+    let payload: AuthenticatedUser;
     try {
-      const payload = await this.jwt.verifyAsync<{
-        sub: string;
-        companyId: string;
-      }>(token);
-      if (payload.companyId !== (process.env.DEFAULT_COMPANY_ID ?? '5eecf1f8-a90e-4e8f-a01b-6eaa7a7c8e20')) {
-        throw new UnauthorizedException('Session invalide.');
-      }
-      void payload;
-      return true;
-    } catch (error) {
-      if (error instanceof UnauthorizedException) throw error;
+      payload = await this.jwt.verifyAsync<AuthenticatedUser>(token);
+    } catch {
       throw new UnauthorizedException('Session expirée ou invalide.');
     }
+    if (
+      !payload.sub ||
+      payload.companyId !==
+        (process.env.DEFAULT_COMPANY_ID ??
+          '5eecf1f8-a90e-4e8f-a01b-6eaa7a7c8e20')
+    ) {
+      throw new UnauthorizedException('Session invalide.');
+    }
+
+    const membership = await this.prisma.companyMembership.findFirst({
+      where: {
+        userId: payload.sub,
+        companyId: payload.companyId,
+        user: { isActive: true },
+      },
+      select: {
+        role: true,
+        user: { select: { email: true, name: true } },
+      },
+    });
+    if (!membership) throw new UnauthorizedException('Session invalide.');
+    (request as AuthenticatedRequest).user = {
+      ...payload,
+      email: membership.user.email,
+      name: membership.user.name,
+      role: membership.role,
+    };
+    return true;
   }
 }

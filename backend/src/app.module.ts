@@ -8,6 +8,9 @@ import { InvoicesModule } from './invoices/invoices.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
+import { CompanyModule } from './company/company.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -17,6 +20,9 @@ import { APP_GUARD } from '@nestjs/core';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     AuthModule,
     DatabaseModule,
+    UsersModule,
+    CompanyModule,
+    InventoryModule,
     CustomersModule,
     DashboardModule,
     InvoicesModule,
