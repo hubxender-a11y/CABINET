@@ -53,6 +53,22 @@ export default function HomePage() {
     );
   const certified = visibleInvoices.filter((invoice) => invoice.status === "Certifiée").length;
   const attentionCount = clients.filter((client) => client.status !== "À jour").length;
+  const activeInvoices = visibleInvoices.filter(
+    (invoice) => invoice.status !== "Brouillon" && invoice.status !== "Rejetée",
+  );
+  const clientsToFollowUp = clients
+    .filter((client) => client.status !== "À jour")
+    .slice(0, 3);
+  const invoicesToCollect = visibleInvoices
+    .filter(
+      (invoice) =>
+        invoice.status !== "Brouillon" &&
+        invoice.status !== "Rejetée" &&
+        invoice.amount -
+          (invoice.paidAmount ?? (invoice.status === "Payée" ? invoice.amount : 0)) >
+          0,
+    )
+    .slice(0, 3);
 
   return (
     <div className="space-y-7">
@@ -99,7 +115,7 @@ export default function HomePage() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: "Dossiers clients", value: selectedClient === "all" ? clients.length : 1, helper: "Portefeuille actif", icon: BriefcaseBusiness, tone: "text-blue-700 bg-blue-50" },
-          { label: "Facturation suivie", value: `${money(issuedByCurrency.CDF)} CDF${issuedByCurrency.USD ? ` · ${money(issuedByCurrency.USD)} USD` : ""}`, helper: `${visibleInvoices.length} documents suivis`, icon: FileText, tone: "text-indigo-700 bg-indigo-50" },
+          { label: "Facturation suivie", value: `${money(issuedByCurrency.CDF)} CDF${issuedByCurrency.USD ? ` · ${money(issuedByCurrency.USD)} USD` : ""}`, helper: `${activeInvoices.length} facture(s) émises`, icon: FileText, tone: "text-indigo-700 bg-indigo-50" },
           { label: "En attente de règlement", value: `${money(outstandingByCurrency.CDF)} CDF${outstandingByCurrency.USD ? ` · ${money(outstandingByCurrency.USD)} USD` : ""}`, helper: "À rapprocher des paiements", icon: CalendarClock, tone: "text-amber-700 bg-amber-50" },
           { label: "Dossiers à traiter", value: selectedClient === "all" ? attentionCount : clients.find((client) => client.id === selectedClient)?.status === "À jour" ? 0 : 1, helper: `${certified} facture(s) certifiée(s)`, icon: Users, tone: "text-rose-700 bg-rose-50" },
         ].map((kpi) => {
@@ -166,7 +182,7 @@ export default function HomePage() {
               <Link href="/clients" className="text-sm font-medium text-blue-600">Gérer</Link>
             </div>
             <div className="mt-4 space-y-3">
-              {clients.slice(0, 4).map((client) => (
+              {clients.length ? clients.slice(0, 4).map((client) => (
                 <button key={client.id} onClick={() => setSelectedClient(client.id)} className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-100 p-3 text-left hover:border-blue-200 hover:bg-blue-50/40">
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium text-slate-800">{client.name}</span>
@@ -174,7 +190,9 @@ export default function HomePage() {
                   </span>
                   <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${client.status === "À jour" ? "bg-emerald-50 text-emerald-700" : client.status === "En retard" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>{client.status}</span>
                 </button>
-              ))}
+              )) : (
+                <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Aucun dossier client enregistré.</p>
+              )}
             </div>
           </div>
 
@@ -184,14 +202,29 @@ export default function HomePage() {
               <h2 className="text-lg font-semibold text-amber-950">À traiter en priorité</h2>
             </div>
             <div className="mt-4 space-y-3 text-sm">
-              <div className="flex items-start gap-3 rounded-xl bg-white/80 p-3">
-                <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
-                <span><strong className="font-medium text-slate-900">Kivu Foods</strong><span className="mt-0.5 block text-xs text-slate-500">Pièces comptables à relancer</span></span>
-              </div>
-              <div className="flex items-start gap-3 rounded-xl bg-white/80 p-3">
-                <ArrowDownRight className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                <span><strong className="font-medium text-slate-900">Boreal Pharma</strong><span className="mt-0.5 block text-xs text-slate-500">Paiement reçu à rapprocher</span></span>
-              </div>
+              {clientsToFollowUp.map((client) => (
+                <Link key={client.id} href="/clients" className="flex items-start gap-3 rounded-xl bg-white/80 p-3 hover:bg-white">
+                  <ArrowUpRight className={`mt-0.5 h-4 w-4 shrink-0 ${client.status === "En retard" ? "text-rose-600" : "text-amber-600"}`} />
+                  <span><strong className="font-medium text-slate-900">{client.name}</strong><span className="mt-0.5 block text-xs text-slate-500">Dossier {client.status.toLocaleLowerCase("fr")}</span></span>
+                </Link>
+              ))}
+              {invoicesToCollect.map((invoice) => {
+                const balance = Math.max(
+                  invoice.amount -
+                    (invoice.paidAmount ??
+                      (invoice.status === "Payée" ? invoice.amount : 0)),
+                  0,
+                );
+                return (
+                  <Link key={invoice.id} href="/payments" className="flex items-start gap-3 rounded-xl bg-white/80 p-3 hover:bg-white">
+                    <ArrowDownRight className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    <span><strong className="font-medium text-slate-900">{invoice.client}</strong><span className="mt-0.5 block text-xs text-slate-500">{invoice.id} · {money(balance)} {invoice.currency} à recevoir</span></span>
+                  </Link>
+                );
+              })}
+              {!clientsToFollowUp.length && !invoicesToCollect.length && (
+                <p className="rounded-xl bg-white/80 p-3 text-sm text-slate-600">Aucune action prioritaire pour le moment.</p>
+              )}
             </div>
           </div>
         </div>

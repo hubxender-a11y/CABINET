@@ -26,6 +26,22 @@ type DashboardReport = {
   moneyByCurrency: CurrencyReport[];
 };
 
+type LocalExpense = {
+  date: string;
+  amount: string | number;
+  currency: "CDF" | "USD";
+};
+
+function isLocalExpense(value: unknown): value is LocalExpense {
+  if (!value || typeof value !== "object") return false;
+  const expense = value as Record<string, unknown>;
+  return (
+    typeof expense.date === "string" &&
+    (typeof expense.amount === "string" || typeof expense.amount === "number") &&
+    (expense.currency === "CDF" || expense.currency === "USD")
+  );
+}
+
 const formatMoney = (amount: number | string, currency: string) =>
   `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(Number(amount))} ${currency}`;
 
@@ -35,11 +51,36 @@ export default function ReportsPage() {
   const [error, setError] = useState("");
   const loading = databaseConnected && !report && !error;
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
+  const [localExpenses, setLocalExpenses] = useState<LocalExpense[]>([]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setCurrentDate(new Date()), 0);
+    const timer = window.setTimeout(() => {
+      setCurrentDate(new Date());
+      if (databaseConnected) {
+        setLocalExpenses([]);
+        setError("");
+        return;
+      }
+
+      try {
+        const stored = JSON.parse(
+          window.localStorage.getItem("factura-expenses") ?? "[]",
+        ) as unknown;
+        if (!Array.isArray(stored) || !stored.every(isLocalExpense)) {
+          throw new Error("Le format des charges locales est invalide.");
+        }
+        setLocalExpenses(stored);
+      } catch (caught) {
+        console.error("Chargement des charges locales du rapport impossible.", caught);
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Impossible de charger les charges locales du rapport.",
+        );
+      }
+    }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [databaseConnected]);
 
   useEffect(() => {
     if (!databaseConnected) return;
@@ -83,9 +124,14 @@ export default function ReportsPage() {
     const currentPayments = payments.filter(
       (payment) => new Date(payment.createdAt) >= monthStart,
     );
+    const currentExpenses = localExpenses.filter((expense) => {
+      const date = new Date(`${expense.date.slice(0, 10)}T12:00:00`);
+      return date >= monthStart && date <= currentDate;
+    });
     const currencies = new Set([
       ...currentInvoices.map((invoice) => invoice.currency),
       ...currentPayments.map((payment) => payment.currency),
+      ...currentExpenses.map((expense) => expense.currency),
     ]);
 
     return [...currencies].sort().map((currency) => {
@@ -94,6 +140,9 @@ export default function ReportsPage() {
       );
       const matchingPayments = currentPayments.filter(
         (payment) => payment.currency === currency,
+      );
+      const matchingExpenses = currentExpenses.filter(
+        (expense) => expense.currency === currency,
       );
       return {
         currency,
@@ -107,9 +156,13 @@ export default function ReportsPage() {
             sum + Math.max(invoice.amount - (invoice.paidAmount ?? 0), 0),
           0,
         ),
+        expensesMonth: matchingExpenses.reduce(
+          (sum, expense) => sum + Number(expense.amount),
+          0,
+        ),
       };
     });
-  }, [currentDate, invoices, payments]);
+  }, [currentDate, invoices, localExpenses, payments]);
 
   const currentMonth = currentDate
     ? new Intl.DateTimeFormat("fr-FR", {
@@ -192,7 +245,7 @@ export default function ReportsPage() {
                   <tr key={row.currency} className="border-t border-slate-100">
                     <td className="px-5 py-4 font-semibold text-slate-900">{row.currency}</td>
                     <td className="px-5 py-4 text-right text-slate-700">
-                      {formatMoney("revenueMonth" in row ? row.revenueMonth : 0, row.currency)}
+                      {formatMoney(row.revenueMonth, row.currency)}
                     </td>
                     <td className="px-5 py-4 text-right text-slate-700">
                       {formatMoney(row.cashCollectedMonth, row.currency)}
@@ -201,9 +254,7 @@ export default function ReportsPage() {
                       {formatMoney(row.receivables, row.currency)}
                     </td>
                     <td className="px-5 py-4 text-right text-slate-700">
-                      {"expensesMonth" in row
-                        ? formatMoney(row.expensesMonth, row.currency)
-                        : "Non disponible"}
+                      {formatMoney(row.expensesMonth, row.currency)}
                     </td>
                   </tr>
                 ))}
@@ -218,8 +269,9 @@ export default function ReportsPage() {
       </section>
 
       <p className="text-xs leading-5 text-slate-500">
-        Le rapport local ne contient que les données de démonstration présentes dans ce navigateur.
-        Les charges ne sont pas encore reliées à un écran de saisie.
+        {databaseConnected
+          ? "Synthèse calculée à partir des données du cabinet dans PostgreSQL."
+          : "Le rapport local utilise uniquement les données enregistrées dans ce navigateur; les montants ne sont pas partagés entre appareils."}
         {databaseConnected && report
           ? ` Période API : ${new Date(report.period.start).toLocaleDateString("fr-FR")} – ${new Date(report.period.end).toLocaleDateString("fr-FR")}.`
           : ""}

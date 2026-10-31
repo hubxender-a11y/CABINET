@@ -2,16 +2,13 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BriefcaseBusiness, FileText, LayoutDashboard, Receipt, Settings, Users, Wallet, BarChart3, ShieldCheck, ChevronDown, Search, BookOpenCheck, Files, Coins } from "lucide-react";
+import { LayoutDashboard, Receipt, Settings, Users, Wallet, BarChart3, ShieldCheck, BookOpenCheck, Coins } from "lucide-react";
 import { AUTH_TOKEN_KEY } from "@/lib/api";
 
 const navItems = [
   { href: "/", label: "Vue du cabinet", icon: LayoutDashboard },
   { href: "/clients", label: "Dossiers clients", icon: Users },
-  { href: "/sales", label: "Missions comptables", icon: BriefcaseBusiness },
   { href: "/invoices", label: "Factures d’honoraires", icon: Receipt },
-  { href: "/quotes", label: "Devis & lettres de mission", icon: FileText },
-  { href: "/documents", label: "Pièces comptables", icon: Files },
   { href: "/payments", label: "Trésorerie & règlements", icon: Wallet },
   { href: "/expenses", label: "Charges du cabinet", icon: Coins },
   { href: "/reports", label: "États & rapports", icon: BarChart3 },
@@ -76,18 +73,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <button className="mb-6 flex w-full items-center justify-between rounded-2xl border border-slate-700 bg-slate-900 px-3 py-3 text-left">
+          <div className="mb-6 rounded-2xl border border-slate-700 bg-slate-900 px-3 py-3">
             <span>
               <span className="block text-[10px] uppercase tracking-[0.15em] text-slate-400">Espace de travail</span>
               <span className="mt-1 block text-sm font-medium">Cabinet Transparency</span>
             </span>
-            <ChevronDown className="h-4 w-4 text-slate-400" />
-          </button>
-
-          <div className="mb-4 flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs text-slate-400">
-            <Search className="h-3.5 w-3.5" />
-            <span>Rechercher un dossier...</span>
-            <kbd className="ml-auto rounded border border-slate-700 px-1.5 py-0.5">⌘ K</kbd>
+            <span className="mt-1 block text-xs text-slate-400">Kinshasa, RDC</span>
           </div>
 
           <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Gestion comptable</p>
@@ -103,6 +94,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       ? "bg-blue-600 text-white shadow-lg shadow-blue-900/30"
                       : "text-slate-300 hover:bg-slate-800 hover:text-white"
                   }`}
+                  aria-current={active ? "page" : undefined}
                 >
                   <Icon className="h-4 w-4" />
                   <span>{label}</span>
