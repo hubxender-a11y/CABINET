@@ -2,6 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useWorkspaceStore, type WorkspacePayment } from "@/components/workspace-store";
+import { formatMoney } from "@/lib/formatting";
 
 const methodLabels: Record<WorkspacePayment["method"], string> = {
   CASH_USD: "Espèces (USD)",
@@ -11,9 +12,6 @@ const methodLabels: Record<WorkspacePayment["method"], string> = {
   MOBILE_MONEY: "Mobile money",
   OTHER: "Autre",
 };
-
-const formatMoney = (amount: number, currency: string) =>
-  `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(amount)} ${currency}`;
 
 export default function PaymentsPage() {
   const { invoices, payments, addPayment, databaseConnected } = useWorkspaceStore();

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspaceStore } from "@/components/workspace-store";
 import { apiRequest } from "@/lib/api";
 import { useCompanyProfile } from "@/components/company-profile";
+import { formatMoney } from "@/lib/formatting";
 
 type ExpenseMethod =
   | "CASH_USD"
@@ -42,9 +43,6 @@ const methodLabels: Record<ExpenseMethod, string> = {
   MOBILE_MONEY: "Mobile money",
   OTHER: "Autre",
 };
-const formatMoney = (amount: number, currency: string) =>
-  `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(amount)} ${currency}`;
-
 export default function ExpensesPage() {
   const { databaseConnected } = useWorkspaceStore();
   const { profile } = useCompanyProfile();

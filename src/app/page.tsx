@@ -9,11 +9,7 @@ import {
   companyLocation,
   useCompanyProfile,
 } from "@/components/company-profile";
-
-const money = (amount: number, currency: string) =>
-  `${new Intl.NumberFormat("fr-CD", {
-    maximumFractionDigits: currency === "USD" ? 2 : 0,
-  }).format(amount)} ${currency}`;
+import { formatMoney } from "@/lib/formatting";
 
 const moneyByCurrency = (
   totals: Record<"CDF" | "USD", number>,
@@ -21,8 +17,8 @@ const moneyByCurrency = (
 ) =>
   ([primaryCurrency, primaryCurrency === "CDF" ? "USD" : "CDF"] as const)
     .filter((currency) => totals[currency] > 0)
-    .map((currency) => money(totals[currency], currency))
-    .join(" · ") || money(0, primaryCurrency);
+    .map((currency) => formatMoney(totals[currency], currency))
+    .join(" · ") || formatMoney(0, primaryCurrency);
 
 const statusClass: Record<string, string> = {
   Certifiée: "bg-emerald-100 text-emerald-700",
@@ -179,7 +175,7 @@ export default function HomePage() {
                   <tr key={invoice.id} className="border-t border-slate-200">
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{invoice.id}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-700">{invoice.client}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{money(invoice.amount, invoice.currency)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{formatMoney(invoice.amount, invoice.currency)}</td>
                     <td className="px-4 py-3"><span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${statusClass[invoice.status]}`}>{invoice.status}</span></td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-500">{invoice.date}</td>
                   </tr>
@@ -237,7 +233,7 @@ export default function HomePage() {
                 return (
                   <Link key={invoice.id} href="/payments" className="flex items-start gap-3 rounded-xl bg-white/80 p-3 hover:bg-white">
                     <ArrowDownRight className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                    <span><strong className="font-medium text-slate-900">{invoice.client}</strong><span className="mt-0.5 block text-xs text-slate-500">{invoice.id} · {money(balance, invoice.currency)} à recevoir</span></span>
+                    <span><strong className="font-medium text-slate-900">{invoice.client}</strong><span className="mt-0.5 block text-xs text-slate-500">{invoice.id} · {formatMoney(balance, invoice.currency)} à recevoir</span></span>
                   </Link>
                 );
               })}

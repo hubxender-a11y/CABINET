@@ -6,6 +6,7 @@ import { CheckCircle2, Plus, Printer, Trash2 } from "lucide-react";
 import { useWorkspaceStore } from "@/components/workspace-store";
 import { DocumentFooter, DocumentLetterhead } from "@/components/document-letterhead";
 import { useCompanyProfile } from "@/components/company-profile";
+import { formatMoney } from "@/lib/formatting";
 
 type InvoiceItemInput = {
   id: string;
@@ -20,14 +21,12 @@ const localDate = () => {
   return new Date(date.getTime() - offset).toISOString().slice(0, 10);
 };
 
-const formatMoney = (amount: number, currency: string) =>
-  `${new Intl.NumberFormat("fr-FR", {
-    maximumFractionDigits: currency === "USD" ? 2 : 0,
-  }).format(amount)} ${currency}`;
-
 const displayDate = (date: string) =>
   date
-    ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" }).format(
+    ? new Intl.DateTimeFormat("fr-CD", {
+        dateStyle: "long",
+        timeZone: "Africa/Kinshasa",
+      }).format(
         new Date(`${date}T12:00:00`),
       )
     : "________________";

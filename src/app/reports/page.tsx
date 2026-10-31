@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useWorkspaceStore } from "@/components/workspace-store";
 import { apiRequest } from "@/lib/api";
+import {
+  companyDisplayName,
+  companyLocation,
+  useCompanyProfile,
+} from "@/components/company-profile";
+import { formatDate, formatMoney } from "@/lib/formatting";
 
 type CurrencyReport = {
   currency: string;
@@ -42,11 +48,10 @@ function isLocalExpense(value: unknown): value is LocalExpense {
   );
 }
 
-const formatMoney = (amount: number | string, currency: string) =>
-  `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(Number(amount))} ${currency}`;
-
 export default function ReportsPage() {
   const { clients, invoices, payments, databaseConnected } = useWorkspaceStore();
+  const { profile } = useCompanyProfile();
+  const primaryCurrency = profile?.currencyCode ?? "CDF";
   const [report, setReport] = useState<DashboardReport | null>(null);
   const [error, setError] = useState("");
   const loading = databaseConnected && !report && !error;
@@ -134,7 +139,13 @@ export default function ReportsPage() {
       ...currentExpenses.map((expense) => expense.currency),
     ]);
 
-    return [...currencies].sort().map((currency) => {
+    return [...currencies]
+      .sort((left, right) => {
+        if (left === primaryCurrency) return -1;
+        if (right === primaryCurrency) return 1;
+        return left.localeCompare(right);
+      })
+      .map((currency) => {
       const matchingInvoices = currentInvoices.filter(
         (invoice) => invoice.currency === currency,
       );
@@ -162,7 +173,7 @@ export default function ReportsPage() {
         ),
       };
     });
-  }, [currentDate, invoices, localExpenses, payments]);
+  }, [currentDate, invoices, localExpenses, payments, primaryCurrency]);
 
   const currentMonth = currentDate
     ? new Intl.DateTimeFormat("fr-FR", {
@@ -184,10 +195,10 @@ export default function ReportsPage() {
             Pilotage comptable
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-slate-900">
-            Rapport du cabinet
+            Rapport — {companyDisplayName(profile)}
           </h1>
           <p className="mt-2 text-sm capitalize text-slate-500">
-            {currentMonth ? `${currentMonth} · Africa/Kinshasa` : "Période en cours…"}
+            {currentMonth ? `${currentMonth} · ${companyLocation(profile)} · heure de Kinshasa` : "Période en cours…"}
           </p>
         </div>
         <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium ${
@@ -273,7 +284,7 @@ export default function ReportsPage() {
           ? "Synthèse calculée à partir des données du cabinet dans PostgreSQL."
           : "Le rapport local utilise uniquement les données enregistrées dans ce navigateur; les montants ne sont pas partagés entre appareils."}
         {databaseConnected && report
-          ? ` Période API : ${new Date(report.period.start).toLocaleDateString("fr-FR")} – ${new Date(report.period.end).toLocaleDateString("fr-FR")}.`
+          ? ` Période API : ${formatDate(report.period.start)} – ${formatDate(report.period.end)}.`
           : ""}
       </p>
     </div>
