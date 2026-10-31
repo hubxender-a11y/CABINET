@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Plus, Printer, Trash2 } from "lucide-react";
 import { useWorkspaceStore } from "@/components/workspace-store";
 import { DocumentFooter, DocumentLetterhead } from "@/components/document-letterhead";
+import { useCompanyProfile } from "@/components/company-profile";
 
 type InvoiceItemInput = {
   id: string;
@@ -33,12 +34,15 @@ const displayDate = (date: string) =>
 
 export default function InvoicesPage() {
   const { clients, addInvoice } = useWorkspaceStore();
+  const { profile } = useCompanyProfile();
   const [clientId, setClientId] = useState("");
   const [period, setPeriod] = useState("");
   const [concern, setConcern] = useState("");
-  const [madeAt, setMadeAt] = useState("Kinshasa");
+  const [madeAt, setMadeAt] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [currency, setCurrency] = useState<"CDF" | "USD">("CDF");
+  const currencyWasChanged = useRef(false);
+  const locationWasChanged = useRef(false);
   const [items, setItems] = useState<InvoiceItemInput[]>([
     { id: "initial-line", rubric: "", quantity: 1, unitPrice: 0 },
   ]);
@@ -50,6 +54,14 @@ export default function InvoicesPage() {
     const timer = window.setTimeout(() => setInvoiceDate(localDate()), 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!profile) return;
+    if (!currencyWasChanged.current) setCurrency(profile.currencyCode);
+    if (!locationWasChanged.current) {
+      setMadeAt(profile.city || profile.commune || "Kinshasa");
+    }
+  }, [profile]);
 
   const selectedClient = clients.find((client) => client.id === clientId);
   const total = useMemo(
@@ -209,7 +221,10 @@ export default function InvoicesPage() {
               Fait à
               <input
                 value={madeAt}
-                onChange={(event) => setMadeAt(event.target.value)}
+                onChange={(event) => {
+                  locationWasChanged.current = true;
+                  setMadeAt(event.target.value);
+                }}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
               />
             </label>
@@ -226,7 +241,10 @@ export default function InvoicesPage() {
               Devise
               <select
                 value={currency}
-                onChange={(event) => setCurrency(event.target.value as "CDF" | "USD")}
+                onChange={(event) => {
+                  currencyWasChanged.current = true;
+                  setCurrency(event.target.value as "CDF" | "USD");
+                }}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
               >
                 <option value="CDF">CDF</option>

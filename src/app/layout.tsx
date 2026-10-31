@@ -4,6 +4,7 @@ import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 import { WorkspaceStoreProvider } from "@/components/workspace-store";
 import { AuthGate } from "@/components/auth-gate";
+import { CompanyProfileProvider } from "@/components/company-profile";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,7 +27,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body className="min-h-full bg-slate-100 text-slate-900">
         <WorkspaceStoreProvider>
           <AuthGate>
-            <AppShell>{children}</AppShell>
+            <CompanyProfileProvider>
+              <AppShell>{children}</AppShell>
+            </CompanyProfileProvider>
           </AuthGate>
         </WorkspaceStoreProvider>
       </body>

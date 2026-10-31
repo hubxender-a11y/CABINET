@@ -4,6 +4,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, Receipt, Settings, Users, Wallet, BarChart3, ShieldCheck, BookOpenCheck, Coins, Package, Truck, Boxes } from "lucide-react";
 import { AUTH_TOKEN_KEY } from "@/lib/api";
+import {
+  companyDisplayName,
+  companyLocation,
+  useCompanyProfile,
+} from "@/components/company-profile";
 
 const navItems = [
   { href: "/", label: "Vue du cabinet", icon: LayoutDashboard },
@@ -23,6 +28,9 @@ const navItems = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { profile } = useCompanyProfile();
+  const companyName = companyDisplayName(profile);
+  const location = companyLocation(profile);
   const logout = () => {
     window.localStorage.removeItem(AUTH_TOKEN_KEY);
     router.replace("/login");
@@ -34,7 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-sm print:hidden lg:hidden">
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-blue-200">FACTURA</p>
-            <p className="font-semibold">Cabinet Transparency</p>
+            <p className="max-w-40 truncate font-semibold">{companyName}</p>
           </div>
           <details className="relative">
             <summary className="cursor-pointer list-none rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium">
@@ -72,16 +80,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 font-semibold">F</div>
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-blue-200">FACTURA</p>
-              <h1 className="text-lg font-semibold">Transparency SARL</h1>
+              <h1 className="max-w-48 truncate text-lg font-semibold">{companyName}</h1>
             </div>
           </div>
 
           <div className="mb-6 rounded-2xl border border-slate-700 bg-slate-900 px-3 py-3">
             <span>
               <span className="block text-[10px] uppercase tracking-[0.15em] text-slate-400">Espace de travail</span>
-              <span className="mt-1 block text-sm font-medium">Cabinet Transparency</span>
+              <span className="mt-1 block truncate text-sm font-medium">{companyName}</span>
             </span>
-            <span className="mt-1 block text-xs text-slate-400">Kinshasa, RDC</span>
+            <span className="mt-1 block truncate text-xs text-slate-400">{location}</span>
           </div>
 
           <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Gestion comptable</p>

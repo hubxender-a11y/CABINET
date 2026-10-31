@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { AlertTriangle, Boxes, Plus, RefreshCw } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { formatMoney, formatQuantity, type StockMovement } from "@/lib/inventory";
+import { useCompanyProfile } from "@/components/company-profile";
 
 type StockProduct = {
   id: string;
@@ -26,11 +27,12 @@ const movementLabels: Record<string, string> = {
 };
 
 export default function StocksPage() {
+  const { profile } = useCompanyProfile();
+  const currency = profile?.currencyCode ?? "CDF";
   const [products, setProducts] = useState<StockProduct[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [currency, setCurrency] = useState<"CDF" | "USD">("CDF");
   const [showForm, setShowForm] = useState(false);
   const [productId, setProductId] = useState("");
   const [movementType, setMovementType] = useState<MovementType>("IN");
@@ -44,13 +46,9 @@ export default function StocksPage() {
     setLoading(true);
     setError("");
     try {
-      const [result, company] = await Promise.all([
-        apiRequest<StockResponse>("/stock"),
-        apiRequest<{ currencyCode: "CDF" | "USD" }>("/company"),
-      ]);
+      const result = await apiRequest<StockResponse>("/stock");
       setProducts(result.products);
       setMovements(result.movements);
-      setCurrency(company.currencyCode);
       setProductId((current) =>
         result.products.some((product) => product.id === current)
           ? current

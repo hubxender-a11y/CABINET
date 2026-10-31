@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspaceStore } from "@/components/workspace-store";
 import { apiRequest } from "@/lib/api";
+import { useCompanyProfile } from "@/components/company-profile";
 
 type ExpenseMethod =
   | "CASH_USD"
@@ -46,11 +47,13 @@ const formatMoney = (amount: number, currency: string) =>
 
 export default function ExpensesPage() {
   const { databaseConnected } = useWorkspaceStore();
+  const { profile } = useCompanyProfile();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [category, setCategory] = useState(categories[0]);
   const [date, setDate] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Expense["currency"]>("CDF");
+  const currencyWasChanged = useRef(false);
   const [method, setMethod] = useState<ExpenseMethod>("BANK_TRANSFER");
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
@@ -58,6 +61,12 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    if (profile && !currencyWasChanged.current) {
+      setCurrency(profile.currencyCode);
+    }
+  }, [profile]);
 
   useEffect(() => {
     let active = true;
@@ -271,6 +280,7 @@ export default function ExpensesPage() {
                 value={currency}
                 onChange={(event) => {
                   const nextCurrency = event.target.value as Expense["currency"];
+                  currencyWasChanged.current = true;
                   setCurrency(nextCurrency);
                   if (
                     (method === "CASH_CDF" && nextCurrency !== "CDF") ||

@@ -4,17 +4,19 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { Plus, RefreshCw, Truck } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { formatMoney, formatQuantity, type ProductRecord, type PurchaseRecord, type SupplierRecord } from "@/lib/inventory";
+import { useCompanyProfile } from "@/components/company-profile";
 
 type PurchaseLine = { productId: string; quantity: string; unitPrice: string };
 const newLine = (): PurchaseLine => ({ productId: "", quantity: "1", unitPrice: "0" });
 
 export default function PurchasesPage() {
+  const { profile } = useCompanyProfile();
+  const currency = profile?.currencyCode ?? "CDF";
   const [products, setProducts] = useState<ProductRecord[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierRecord[]>([]);
   const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [currency, setCurrency] = useState<"CDF" | "USD">("CDF");
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [showSupplierForm, setShowSupplierForm] = useState(false);
   const [supplierId, setSupplierId] = useState("");
@@ -30,16 +32,14 @@ export default function PurchasesPage() {
     setLoading(true);
     setError("");
     try {
-      const [nextProducts, nextSuppliers, nextPurchases, company] = await Promise.all([
+      const [nextProducts, nextSuppliers, nextPurchases] = await Promise.all([
         apiRequest<ProductRecord[]>("/products"),
         apiRequest<SupplierRecord[]>("/suppliers"),
         apiRequest<PurchaseRecord[]>("/purchases"),
-        apiRequest<{ currencyCode: "CDF" | "USD" }>("/company"),
       ]);
       setProducts(nextProducts);
       setSuppliers(nextSuppliers);
       setPurchases(nextPurchases);
-      setCurrency(company.currencyCode);
       setSupplierId((current) => current || nextSuppliers[0]?.id || "");
       setItems((current) =>
         current.map((item) =>

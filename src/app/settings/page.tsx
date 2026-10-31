@@ -1,96 +1,127 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Building2, RefreshCw, Save } from "lucide-react";
-import { apiRequest } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Building2, MapPin, RefreshCw, Save, ShieldCheck } from "lucide-react";
+import {
+  companyDisplayName,
+  companyLocation,
+  useCompanyProfile,
+  type CompanyProfile,
+  type CompanyProfileChanges,
+} from "@/components/company-profile";
 
-type CompanyProfile = {
-  id: string;
-  legalName: string;
-  tradeName: string | null;
-  rccm: string | null;
-  nin: string | null;
-  nif: string | null;
-  taxId: string | null;
-  address: string | null;
-  province: string | null;
-  city: string | null;
-  commune: string | null;
-  phone: string | null;
-  email: string | null;
-  sector: string | null;
-  taxRegime: string | null;
-  vatStatus: string | null;
-  currencyCode: "CDF" | "USD";
-};
-
-const textFields = [
+const identityFields = [
   ["legalName", "Raison sociale", true],
   ["tradeName", "Nom commercial"],
+  ["sector", "Activité du cabinet"],
+] as const;
+
+const registrationFields = [
   ["rccm", "RCCM"],
-  ["nin", "N° d’identification nationale"],
+  ["nin", "Identification nationale"],
   ["nif", "NIF"],
   ["taxId", "Autre identifiant fiscal"],
-  ["address", "Adresse"],
-  ["province", "Province"],
-  ["city", "Ville"],
-  ["commune", "Commune"],
-  ["phone", "Téléphone"],
-  ["email", "E-mail du cabinet"],
-  ["sector", "Secteur d’activité"],
   ["taxRegime", "Régime fiscal"],
   ["vatStatus", "Situation TVA"],
 ] as const;
 
-type TextFieldKey = (typeof textFields)[number][0];
+const locationFields = [
+  ["address", "Adresse"],
+  ["commune", "Commune"],
+  ["city", "Ville"],
+  ["province", "Province"],
+] as const;
+
+const contactFields = [
+  ["phone", "Téléphone"],
+  ["email", "E-mail du cabinet"],
+] as const;
+
+type FieldKey = keyof CompanyProfileChanges;
+
+function toChanges(profile: CompanyProfile): CompanyProfileChanges {
+  return {
+    legalName: profile.legalName,
+    tradeName: profile.tradeName,
+    rccm: profile.rccm,
+    nin: profile.nin,
+    nif: profile.nif,
+    taxId: profile.taxId,
+    address: profile.address,
+    province: profile.province,
+    city: profile.city,
+    commune: profile.commune,
+    phone: profile.phone,
+    email: profile.email,
+    sector: profile.sector,
+    taxRegime: profile.taxRegime,
+    vatStatus: profile.vatStatus,
+    currencyCode: profile.currencyCode,
+  };
+}
 
 export default function SettingsPage() {
-  const [profile, setProfile] = useState<CompanyProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const {
+    profile,
+    loading,
+    error: profileError,
+    refreshProfile,
+    saveProfile,
+  } = useCompanyProfile();
+  const [draft, setDraft] = useState<CompanyProfileChanges | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const loadProfile = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      setProfile(await apiRequest<CompanyProfile>("/company"));
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Impossible de charger le profil du cabinet.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void Promise.resolve().then(loadProfile);
-  }, [loadProfile]);
-
-  async function saveProfile(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
     if (!profile) return;
+    void Promise.resolve().then(() => setDraft(toChanges(profile)));
+  }, [profile]);
+
+  const isDirty = useMemo(
+    () => Boolean(profile && draft && JSON.stringify(toChanges(profile)) !== JSON.stringify(draft)),
+    [draft, profile],
+  );
+
+  const updateField = useCallback(
+    <K extends FieldKey>(key: K, value: CompanyProfileChanges[K]) => {
+      setDraft((current) => (current ? { ...current, [key]: value } : current));
+      setMessage("");
+    },
+    [],
+  );
+
+  async function reload() {
+    setError("");
+    setMessage("");
+    try {
+      const current = await refreshProfile();
+      setDraft(toChanges(current));
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Impossible d’actualiser le profil du cabinet.",
+      );
+    }
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft || !isDirty) return;
     setSaving(true);
     setError("");
     setMessage("");
-    const changes = Object.fromEntries(
-      Object.entries(profile).filter(([key]) => key !== "id"),
-    );
     try {
-      const updated = await apiRequest<CompanyProfile>("/company", {
-        method: "PATCH",
-        body: JSON.stringify(changes),
-      });
-      setProfile(updated);
-      setMessage("Les coordonnées et paramètres du cabinet ont été enregistrés.");
-    } catch (requestError) {
+      const updated = await saveProfile(draft);
+      setDraft(toChanges(updated));
+      setMessage(
+        "Paramètres enregistrés. Le menu, le tableau de bord et les prochains documents utilisent maintenant ces informations.",
+      );
+    } catch (caught) {
       setError(
-        requestError instanceof Error
-          ? requestError.message
+        caught instanceof Error
+          ? caught.message
           : "Impossible d’enregistrer les paramètres.",
       );
     } finally {
@@ -98,67 +129,148 @@ export default function SettingsPage() {
     }
   }
 
+  function renderFields(fields: readonly (readonly [FieldKey, string, ...boolean[]])[]) {
+    return fields.map(([key, label, required]) => (
+      <label key={key} className="space-y-2 text-sm font-medium text-slate-700">
+        {label}{required ? " *" : ""}
+        <input
+          required={Boolean(required)}
+          type={key === "email" ? "email" : "text"}
+          maxLength={key === "address" ? 300 : key === "email" ? 160 : 180}
+          value={draft?.[key] ?? ""}
+          onChange={(event) => updateField(key, event.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        />
+      </label>
+    ));
+  }
+
+  const displayName = draft?.tradeName?.trim() || draft?.legalName?.trim() || companyDisplayName(profile);
+  const displayLocation = draft
+    ? [draft.commune, draft.city, draft.province]
+        .map((part) => part?.trim())
+        .filter((part): part is string => Boolean(part))
+        .join(", ") || "République Démocratique du Congo"
+    : companyLocation(profile);
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end">
         <div>
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">Configuration</p>
-          <h1 className="mt-2 text-3xl font-semibold text-slate-900">Paramètres du cabinet</h1>
-          <p className="mt-2 text-sm text-slate-500">Ces informations servent sur les documents et dans le suivi comptable.</p>
+          <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">Configuration du cabinet</p>
+          <h1 className="mt-2 text-3xl font-semibold text-slate-900">Identité & paramètres</h1>
+          <p className="mt-2 max-w-2xl text-sm text-slate-500">
+            Une seule fiche de référence pour l’espace de travail, les tableaux de bord et les prochains documents.
+          </p>
         </div>
-        <button type="button" onClick={() => void loadProfile()} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Actualiser
+        <button
+          type="button"
+          onClick={() => void reload()}
+          disabled={loading || saving}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          Actualiser
         </button>
       </header>
 
       {message && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
-      {error && <p role="alert" className="break-words rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
+      {(error || profileError) && (
+        <p role="alert" className="break-words rounded-xl bg-rose-50 p-3 text-sm text-rose-800">
+          {error || profileError}
+        </p>
+      )}
 
-      {loading && !profile ? (
-        <p className="rounded-xl bg-slate-50 p-6 text-sm text-slate-500">Chargement des informations du cabinet…</p>
-      ) : profile ? (
-        <form onSubmit={saveProfile} className="space-y-6">
-          <section className="rounded-2xl border border-slate-200 p-5 sm:p-6">
+      {loading && !draft ? (
+        <p className="rounded-xl bg-slate-50 p-6 text-sm text-slate-500">Chargement du profil enregistré…</p>
+      ) : draft ? (
+        <form onSubmit={submit} className="space-y-5">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-5 flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Building2 className="h-5 w-5" /></span>
               <div>
-                <h2 className="font-semibold text-slate-900">Identité et coordonnées</h2>
-                <p className="text-sm text-slate-500">Renseignez les données légales et les contacts du cabinet.</p>
+                <h2 className="font-semibold text-slate-900">Identité professionnelle</h2>
+                <p className="text-sm text-slate-500">Le nom commercial est affiché dans l’application; la raison sociale reste la référence légale.</p>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              {textFields.map(([key, label, required]) => (
-                <label key={key} className="space-y-2 text-sm font-medium text-slate-700">
-                  {label}{required ? " *" : ""}
-                  <input
-                    required={Boolean(required)}
-                    type={key === "email" ? "email" : "text"}
-                    maxLength={key === "address" ? 300 : key === "email" ? 160 : 180}
-                    value={profile[key as TextFieldKey] ?? ""}
-                    onChange={(event) => setProfile({ ...profile, [key]: event.target.value })}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-500"
-                  />
-                </label>
-              ))}
-              <label className="space-y-2 text-sm font-medium text-slate-700">
-                Devise principale
-                <select value={profile.currencyCode} onChange={(event) => setProfile({ ...profile, currencyCode: event.target.value as CompanyProfile["currencyCode"] })} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-                  <option value="CDF">Franc congolais (CDF)</option>
-                  <option value="USD">Dollar américain (USD)</option>
-                </select>
-              </label>
+              {renderFields(identityFields)}
+              {renderFields(registrationFields)}
             </div>
           </section>
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="submit" disabled={saving || loading} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-              <Save className="h-4 w-4" /> {saving ? "Enregistrement…" : "Enregistrer les paramètres"}
-            </button>
-            <p className="text-xs text-slate-500">La modification est réservée à l’administrateur du cabinet.</p>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><MapPin className="h-5 w-5" /></span>
+              <div>
+                <h2 className="font-semibold text-slate-900">Adresse et coordonnées</h2>
+                <p className="text-sm text-slate-500">Utilisées dans l’espace de travail et les pieds des documents générés.</p>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {renderFields(locationFields)}
+              {renderFields(contactFields)}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><ShieldCheck className="h-5 w-5" /></span>
+              <div>
+                <h2 className="font-semibold text-slate-900">Paramètres comptables</h2>
+                <p className="text-sm text-slate-500">La devise principale est proposée par défaut aux prochaines saisies.</p>
+              </div>
+            </div>
+            <label className="block max-w-md space-y-2 text-sm font-medium text-slate-700">
+              Devise principale du cabinet
+              <select
+                value={draft.currencyCode}
+                onChange={(event) => updateField("currencyCode", event.target.value as CompanyProfileChanges["currencyCode"])}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="CDF">Franc congolais (CDF)</option>
+                <option value="USD">Dollar américain (USD)</option>
+              </select>
+              <span className="block text-xs font-normal leading-5 text-slate-500">
+                Ce choix ne convertit ni ne modifie les factures, paiements ou charges déjà enregistrés. Le tableau de bord garde les montants séparés par devise.
+              </span>
+            </label>
+          </section>
+
+          <section className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Aperçu de l’espace</p>
+            <p className="mt-2 text-lg font-semibold text-slate-900">{displayName}</p>
+            <p className="mt-1 text-sm text-slate-600">{displayLocation}</p>
+            <p className="mt-1 text-xs text-slate-500">Devise principale : {draft.currencyCode}</p>
+          </section>
+
+          <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur">
+            <p className={`text-sm ${isDirty ? "font-medium text-amber-800" : "text-slate-500"}`}>
+              {isDirty ? "Modifications non enregistrées" : "Toutes les modifications sont enregistrées"}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={!isDirty || saving}
+                onClick={() => profile && setDraft(toChanges(profile))}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={!isDirty || saving || loading}
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Save className="h-4 w-4" />
+                {saving ? "Enregistrement…" : "Enregistrer les modifications"}
+              </button>
+            </div>
           </div>
         </form>
       ) : (
-        <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
-          Les données du cabinet ne sont pas disponibles. Corrigez l’erreur ci-dessus puis actualisez.
+        <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-600">
+          Le profil du cabinet n’a pas pu être chargé. Vérifiez votre connexion, puis actualisez cette page.
         </div>
       )}
     </div>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { AlertTriangle, Package, Plus, RefreshCw, Search } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { formatMoney, formatQuantity, type ProductRecord } from "@/lib/inventory";
+import { useCompanyProfile } from "@/components/company-profile";
 
 const emptyProduct = {
   sku: "",
@@ -17,10 +18,11 @@ const emptyProduct = {
 };
 
 export default function ProductsPage() {
+  const { profile } = useCompanyProfile();
+  const currency = profile?.currencyCode ?? "CDF";
   const [products, setProducts] = useState<ProductRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [currency, setCurrency] = useState<"CDF" | "USD">("CDF");
   const [showForm, setShowForm] = useState(false);
   const [query, setQuery] = useState("");
   const [form, setForm] = useState(emptyProduct);
@@ -31,12 +33,7 @@ export default function ProductsPage() {
     setLoading(true);
     setError("");
     try {
-      const [nextProducts, company] = await Promise.all([
-        apiRequest<ProductRecord[]>("/products"),
-        apiRequest<{ currencyCode: "CDF" | "USD" }>("/company"),
-      ]);
-      setProducts(nextProducts);
-      setCurrency(company.currencyCode);
+      setProducts(await apiRequest<ProductRecord[]>("/products"));
     } catch (requestError) {
       setError(
         requestError instanceof Error

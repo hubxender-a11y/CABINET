@@ -4,9 +4,25 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, FilePlus2, FileText, Users } from "lucide-react";
 import { useWorkspaceStore } from "@/components/workspace-store";
+import {
+  companyDisplayName,
+  companyLocation,
+  useCompanyProfile,
+} from "@/components/company-profile";
 
-const money = (amount: number) =>
-  new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(amount);
+const money = (amount: number, currency: string) =>
+  `${new Intl.NumberFormat("fr-CD", {
+    maximumFractionDigits: currency === "USD" ? 2 : 0,
+  }).format(amount)} ${currency}`;
+
+const moneyByCurrency = (
+  totals: Record<"CDF" | "USD", number>,
+  primaryCurrency: "CDF" | "USD",
+) =>
+  ([primaryCurrency, primaryCurrency === "CDF" ? "USD" : "CDF"] as const)
+    .filter((currency) => totals[currency] > 0)
+    .map((currency) => money(totals[currency], currency))
+    .join(" · ") || money(0, primaryCurrency);
 
 const statusClass: Record<string, string> = {
   Certifiée: "bg-emerald-100 text-emerald-700",
@@ -18,6 +34,9 @@ const statusClass: Record<string, string> = {
 
 export default function HomePage() {
   const { clients, invoices, databaseConnected, databaseError } = useWorkspaceStore();
+  const { profile } = useCompanyProfile();
+  const primaryCurrency = profile?.currencyCode ?? "CDF";
+  const cabinetName = companyDisplayName(profile);
   const [selectedClient, setSelectedClient] = useState("all");
 
   const visibleInvoices = useMemo(
@@ -75,8 +94,8 @@ export default function HomePage() {
       <header className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-end">
         <div>
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">Vue du cabinet</p>
-          <h1 className="mt-2 text-3xl font-semibold text-slate-900">Bonjour, Cabinet Transparency</h1>
-          <p className="mt-2 text-sm text-slate-500">Suivez les dossiers, les échéances et la facturation de vos clients.</p>
+          <h1 className="mt-2 text-3xl font-semibold text-slate-900">Bonjour, {cabinetName}</h1>
+          <p className="mt-2 text-sm text-slate-500">Suivez les dossiers, les échéances et la facturation de vos clients · {companyLocation(profile)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/clients" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
@@ -115,8 +134,8 @@ export default function HomePage() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: "Dossiers clients", value: selectedClient === "all" ? clients.length : 1, helper: "Portefeuille actif", icon: BriefcaseBusiness, tone: "text-blue-700 bg-blue-50" },
-          { label: "Facturation suivie", value: `${money(issuedByCurrency.CDF)} CDF${issuedByCurrency.USD ? ` · ${money(issuedByCurrency.USD)} USD` : ""}`, helper: `${activeInvoices.length} facture(s) émises`, icon: FileText, tone: "text-indigo-700 bg-indigo-50" },
-          { label: "En attente de règlement", value: `${money(outstandingByCurrency.CDF)} CDF${outstandingByCurrency.USD ? ` · ${money(outstandingByCurrency.USD)} USD` : ""}`, helper: "À rapprocher des paiements", icon: CalendarClock, tone: "text-amber-700 bg-amber-50" },
+          { label: "Facturation suivie", value: moneyByCurrency(issuedByCurrency, primaryCurrency), helper: `${activeInvoices.length} facture(s) émises · montants conservés par devise`, icon: FileText, tone: "text-indigo-700 bg-indigo-50" },
+          { label: "En attente de règlement", value: moneyByCurrency(outstandingByCurrency, primaryCurrency), helper: "À rapprocher des paiements · montants conservés par devise", icon: CalendarClock, tone: "text-amber-700 bg-amber-50" },
           { label: "Dossiers à traiter", value: selectedClient === "all" ? attentionCount : clients.find((client) => client.id === selectedClient)?.status === "À jour" ? 0 : 1, helper: `${certified} facture(s) certifiée(s)`, icon: Users, tone: "text-rose-700 bg-rose-50" },
         ].map((kpi) => {
           const Icon = kpi.icon;
@@ -160,7 +179,7 @@ export default function HomePage() {
                   <tr key={invoice.id} className="border-t border-slate-200">
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{invoice.id}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-700">{invoice.client}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{money(invoice.amount)} {invoice.currency}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{money(invoice.amount, invoice.currency)}</td>
                     <td className="px-4 py-3"><span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${statusClass[invoice.status]}`}>{invoice.status}</span></td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-500">{invoice.date}</td>
                   </tr>
@@ -218,7 +237,7 @@ export default function HomePage() {
                 return (
                   <Link key={invoice.id} href="/payments" className="flex items-start gap-3 rounded-xl bg-white/80 p-3 hover:bg-white">
                     <ArrowDownRight className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                    <span><strong className="font-medium text-slate-900">{invoice.client}</strong><span className="mt-0.5 block text-xs text-slate-500">{invoice.id} · {money(balance)} {invoice.currency} à recevoir</span></span>
+                    <span><strong className="font-medium text-slate-900">{invoice.client}</strong><span className="mt-0.5 block text-xs text-slate-500">{invoice.id} · {money(balance, invoice.currency)} à recevoir</span></span>
                   </Link>
                 );
               })}
