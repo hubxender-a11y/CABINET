@@ -15,12 +15,76 @@ const kinshasaDayStart = (date: Date) => {
   );
 };
 
+const kinshasaDate = (date: Date) =>
+  new Date(date.getTime() + 60 * 60 * 1000).toISOString().slice(0, 10);
+
 const moneyString = (value: { toString(): string } | null | undefined) =>
   value?.toString() ?? '0.00';
 
 @Injectable()
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async getMonthlyReport(period: string) {
+    const [year, month] = period.split('-').map(Number);
+    const start = new Date(Date.UTC(year, month - 1, 1) - 60 * 60 * 1000);
+    const end = new Date(Date.UTC(year, month, 1) - 60 * 60 * 1000);
+    const companyId = getCompanyId();
+
+    const [invoices, payments, expenses] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: { companyId, issueDate: { gte: start, lt: end } },
+        include: { customer: { select: { id: true, name: true } } },
+        orderBy: [{ issueDate: 'asc' }, { invoiceNumber: 'asc' }],
+      }),
+      this.prisma.payment.findMany({
+        where: {
+          companyId,
+          status: 'RECEIVED',
+          createdAt: { gte: start, lt: end },
+        },
+        include: {
+          invoice: { select: { id: true, invoiceNumber: true } },
+          customer: { select: { name: true } },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.expense.findMany({
+        where: { companyId, date: { gte: start, lt: end } },
+        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+      }),
+    ]);
+
+    return {
+      period,
+      invoices: invoices.map((invoice) => ({
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customer: invoice.customer,
+        totalAmount: invoice.totalAmount.toString(),
+        paidAmount: invoice.paidAmount.toString(),
+        currency: invoice.currency,
+        fiscalStatus: invoice.fiscalStatus,
+        issueDate: kinshasaDate(invoice.issueDate),
+      })),
+      payments: payments.map((payment) => ({
+        id: payment.id,
+        amount: payment.amount.toString(),
+        currency: payment.currency,
+        createdAt: payment.createdAt.toISOString(),
+        invoice: payment.invoice,
+        customer: payment.customer,
+      })),
+      expenses: expenses.map((expense) => ({
+        id: expense.id,
+        category: expense.category,
+        date: kinshasaDate(expense.date),
+        amount: expense.amount.toString(),
+        currency: expense.currency,
+        description: expense.description,
+      })),
+    };
+  }
 
   async getOverview() {
     const companyId = getCompanyId();
