@@ -31,6 +31,12 @@ export class CustomersController {
     return this.customers.list(query.q?.trim());
   }
 
+  @Get(':id/statement')
+  @ApiOperation({ summary: 'Get a client account statement and payment history' })
+  statement(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.customers.statement(id);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a client dossier for the cabinet' })
   create(@Body() dto: CreateCustomerDto) {

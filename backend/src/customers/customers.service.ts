@@ -45,6 +45,49 @@ export class CustomersService {
     });
   }
 
+  async statement(id: string) {
+    const companyId = getCompanyId();
+    const customer = await this.prisma.customer.findFirst({
+      where: { id, companyId },
+      select: {
+        id: true,
+        name: true,
+        sector: true,
+        contact: true,
+        phone: true,
+        email: true,
+        address: true,
+        nif: true,
+        rccm: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+    if (!customer) throw new NotFoundException('Dossier client introuvable.');
+
+    const [invoices, payments] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: { companyId, customerId: id },
+        include: {
+          items: true,
+          payments: { orderBy: { createdAt: 'desc' } },
+        },
+        orderBy: { issueDate: 'desc' },
+      }),
+      this.prisma.payment.findMany({
+        where: { companyId, customerId: id },
+        include: {
+          invoice: {
+            select: { id: true, invoiceNumber: true, currency: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    return { customer, invoices, payments };
+  }
+
   async create(dto: CreateCustomerDto) {
     const companyId = getCompanyId();
     try {
