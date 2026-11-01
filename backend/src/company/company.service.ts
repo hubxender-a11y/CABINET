@@ -25,6 +25,9 @@ const companyFields = {
   sector: true,
   taxRegime: true,
   vatStatus: true,
+  signatureName: true,
+  signatureTitle: true,
+  signatureDataUrl: true,
   currencyCode: true,
 } satisfies Prisma.CompanySelect;
 
@@ -83,6 +86,15 @@ export class CompanyService {
         : {}),
       ...(dto.vatStatus !== undefined
         ? { vatStatus: dto.vatStatus?.trim() || null }
+        : {}),
+      ...(dto.signatureName !== undefined
+        ? { signatureName: dto.signatureName?.trim() || null }
+        : {}),
+      ...(dto.signatureTitle !== undefined
+        ? { signatureTitle: dto.signatureTitle?.trim() || null }
+        : {}),
+      ...(dto.signatureDataUrl !== undefined
+        ? { signatureDataUrl: dto.signatureDataUrl }
         : {}),
       ...(dto.currencyCode !== undefined
         ? { currencyCode: dto.currencyCode }

@@ -3,6 +3,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -83,6 +84,22 @@ export class UpdateCompanyDto {
   @IsString()
   @MaxLength(120)
   vatStatus?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  signatureName?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  signatureTitle?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(70000)
+  @Matches(/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/)
+  signatureDataUrl?: string | null;
 
   @IsOptional()
   @IsIn(['CDF', 'USD'])

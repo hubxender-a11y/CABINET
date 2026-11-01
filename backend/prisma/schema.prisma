@@ -72,6 +72,9 @@ model Company {
   sector             String?
   taxRegime          String?
   vatStatus          String?
+  signatureName      String?
+  signatureTitle     String?
+  signatureDataUrl   String?                 @db.Text
   currencyCode       String                  @default("CDF")
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt
