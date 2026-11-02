@@ -140,17 +140,17 @@ export class CustomersService {
       const customer = await transaction.customer.update({
         where: { id },
         data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.sector !== undefined ? { sector: dto.sector.trim() } : {}),
-        ...(dto.contact !== undefined ? { contact: dto.contact.trim() } : {}),
-        ...(dto.phone !== undefined ? { phone: dto.phone.trim() } : {}),
-        ...(dto.email !== undefined
-          ? { email: dto.email.trim().toLowerCase() }
-          : {}),
-        ...(dto.address !== undefined ? { address: dto.address.trim() } : {}),
-        ...(dto.nif !== undefined ? { nif: dto.nif.trim() } : {}),
-        ...(dto.rccm !== undefined ? { rccm: dto.rccm.trim() } : {}),
-        ...(dto.status !== undefined ? { status: dto.status } : {}),
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.sector !== undefined ? { sector: dto.sector.trim() } : {}),
+          ...(dto.contact !== undefined ? { contact: dto.contact.trim() } : {}),
+          ...(dto.phone !== undefined ? { phone: dto.phone.trim() } : {}),
+          ...(dto.email !== undefined
+            ? { email: dto.email.trim().toLowerCase() }
+            : {}),
+          ...(dto.address !== undefined ? { address: dto.address.trim() } : {}),
+          ...(dto.nif !== undefined ? { nif: dto.nif.trim() } : {}),
+          ...(dto.rccm !== undefined ? { rccm: dto.rccm.trim() } : {}),
+          ...(dto.status !== undefined ? { status: dto.status } : {}),
         },
       });
       await transaction.auditLog.create({

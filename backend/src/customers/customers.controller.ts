@@ -32,7 +32,9 @@ export class CustomersController {
   }
 
   @Get(':id/statement')
-  @ApiOperation({ summary: 'Get a client account statement and payment history' })
+  @ApiOperation({
+    summary: 'Get a client account statement and payment history',
+  })
   statement(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.customers.statement(id);
   }
