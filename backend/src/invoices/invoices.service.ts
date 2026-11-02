@@ -4,7 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { FiscalStatus, InvoiceType, Prisma } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import { getCompanyId } from '../database/company-context';
 import { CreateInvoiceDto } from './invoices.dto';
@@ -42,8 +41,14 @@ export class InvoicesService {
 
   async create(dto: CreateInvoiceDto) {
     const companyId = getCompanyId();
+    if (dto.dueDate && dto.dueDate < dto.issueDate) {
+      throw new BadRequestException(
+        'La date d’échéance ne peut pas précéder la date de facture.',
+      );
+    }
+
     const customer = await this.prisma.customer.findFirst({
-      where: { id: dto.customerId, companyId },
+      where: { id: dto.customerId, companyId, deletedAt: null },
       select: { id: true },
     });
     if (!customer) throw new NotFoundException('Dossier client introuvable.');
@@ -69,20 +74,46 @@ export class InvoicesService {
       );
     }
 
-    const invoiceNumber = `FAC-${new Date(dto.issueDate).getUTCFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
+    const issueYear = Number(dto.issueDate.slice(0, 4));
 
     return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), CAST(${issueYear} AS INTEGER))`;
+
+      const company = await transaction.company.findUnique({
+        where: { id: companyId },
+        select: { exchangeRateCdfPerUsd: true },
+      });
+      const existingNumbers = await transaction.invoice.findMany({
+        where: {
+          companyId,
+          invoiceNumber: { endsWith: `/${issueYear}` },
+        },
+        select: { invoiceNumber: true },
+      });
+      const lastSequence = existingNumbers.reduce((maximum, invoice) => {
+        const match = /^(\d+)\/\d{4}$/.exec(invoice.invoiceNumber);
+        return match ? Math.max(maximum, Number(match[1])) : maximum;
+      }, 0);
+      const invoiceNumber = `${String(lastSequence + 1).padStart(3, '0')}/${issueYear}`;
+
       const invoice = await transaction.invoice.create({
         data: {
           companyId,
           customerId: customer.id,
           invoiceNumber,
           invoiceType: InvoiceType.SERVICE,
-          fiscalStatus: FiscalStatus.DRAFT,
+          fiscalStatus:
+            dto.fiscalStatus === 'PENDING_FISCALIZATION'
+              ? FiscalStatus.PENDING_FISCALIZATION
+              : FiscalStatus.DRAFT,
           period: dto.period.trim(),
           concern: dto.concern.trim(),
           madeAt: dto.madeAt.trim(),
           issueDate: new Date(`${dto.issueDate}T12:00:00.000Z`),
+          dueDate: dto.dueDate
+            ? new Date(`${dto.dueDate}T12:00:00.000Z`)
+            : null,
+          exchangeRate: company?.exchangeRateCdfPerUsd ?? null,
           currency: dto.currency,
           subtotal,
           taxAmount: new Prisma.Decimal(0),

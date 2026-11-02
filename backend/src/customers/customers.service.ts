@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -17,6 +18,7 @@ export class CustomersService {
     return this.prisma.customer.findMany({
       where: {
         companyId,
+        deletedAt: null,
         ...(search
           ? {
               OR: [
@@ -90,12 +92,18 @@ export class CustomersService {
 
   async create(dto: CreateCustomerDto) {
     const companyId = getCompanyId();
+    const name = dto.name.trim();
+    if (name.length < 2) {
+      throw new BadRequestException(
+        'Le nom du dossier doit contenir au moins deux caractères.',
+      );
+    }
     try {
       return await this.prisma.$transaction(async (transaction) => {
         const customer = await transaction.customer.create({
           data: {
             companyId,
-            name: dto.name.trim(),
+            name,
             type: 'COMPANY',
             sector: dto.sector?.trim(),
             contact: dto.contact?.trim(),
@@ -130,8 +138,16 @@ export class CustomersService {
 
   async update(id: string, dto: UpdateCustomerDto) {
     const companyId = getCompanyId();
+    if (!Object.keys(dto).length) {
+      throw new BadRequestException('Aucune modification à enregistrer.');
+    }
+    if (dto.name !== undefined && dto.name.trim().length < 2) {
+      throw new BadRequestException(
+        'Le nom du dossier doit contenir au moins deux caractères.',
+      );
+    }
     const existing = await this.prisma.customer.findFirst({
-      where: { id, companyId },
+      where: { id, companyId, deletedAt: null },
       select: { id: true },
     });
     if (!existing) throw new NotFoundException('Dossier client introuvable.');
@@ -140,17 +156,23 @@ export class CustomersService {
       const customer = await transaction.customer.update({
         where: { id },
         data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.sector !== undefined ? { sector: dto.sector.trim() } : {}),
-        ...(dto.contact !== undefined ? { contact: dto.contact.trim() } : {}),
-        ...(dto.phone !== undefined ? { phone: dto.phone.trim() } : {}),
-        ...(dto.email !== undefined
-          ? { email: dto.email.trim().toLowerCase() }
-          : {}),
-        ...(dto.address !== undefined ? { address: dto.address.trim() } : {}),
-        ...(dto.nif !== undefined ? { nif: dto.nif.trim() } : {}),
-        ...(dto.rccm !== undefined ? { rccm: dto.rccm.trim() } : {}),
-        ...(dto.status !== undefined ? { status: dto.status } : {}),
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.sector !== undefined
+            ? { sector: dto.sector?.trim() || null }
+            : {}),
+          ...(dto.contact !== undefined
+            ? { contact: dto.contact?.trim() || null }
+            : {}),
+          ...(dto.phone !== undefined ? { phone: dto.phone?.trim() || null } : {}),
+          ...(dto.email !== undefined
+            ? { email: dto.email?.trim().toLowerCase() || null }
+            : {}),
+          ...(dto.address !== undefined
+            ? { address: dto.address?.trim() || null }
+            : {}),
+          ...(dto.nif !== undefined ? { nif: dto.nif?.trim() || null } : {}),
+          ...(dto.rccm !== undefined ? { rccm: dto.rccm?.trim() || null } : {}),
+          ...(dto.status !== undefined ? { status: dto.status } : {}),
         },
       });
       await transaction.auditLog.create({
@@ -161,6 +183,31 @@ export class CustomersService {
         },
       });
       return customer;
+    });
+  }
+
+  async delete(id: string) {
+    const companyId = getCompanyId();
+    return this.prisma.$transaction(async (transaction) => {
+      const existing = await transaction.customer.findFirst({
+        where: { id, companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!existing) throw new NotFoundException('Dossier client introuvable.');
+
+      const deletedAt = new Date();
+      await transaction.customer.update({
+        where: { id },
+        data: { deletedAt },
+      });
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          action: 'CUSTOMER_DOSSIER_ARCHIVED',
+          details: { customerId: id },
+        },
+      });
+      return { id, deletedAt };
     });
   }
 }

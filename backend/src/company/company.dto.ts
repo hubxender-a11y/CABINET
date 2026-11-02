@@ -1,5 +1,6 @@
 import {
   IsEmail,
+  IsObject,
   IsIn,
   IsOptional,
   IsString,
@@ -104,4 +105,17 @@ export class UpdateCompanyDto {
   @IsOptional()
   @IsIn(['CDF', 'USD'])
   currencyCode?: string;
+
+  @IsOptional()
+  @Matches(/^\d{1,12}(?:\.\d{1,6})?$/)
+  exchangeRateCdfPerUsd?: string | null;
+
+  @IsOptional()
+  @IsObject()
+  invoiceTemplate?: Record<string, unknown>;
+}
+
+export class UpdateInvoiceTemplateDto {
+  @IsObject()
+  invoiceTemplate: Record<string, unknown>;
 }

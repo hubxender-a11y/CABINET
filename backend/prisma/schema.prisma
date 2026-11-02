@@ -55,54 +55,56 @@ enum DocumentStatus {
 }
 
 model Company {
-  id                 String                  @id @default(uuid()) @db.Uuid
-  legalName          String
-  tradeName          String?
-  logoUrl            String?
-  rccm               String?
-  nin                String?
-  nif                String?
-  taxId              String?
-  address            String?
-  province           String?
-  city               String?
-  commune            String?
-  phone              String?
-  email              String?
-  sector             String?
-  taxRegime          String?
-  vatStatus          String?
-  signatureName      String?
-  signatureTitle     String?
-  signatureDataUrl   String?                 @db.Text
-  currencyCode       String                  @default("CDF")
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
-  memberships        CompanyMembership[]
-  branches           Branch[]
-  customers          Customer[]
-  suppliers          Supplier[]
-  categories         ProductCategory[]
-  products           Product[]
-  services           Service[]
-  warehouses         Warehouse[]
-  stockMovements     StockMovement[]
-  quotes             Quote[]
-  salesOrders        SalesOrder[]
-  invoices           Invoice[]
-  creditNotes        CreditNote[]
-  payments           Payment[]
-  expenses           Expense[]
-  purchases          Purchase[]
-  currencies         Currency[]
-  exchangeRates      ExchangeRate[]
-  taxSettings        TaxConfiguration[]
-  fiscalDevices      FiscalDevice[]
-  fiscalTransactions FiscalTransaction[]
-  transmissionLogs   FiscalTransmissionLog[]
-  auditLogs          AuditLog[]
-  subscription       Subscription?
-  notifications      Notification[]
+  id                    String                  @id @default(uuid()) @db.Uuid
+  legalName             String
+  tradeName             String?
+  logoUrl               String?
+  rccm                  String?
+  nin                   String?
+  nif                   String?
+  taxId                 String?
+  address               String?
+  province              String?
+  city                  String?
+  commune               String?
+  phone                 String?
+  email                 String?
+  sector                String?
+  taxRegime             String?
+  vatStatus             String?
+  signatureName         String?
+  signatureTitle        String?
+  signatureDataUrl      String?                 @db.Text
+  currencyCode          String                  @default("CDF")
+  exchangeRateCdfPerUsd Decimal?                @db.Decimal(18, 6)
+  invoiceTemplate       Json                    @default("{\"version\":1,\"elements\":[]}")
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  memberships           CompanyMembership[]
+  branches              Branch[]
+  customers             Customer[]
+  suppliers             Supplier[]
+  categories            ProductCategory[]
+  products              Product[]
+  services              Service[]
+  warehouses            Warehouse[]
+  stockMovements        StockMovement[]
+  quotes                Quote[]
+  salesOrders           SalesOrder[]
+  invoices              Invoice[]
+  creditNotes           CreditNote[]
+  payments              Payment[]
+  expenses              Expense[]
+  purchases             Purchase[]
+  currencies            Currency[]
+  exchangeRates         ExchangeRate[]
+  taxSettings           TaxConfiguration[]
+  fiscalDevices         FiscalDevice[]
+  fiscalTransactions    FiscalTransaction[]
+  transmissionLogs      FiscalTransmissionLog[]
+  auditLogs             AuditLog[]
+  subscription          Subscription?
+  notifications         Notification[]
 
   @@index([legalName])
 }
@@ -177,6 +179,7 @@ model Customer {
   rccm      String?
   status    String    @default("À jour")
   balance   Decimal   @default(0) @db.Decimal(18, 2)
+  deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -186,6 +189,7 @@ model Customer {
 
   @@index([companyId, name])
   @@index([companyId, status])
+  @@index([companyId, deletedAt])
 }
 
 model Supplier {
@@ -400,20 +404,21 @@ model CreditNote {
 }
 
 model Payment {
-  id          String              @id @default(uuid()) @db.Uuid
-  companyId   String              @db.Uuid
-  invoiceId   String?             @db.Uuid
-  customerId  String?             @db.Uuid
-  method      PaymentMethod
-  amount      Decimal             @db.Decimal(18, 2)
-  currency    String              @default("CDF")
-  reference   String?
-  status      String              @default("RECEIVED")
-  createdAt   DateTime            @default(now())
-  company     Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  invoice     Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
-  customer    Customer?           @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  allocations PaymentAllocation[]
+  id                     String              @id @default(uuid()) @db.Uuid
+  companyId              String              @db.Uuid
+  invoiceId              String?             @db.Uuid
+  customerId             String?             @db.Uuid
+  method                 PaymentMethod
+  amount                 Decimal             @db.Decimal(18, 2)
+  invoicePaidAmountAfter Decimal?            @db.Decimal(18, 2)
+  currency               String              @default("CDF")
+  reference              String?
+  status                 String              @default("RECEIVED")
+  createdAt              DateTime            @default(now())
+  company                Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoice                Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  customer               Customer?           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  allocations            PaymentAllocation[]
 
   @@index([companyId, createdAt])
   @@index([invoiceId])

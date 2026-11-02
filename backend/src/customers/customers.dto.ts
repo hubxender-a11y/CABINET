@@ -1,4 +1,12 @@
-import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 
 const dossierStatuses = ['À jour', 'À relancer', 'En retard'] as const;
 
@@ -45,7 +53,7 @@ export class CreateCustomerDto {
 }
 
 export class UpdateCustomerDto {
-  @IsOptional()
+  @ValidateIf((_, value) => value !== undefined)
   @IsString()
   @MinLength(2)
   @MaxLength(160)
@@ -54,37 +62,37 @@ export class UpdateCustomerDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  sector?: string;
+  sector?: string | null;
 
   @IsOptional()
   @IsString()
   @MaxLength(160)
-  contact?: string;
+  contact?: string | null;
 
   @IsOptional()
   @IsString()
   @MaxLength(32)
-  phone?: string;
+  phone?: string | null;
 
   @IsOptional()
   @IsEmail()
   @MaxLength(160)
-  email?: string;
+  email?: string | null;
 
   @IsOptional()
   @IsString()
   @MaxLength(300)
-  address?: string;
+  address?: string | null;
 
   @IsOptional()
   @IsString()
   @MaxLength(32)
-  nif?: string;
+  nif?: string | null;
 
   @IsOptional()
   @IsString()
   @MaxLength(32)
-  rccm?: string;
+  rccm?: string | null;
 
   @IsOptional()
   @IsIn(dossierStatuses)

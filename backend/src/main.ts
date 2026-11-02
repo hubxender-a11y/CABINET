@@ -5,6 +5,16 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const frontendOrigins = (
+    process.env.FRONTEND_ORIGIN ?? 'http://localhost:3000'
+  )
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (!process.env.FRONTEND_ORIGIN && process.env.NODE_ENV !== 'production') {
+    frontendOrigins.push('http://127.0.0.1:3000');
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -17,9 +27,9 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
   app.enableCors({
-    origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:3000',
+    origin: frontendOrigins,
     credentials: false,
-    methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 

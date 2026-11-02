@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -50,5 +51,13 @@ export class CustomersController {
     @Body() dto: UpdateCustomerDto,
   ) {
     return this.customers.update(id, dto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({
+    summary: 'Remove a client dossier from the active list without deleting its history',
+  })
+  delete(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.customers.delete(id);
   }
 }

@@ -5,6 +5,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsOptional,
   IsString,
   IsUUID,
   Matches,
@@ -33,6 +34,10 @@ export class CreateInvoiceDto {
   @IsUUID()
   customerId: string;
 
+  @IsOptional()
+  @IsIn(['DRAFT', 'PENDING_FISCALIZATION'])
+  fiscalStatus?: 'DRAFT' | 'PENDING_FISCALIZATION';
+
   @IsString()
   @MaxLength(120)
   period: string;
@@ -47,6 +52,10 @@ export class CreateInvoiceDto {
 
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   issueDate: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  dueDate?: string;
 
   @IsIn(['CDF', 'USD'])
   currency: 'CDF' | 'USD';
