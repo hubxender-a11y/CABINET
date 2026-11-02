@@ -163,7 +163,9 @@ export class CustomersService {
           ...(dto.contact !== undefined
             ? { contact: dto.contact?.trim() || null }
             : {}),
-          ...(dto.phone !== undefined ? { phone: dto.phone?.trim() || null } : {}),
+          ...(dto.phone !== undefined
+            ? { phone: dto.phone?.trim() || null }
+            : {}),
           ...(dto.email !== undefined
             ? { email: dto.email?.trim().toLowerCase() || null }
             : {}),
@@ -171,7 +173,9 @@ export class CustomersService {
             ? { address: dto.address?.trim() || null }
             : {}),
           ...(dto.nif !== undefined ? { nif: dto.nif?.trim() || null } : {}),
-          ...(dto.rccm !== undefined ? { rccm: dto.rccm?.trim() || null } : {}),
+          ...(dto.rccm !== undefined
+            ? { rccm: dto.rccm?.trim() || null }
+            : {}),
           ...(dto.status !== undefined ? { status: dto.status } : {}),
         },
       });
