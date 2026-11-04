@@ -1,10 +1,15 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
+  app.useBodyParser('json', { limit: '7mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '7mb' });
   const frontendOrigins = (
     process.env.FRONTEND_ORIGIN ?? 'http://localhost:3000'
   )
@@ -49,4 +54,7 @@ async function bootstrap() {
   await app.listen(process.env.PORT ?? 3001, host);
 }
 
-bootstrap();
+void bootstrap().catch((error: unknown) => {
+  console.error('Échec du démarrage de l’API.', error);
+  process.exitCode = 1;
+});

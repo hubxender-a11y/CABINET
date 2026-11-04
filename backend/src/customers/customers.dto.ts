@@ -9,8 +9,17 @@ import {
 } from 'class-validator';
 
 const dossierStatuses = ['À jour', 'À relancer', 'En retard'] as const;
+const customerTypes = ['COMPANY', 'INDIVIDUAL'] as const;
 
 export class CreateCustomerDto {
+  @IsOptional()
+  @IsIn(customerTypes)
+  type?: (typeof customerTypes)[number];
+
+  @IsOptional()
+  @IsIn(dossierStatuses)
+  status?: (typeof dossierStatuses)[number];
+
   @IsString()
   @MinLength(2)
   @MaxLength(160)
@@ -53,6 +62,10 @@ export class CreateCustomerDto {
 }
 
 export class UpdateCustomerDto {
+  @IsOptional()
+  @IsIn(customerTypes)
+  type?: (typeof customerTypes)[number];
+
   @ValidateIf((_, value) => value !== undefined)
   @IsString()
   @MinLength(2)

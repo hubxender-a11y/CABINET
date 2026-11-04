@@ -83,6 +83,7 @@ model Company {
   memberships           CompanyMembership[]
   branches              Branch[]
   customers             Customer[]
+  customerDocuments     CustomerDocument[]
   suppliers             Supplier[]
   categories            ProductCategory[]
   products              Product[]
@@ -166,10 +167,10 @@ model Branch {
 }
 
 model Customer {
-  id        String    @id @default(uuid()) @db.Uuid
-  companyId String    @db.Uuid
+  id        String             @id @default(uuid()) @db.Uuid
+  companyId String             @db.Uuid
   name      String
-  type      String    @default("COMPANY")
+  type      String             @default("COMPANY")
   sector    String?
   contact   String?
   phone     String?
@@ -177,19 +178,35 @@ model Customer {
   address   String?
   nif       String?
   rccm      String?
-  status    String    @default("À jour")
-  balance   Decimal   @default(0) @db.Decimal(18, 2)
+  status    String             @default("À jour")
+  balance   Decimal            @default(0) @db.Decimal(18, 2)
   deletedAt DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invoices  Invoice[]
   quotes    Quote[]
   payments  Payment[]
+  documents CustomerDocument[]
 
   @@index([companyId, name])
   @@index([companyId, status])
   @@index([companyId, deletedAt])
+}
+
+model CustomerDocument {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @db.Uuid
+  customerId String   @db.Uuid
+  name       String
+  mimeType   String
+  size       Int
+  data       Bytes
+  createdAt  DateTime @default(now())
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, customerId, createdAt])
 }
 
 model Supplier {
