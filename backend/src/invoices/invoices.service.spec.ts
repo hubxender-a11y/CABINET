@@ -107,6 +107,9 @@ describe('InvoicesService', () => {
         ]),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      paymentAllocation: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       creditNote: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
       invoiceTax: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
       invoiceItem: { deleteMany: jest.fn().mockResolvedValue({ count: 3 }) },
@@ -131,6 +134,9 @@ describe('InvoicesService', () => {
     });
     expect(transaction.payment.deleteMany).toHaveBeenCalledWith({
       where: { companyId, id: { in: ['payment-id'] } },
+    });
+    expect(transaction.paymentAllocation.deleteMany).toHaveBeenCalledWith({
+      where: { invoiceId: targetInvoice.id },
     });
     expect(transaction.invoice.update).toHaveBeenCalledWith({
       where: { id: 'other-invoice' },
@@ -165,6 +171,68 @@ describe('InvoicesService', () => {
     });
   });
 
+  it('removes invoice allocations not covered by company-scoped payments', async () => {
+    const targetInvoice = {
+      id: 'target-invoice',
+      invoiceNumber: '015/2026',
+      issueDate: new Date('2026-10-15T12:00:00.000Z'),
+      customerId: 'customer-id',
+      totalAmount: new Prisma.Decimal(100),
+      paidAmount: new Prisma.Decimal(0),
+      currency: 'CDF',
+      fiscalStatus: 'DRAFT',
+      isCertified: false,
+    };
+    const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      invoice: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce({ issueDate: targetInvoice.issueDate })
+          .mockResolvedValueOnce(targetInvoice),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      payment: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn(),
+      },
+      paymentAllocation: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      creditNote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      invoiceTax: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      invoiceItem: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      fiscalTransaction: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      fiscalTransmissionLog: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      auditLog: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (tx: typeof transaction) => unknown) =>
+        callback(transaction),
+      ),
+    };
+    const service = new InvoicesService(prisma as never);
+
+    await expect(service.delete(targetInvoice.id)).resolves.toEqual({
+      id: targetInvoice.id,
+      deletedPaymentIds: [],
+    });
+
+    expect(transaction.payment.findMany).toHaveBeenCalled();
+    expect(transaction.paymentAllocation.deleteMany).toHaveBeenCalledWith({
+      where: { invoiceId: targetInvoice.id },
+    });
+    expect(transaction.invoice.deleteMany).toHaveBeenCalledWith({
+      where: { id: targetInvoice.id, companyId: getCompanyId() },
+    });
+  });
+
   it('does not delete a certified invoice or any of its records', async () => {
     const certifiedInvoice = {
       id: 'certified-invoice',
@@ -189,6 +257,7 @@ describe('InvoicesService', () => {
         deleteMany: jest.fn(),
       },
       payment: { findMany: jest.fn(), deleteMany: jest.fn() },
+      paymentAllocation: { deleteMany: jest.fn() },
       creditNote: { deleteMany: jest.fn() },
       invoiceTax: { deleteMany: jest.fn() },
       invoiceItem: { deleteMany: jest.fn() },

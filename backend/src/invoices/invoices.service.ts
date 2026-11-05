@@ -151,6 +151,9 @@ export class InvoicesService {
           where: { companyId, id: { in: deletedPaymentIds } },
         });
       }
+      await transaction.paymentAllocation.deleteMany({
+        where: { invoiceId: id },
+      });
       const [creditNotes, taxes, items, fiscalTransactions, transmissionLogs] =
         await Promise.all([
           transaction.creditNote.deleteMany({ where: { invoiceId: id } }),
