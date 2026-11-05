@@ -1,8 +1,31 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Receipt, Settings, Users, Wallet, BarChart3, ShieldCheck, BookOpenCheck, Coins, Package, Truck, Boxes } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Archive,
+  BarChart3,
+  Boxes,
+  Building2,
+  ChevronRight,
+  ChevronDown,
+  FileText,
+  Landmark,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Package,
+  Paintbrush,
+  RefreshCw,
+  Receipt,
+  ShoppingCart,
+  Settings,
+  Users,
+  Wallet,
+  X,
+} from "lucide-react";
 import { AUTH_TOKEN_KEY } from "@/lib/api";
 import {
   companyDisplayName,
@@ -10,125 +33,482 @@ import {
   useCompanyProfile,
 } from "@/components/company-profile";
 
-const navItems = [
-  { href: "/", label: "Vue du cabinet", icon: LayoutDashboard },
-  { href: "/clients", label: "Dossiers clients", icon: Users },
-  { href: "/invoices", label: "Factures d’honoraires", icon: Receipt },
-  { href: "/payments", label: "Trésorerie & règlements", icon: Wallet },
-  { href: "/expenses", label: "Charges du cabinet", icon: Coins },
-  { href: "/reports", label: "États & rapports", icon: BarChart3 },
-  { href: "/fiscal", label: "Fiscalité & échéances", icon: BookOpenCheck },
-  { href: "/products", label: "Produits & fournitures", icon: Package },
-  { href: "/purchases", label: "Fournisseurs & achats", icon: Truck },
-  { href: "/stocks", label: "Stocks & mouvements", icon: Boxes },
-  { href: "/users", label: "Équipe & permissions", icon: ShieldCheck },
-  { href: "/settings", label: "Paramètres du cabinet", icon: Settings },
+const navigationGroups = [
+  {
+    label: "Facturation",
+    icon: Receipt,
+    items: [
+      { href: "/", label: "Tableau de bord", icon: LayoutDashboard },
+      { href: "/clients", label: "Clients du cabinet", icon: Users },
+      { href: "/quotes", label: "Devis", icon: FileText },
+      { href: "/sales", label: "Ventes", icon: ShoppingCart },
+      { href: "/invoices", label: "Factures clients", icon: Receipt },
+      { href: "/payments", label: "Règlements clients", icon: Wallet },
+      { href: "/expenses", label: "Dépenses", icon: Receipt },
+      { href: "/fiscal", label: "Suivi fiscal", icon: Landmark },
+      { href: "/reports", label: "Rapports", icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Stock, matériel & patrimoine",
+    icon: Boxes,
+    items: [
+      { href: "/products", label: "Produits", icon: Package },
+      { href: "/stocks", label: "Stocks", icon: Boxes },
+      { href: "/purchases", label: "Achats", icon: ShoppingCart },
+      { href: "/patrimoine", label: "Patrimoine", icon: Building2 },
+    ],
+  },
+  {
+    label: "Archivage",
+    icon: Archive,
+    items: [{ href: "/documents", label: "Archives", icon: Archive }],
+  },
+  {
+    label: "Configuration",
+    icon: Settings,
+    items: [
+      { href: "/settings", label: "Paramètres du cabinet", icon: Settings },
+      {
+        href: "/settings/invoice-template",
+        label: "Modèle de facture",
+        icon: Paintbrush,
+      },
+      { href: "/users", label: "Utilisateurs & accès", icon: Users },
+    ],
+  },
 ];
+
+const allNavigationItems = navigationGroups.flatMap((group) => group.items);
+
+const primaryNavigation = [
+  {
+    href: "/invoices",
+    label: "Facturation",
+    icon: Receipt,
+    paths: [
+      "/",
+      "/clients",
+      "/quotes",
+      "/sales",
+      "/invoices",
+      "/payments",
+      "/expenses",
+      "/fiscal",
+      "/reports",
+    ],
+  },
+  {
+    href: "/stocks",
+    label: "Stock, matériel & patrimoine",
+    icon: Boxes,
+    paths: ["/products", "/stocks", "/purchases", "/patrimoine"],
+  },
+  {
+    href: "/documents",
+    label: "Archivage",
+    icon: Archive,
+    paths: ["/documents"],
+  },
+];
+
+function isActiveRoute(pathname: string, href: string) {
+  return href === "/"
+    ? pathname === "/"
+    : pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function isActiveModule(pathname: string, paths: string[]) {
+  return paths.some((path) => isActiveRoute(pathname, path));
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { profile } = useCompanyProfile();
+  const [mobileMenuPath, setMobileMenuPath] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
+    {},
+  );
+  const mobileMenuOpen = mobileMenuPath === pathname;
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuCloseButtonRef = useRef<HTMLButtonElement>(null);
   const companyName = companyDisplayName(profile);
   const location = companyLocation(profile);
-  const logout = () => {
+  const activePage =
+    allNavigationItems.find((item) => pathname === item.href) ??
+    allNavigationItems.find((item) => isActiveRoute(pathname, item.href));
+  const activeHref = activePage?.href;
+
+  function toggleNavigationGroup(label: string, expanded: boolean) {
+    setExpandedGroups((current) => ({
+      ...current,
+      [label]: !expanded,
+    }));
+  }
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+
+    const menuTrigger = mobileMenuButtonRef.current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    mobileMenuCloseButtonRef.current?.focus();
+
+    const desktopViewport = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) setMobileMenuPath(null);
+    };
+    desktopViewport.addEventListener("change", closeOnDesktop);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      desktopViewport.removeEventListener("change", closeOnDesktop);
+      menuTrigger?.focus();
+    };
+  }, [mobileMenuOpen]);
+
+  function logout() {
     window.localStorage.removeItem(AUTH_TOKEN_KEY);
     router.replace("/login");
-  };
+  }
+
+  function handleMobileMenuKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      setMobileMenuPath(null);
+      return;
+    }
+
+    if (event.key !== "Tab") return;
+    const dialog = event.currentTarget;
+    const focusableElements = dialog.querySelectorAll<HTMLElement>(
+      "a[href], button:not(:disabled)",
+    );
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement?.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement?.focus();
+    }
+  }
+
+  if (pathname === "/login") {
+    return <div className="app-login">{children}</div>;
+  }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="mx-auto flex max-w-[1600px] flex-col gap-4 p-4 lg:flex-row lg:gap-6 lg:p-6">
-        <header className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-sm print:hidden lg:hidden">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-blue-200">FACTURA</p>
-            <p className="max-w-40 truncate font-semibold">{companyName}</p>
-          </div>
-          <details className="relative">
-            <summary className="cursor-pointer list-none rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium">
-              Menu
-            </summary>
-            <nav className="absolute right-0 z-30 mt-2 max-h-[75vh] w-72 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 text-slate-800 shadow-xl">
-              {navItems.map(({ href, label, icon: Icon }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${
-                    pathname === href
-                      ? "bg-blue-600 text-white"
-                      : "text-slate-700 hover:bg-slate-100"
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{label}</span>
-                </Link>
-              ))}
-            </nav>
-          </details>
-          {pathname !== "/login" && (
-            <button
-              type="button"
-              onClick={logout}
-              className="rounded-lg border border-slate-600 px-3 py-2 text-sm"
-            >
-              Quitter
-            </button>
-          )}
-        </header>
-        <aside className="hidden w-72 shrink-0 rounded-3xl border border-slate-200 bg-slate-950 p-5 text-slate-100 shadow-xl print:hidden lg:block">
-          <div className="mb-7 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 font-semibold">F</div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-blue-200">FACTURA</p>
-              <h1 className="max-w-48 truncate text-lg font-semibold">{companyName}</h1>
-            </div>
-          </div>
-
-          <div className="mb-6 rounded-2xl border border-slate-700 bg-slate-900 px-3 py-3">
-            <span>
-              <span className="block text-[10px] uppercase tracking-[0.15em] text-slate-400">Espace de travail</span>
-              <span className="mt-1 block truncate text-sm font-medium">{companyName}</span>
+    <div className="app-frame">
+      <div className="app-layout">
+        <aside className="app-sidebar print:hidden">
+          <Link href="/settings" className="app-workspace-card">
+            <span className="app-workspace-avatar">
+              {companyName.slice(0, 1).toLocaleUpperCase("fr")}
             </span>
-            <span className="mt-1 block truncate text-xs text-slate-400">{location}</span>
-          </div>
+            <span className="min-w-0 flex-1">
+              <span className="app-workspace-label">Cabinet comptable</span>
+              <span className="app-workspace-name">{companyName}</span>
+              <span className="app-workspace-location">{location}</span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+          </Link>
 
-          <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Gestion comptable</p>
-          <nav className="space-y-2">
-            {navItems.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href;
+          <nav className="app-navigation" aria-label="Navigation principale">
+            <p className="app-navigation-overline">Menu principal</p>
+            {navigationGroups.map((group) => {
+              const groupActive = group.items.some(({ href }) =>
+                isActiveRoute(pathname, href),
+              );
+              const expanded = expandedGroups[group.label] ?? groupActive;
               return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition ${
-                    active
-                      ? "bg-blue-600 text-white shadow-lg shadow-blue-900/30"
-                      : "text-slate-300 hover:bg-slate-800 hover:text-white"
-                  }`}
-                  aria-current={active ? "page" : undefined}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{label}</span>
-                </Link>
+                <div key={group.label} className="app-navigation-group">
+                  <button
+                    type="button"
+                    className={`app-navigation-heading ${groupActive ? "is-active" : ""}`}
+                    aria-expanded={expanded}
+                    onClick={() => toggleNavigationGroup(group.label, expanded)}
+                  >
+                    <group.icon
+                      className="app-navigation-heading-icon"
+                      aria-hidden="true"
+                    />
+                    <span>{group.label}</span>
+                    <ChevronDown
+                      className={`app-navigation-chevron ${expanded ? "is-expanded" : ""}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  {expanded && (
+                    <div className="app-navigation-items space-y-1">
+                      {group.items.map(({ href, label, icon: Icon }) => {
+                        const active = activeHref
+                          ? activeHref === href
+                          : isActiveRoute(pathname, href);
+                        return (
+                          <Link
+                            key={href}
+                            href={href}
+                            className={`app-navigation-link ${active ? "is-active" : ""}`}
+                            aria-current={active ? "page" : undefined}
+                          >
+                            <Icon
+                              className="h-[18px] w-[18px] shrink-0"
+                              strokeWidth={active ? 2.2 : 1.8}
+                            />
+                            <span className="min-w-0 flex-1 truncate">
+                              {label}
+                            </span>
+                            {active && (
+                              <span className="app-navigation-indicator" />
+                            )}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </nav>
+
+          <div className="app-sidebar-footer">
+            <div className="app-currency-chip">
+              <span className="app-live-dot" />
+              Devise principale
+              <strong>{profile?.currencyCode ?? "CDF"}</strong>
+            </div>
+            <button type="button" onClick={logout} className="app-logout-link">
+              <LogOut className="h-4 w-4" />
+              Se déconnecter
+            </button>
+            <p className="app-sidebar-version">Gestion professionnelle · RDC</p>
+          </div>
         </aside>
 
-        <main className="flex-1 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm print:border-0 print:bg-white print:p-0 print:shadow-none lg:p-7">
-          {pathname !== "/login" && (
-            <div className="mb-5 hidden justify-end print:hidden lg:flex">
+        <div className="app-content">
+          <header className="app-topbar print:hidden">
+            <Link
+              href="/"
+              className="app-shell-brand"
+              aria-label="FACTURA RDC, accueil"
+            >
+              <Image
+                src="/branding/ctrs-logo.jpg"
+                alt="Cabinet Transparency"
+                width={369}
+                height={85}
+                priority
+                className="app-brand-logo"
+              />
+            </Link>
+            <div className="app-mobile-brand">
+              <Link href="/" aria-label="FACTURA RDC, accueil">
+                <Image
+                  src="/branding/ctrs-logo.jpg"
+                  alt="Cabinet Transparency"
+                  width={369}
+                  height={85}
+                  priority
+                  className="app-brand-logo"
+                />
+              </Link>
+            </div>
+            <button
+              type="button"
+              ref={mobileMenuButtonRef}
+              onClick={() =>
+                setMobileMenuPath(mobileMenuOpen ? null : pathname)
+              }
+              className="app-mobile-menu-button"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-navigation"
+              aria-label={mobileMenuOpen ? "Fermer le menu" : "Ouvrir le menu"}
+            >
+              {mobileMenuOpen ? (
+                <X className="h-5 w-5" />
+              ) : (
+                <Menu className="h-5 w-5" />
+              )}
+            </button>
+            <nav
+              className="app-primary-navigation"
+              aria-label="Modules principaux"
+            >
+              {primaryNavigation.map(({ href, label, icon: Icon, paths }) => {
+                const active = isActiveModule(pathname, paths);
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={`app-primary-link app-module-link ${active ? "is-active" : ""}`}
+                    aria-current={active ? "true" : undefined}
+                    title={label}
+                  >
+                    <Icon className="app-module-icon" aria-hidden="true" />
+                    <span>{label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="app-topbar-actions">
+              <span className="app-location-pill">
+                {activePage?.label ?? location}
+              </span>
+              <Link
+                href="/settings"
+                className="app-icon-action"
+                aria-label="Paramètres"
+              >
+                <Settings className="h-4 w-4" />
+              </Link>
               <button
                 type="button"
-                onClick={logout}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                onClick={() => router.refresh()}
+                className="app-icon-action"
+                aria-label="Actualiser"
               >
-                Se déconnecter
+                <RefreshCw className="h-4 w-4" />
               </button>
             </div>
+          </header>
+
+          {mobileMenuOpen && (
+            <div className="app-mobile-menu-backdrop print:hidden">
+              <button
+                type="button"
+                className="app-mobile-menu-overlay"
+                aria-label="Fermer le menu"
+                onClick={() => setMobileMenuPath(null)}
+              />
+              <aside
+                className="app-mobile-navigation"
+                id="mobile-navigation"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="mobile-navigation-title"
+                onKeyDown={handleMobileMenuKeyDown}
+              >
+                <div className="app-mobile-navigation-header">
+                  <Image
+                    src="/branding/ctrs-logo.jpg"
+                    alt="Cabinet Transparency"
+                    width={369}
+                    height={85}
+                    className="app-brand-logo"
+                  />
+                  <button
+                    type="button"
+                    ref={mobileMenuCloseButtonRef}
+                    onClick={() => setMobileMenuPath(null)}
+                    className="app-mobile-menu-close"
+                    aria-label="Fermer le menu"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="app-mobile-navigation-profile">
+                  <span className="app-workspace-avatar">
+                    {companyName.slice(0, 1).toLocaleUpperCase("fr")}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="app-workspace-label">
+                      Cabinet comptable
+                    </span>
+                    <span className="app-workspace-name">{companyName}</span>
+                    <span className="app-workspace-location">{location}</span>
+                  </span>
+                  <span className="app-mobile-currency">
+                    {profile?.currencyCode ?? "CDF"}
+                  </span>
+                </div>
+                <h2
+                  className="app-mobile-navigation-title"
+                  id="mobile-navigation-title"
+                >
+                  Navigation
+                </h2>
+                <nav
+                  className="app-mobile-navigation-content"
+                  aria-label="Navigation principale"
+                >
+                  {navigationGroups.map((group) => {
+                    const groupActive = group.items.some(({ href }) =>
+                      isActiveRoute(pathname, href),
+                    );
+                    const expanded = expandedGroups[group.label] ?? groupActive;
+                    return (
+                      <section
+                        key={group.label}
+                        className="app-mobile-navigation-group"
+                      >
+                        <button
+                          type="button"
+                          className={`app-navigation-heading ${groupActive ? "is-active" : ""}`}
+                          aria-expanded={expanded}
+                          onClick={() =>
+                            toggleNavigationGroup(group.label, expanded)
+                          }
+                        >
+                          <group.icon
+                            className="app-navigation-heading-icon"
+                            aria-hidden="true"
+                          />
+                          <span>{group.label}</span>
+                          <ChevronDown
+                            className={`app-navigation-chevron ${expanded ? "is-expanded" : ""}`}
+                            aria-hidden="true"
+                          />
+                        </button>
+                        {expanded &&
+                          group.items.map(({ href, label, icon: Icon }) => {
+                            const active = isActiveRoute(pathname, href);
+                            return (
+                              <Link
+                                key={href}
+                                href={href}
+                                onClick={() => setMobileMenuPath(null)}
+                                className={`app-navigation-link ${active ? "is-active" : ""}`}
+                                aria-current={active ? "page" : undefined}
+                              >
+                                <Icon className="h-[18px] w-[18px]" />
+                                <span className="flex-1">{label}</span>
+                                <ChevronRight className="h-4 w-4 app-mobile-link-chevron" />
+                              </Link>
+                            );
+                          })}
+                      </section>
+                    );
+                  })}
+                </nav>
+                <div className="app-mobile-navigation-footer">
+                  <button
+                    type="button"
+                    onClick={logout}
+                    className="app-logout-link"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Se déconnecter
+                  </button>
+                  <p className="app-sidebar-version">
+                    FACTURA RDC · Gestion du cabinet
+                  </p>
+                </div>
+              </aside>
+            </div>
           )}
-          {children}
-        </main>
+
+          <main className="app-main">
+            <div className="app-page-content">{children}</div>
+            <footer className="app-page-footer print:hidden">
+              <span>{companyName}</span>
+              <span>·</span>
+              <span>{location}</span>
+              <span className="ml-auto">FACTURA RDC · Gestion du cabinet</span>
+            </footer>
+          </main>
+        </div>
       </div>
     </div>
   );

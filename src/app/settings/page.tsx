@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
+import Image from "next/image";
 import { Building2, MapPin, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import {
   companyDisplayName,
@@ -9,6 +17,8 @@ import {
   type CompanyProfile,
   type CompanyProfileChanges,
 } from "@/components/company-profile";
+import { useNotifications } from "@/components/notification-provider";
+import { normalizeInvoiceTemplate } from "@/lib/invoice-template";
 
 const identityFields = [
   ["legalName", "Raison sociale", true],
@@ -37,7 +47,7 @@ const contactFields = [
   ["email", "E-mail du cabinet"],
 ] as const;
 
-type FieldKey = keyof CompanyProfileChanges;
+type FieldKey = Exclude<keyof CompanyProfileChanges, "invoiceTemplate">;
 
 function toChanges(profile: CompanyProfile): CompanyProfileChanges {
   return {
@@ -56,11 +66,63 @@ function toChanges(profile: CompanyProfile): CompanyProfileChanges {
     sector: profile.sector,
     taxRegime: profile.taxRegime,
     vatStatus: profile.vatStatus,
+    signatureName: profile.signatureName,
+    signatureTitle: profile.signatureTitle,
+    signatureDataUrl: profile.signatureDataUrl,
     currencyCode: profile.currencyCode,
+    exchangeRateCdfPerUsd: profile.exchangeRateCdfPerUsd,
+    invoiceTemplate: normalizeInvoiceTemplate(profile.invoiceTemplate),
   };
 }
 
+const maxSignatureDataUrlLength = 70_000;
+
+function optimizeSignatureImage(file: File) {
+  if (!file.type.startsWith("image/")) {
+    return Promise.reject(new Error("Sélectionnez un fichier image pour la signature."));
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    return Promise.reject(new Error("L’image de signature ne peut pas dépasser 5 Mo."));
+  }
+
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Impossible de lire l’image de signature."));
+    reader.onload = () => {
+      const image = new window.Image();
+      image.onerror = () => reject(new Error("Le fichier sélectionné ne peut pas être décodé comme une image."));
+      image.onload = () => {
+        const scale = Math.min(1, 900 / image.width, 360 / image.height);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("Impossible de préparer l’image de signature."));
+          return;
+        }
+
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+        for (const quality of [0.86, 0.76, 0.66, 0.56, 0.46, 0.36]) {
+          const dataUrl = canvas.toDataURL("image/jpeg", quality);
+          if (dataUrl.length <= maxSignatureDataUrlLength) {
+            resolve(dataUrl);
+            return;
+          }
+        }
+        reject(new Error("Cette image est trop détaillée. Choisissez une signature plus simple."));
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function SettingsPage() {
+  const { notify } = useNotifications();
   const {
     profile,
     loading,
@@ -118,14 +180,45 @@ export default function SettingsPage() {
       setMessage(
         "Paramètres enregistrés. Le menu, le tableau de bord et les prochains documents utilisent maintenant ces informations.",
       );
+      notify({
+        type: "success",
+        title: "Paramètres enregistrés",
+        message: "Les informations du cabinet et la signature ont été confirmées en base.",
+      });
     } catch (caught) {
-      setError(
+      const reason =
         caught instanceof Error
           ? caught.message
-          : "Impossible d’enregistrer les paramètres.",
-      );
+          : "Impossible d’enregistrer les paramètres.";
+      setError(reason);
+      notify({ type: "error", title: "Paramètres non enregistrés", message: reason });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSignatureImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError("");
+    setMessage("");
+    try {
+      const signatureDataUrl = await optimizeSignatureImage(file);
+      updateField("signatureDataUrl", signatureDataUrl);
+      notify({
+        type: "info",
+        title: "Signature prête",
+        message: "Pensez à enregistrer les modifications pour la sauvegarder dans le cabinet.",
+      });
+    } catch (caught) {
+      const reason =
+        caught instanceof Error
+          ? caught.message
+          : "Impossible de préparer l’image de signature.";
+      setError(reason);
+      notify({ type: "error", title: "Image de signature refusée", message: reason });
+    } finally {
+      event.target.value = "";
     }
   }
 
@@ -217,6 +310,84 @@ export default function SettingsPage() {
             <div className="mb-5 flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><ShieldCheck className="h-5 w-5" /></span>
               <div>
+                <h2 className="font-semibold text-slate-900">Signature des factures</h2>
+                <p className="text-sm text-slate-500">Configurez le signataire et son image. Le bloc de signature apparaît sur la facture et à l’impression.</p>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-2 text-sm font-medium text-slate-700">
+                Nom du signataire
+                <input
+                  type="text"
+                  maxLength={120}
+                  value={draft.signatureName ?? ""}
+                  onChange={(event) => updateField("signatureName", event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  placeholder="Nom et prénom"
+                />
+              </label>
+              <label className="space-y-2 text-sm font-medium text-slate-700">
+                Fonction
+                <input
+                  type="text"
+                  maxLength={120}
+                  value={draft.signatureTitle ?? ""}
+                  onChange={(event) => updateField("signatureTitle", event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  placeholder="Ex. Gérant, Associé"
+                />
+              </label>
+              <label className="space-y-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                Image de signature
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => void handleSignatureImage(event)}
+                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:font-medium file:text-blue-700"
+                />
+                <span className="block text-xs font-normal leading-5 text-slate-500">
+                  Formats image courants acceptés, maximum 5 Mo. L’image est optimisée pour la facture et enregistrée avec les paramètres du cabinet.
+                </span>
+              </label>
+              {draft.signatureDataUrl && (
+                <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
+                  <Image
+                    src={draft.signatureDataUrl}
+                    alt="Aperçu de la signature"
+                    width={220}
+                    height={90}
+                    unoptimized
+                    className="h-[90px] w-[220px] object-contain"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => updateField("signatureDataUrl", null)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    Retirer l’image
+                  </button>
+                </div>
+              )}
+              {(draft.signatureName || draft.signatureTitle || draft.signatureDataUrl) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateField("signatureName", null);
+                    updateField("signatureTitle", null);
+                    updateField("signatureDataUrl", null);
+                  }}
+                  className="justify-self-start text-sm font-medium text-rose-700 hover:text-rose-800 sm:col-span-2"
+                >
+                  Désactiver la signature sur les factures
+                </button>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><ShieldCheck className="h-5 w-5" /></span>
+              <div>
                 <h2 className="font-semibold text-slate-900">Paramètres comptables</h2>
                 <p className="text-sm text-slate-500">La devise principale est proposée par défaut aux prochaines saisies.</p>
               </div>
@@ -234,6 +405,42 @@ export default function SettingsPage() {
               <span className="block text-xs font-normal leading-5 text-slate-500">
                 Ce choix ne convertit ni ne modifie les factures, paiements ou charges déjà enregistrés. Le tableau de bord garde les montants séparés par devise.
               </span>
+            </label>
+            <label className="mt-5 block max-w-md space-y-2 text-sm font-medium text-slate-700">
+              Taux de change manuel
+              <span className="flex items-center gap-3">
+                <span className="shrink-0 text-slate-600">1 USD =</span>
+                <input
+                  type="number"
+                  min="0.000001"
+                  max="999999999999"
+                  step="0.000001"
+                  inputMode="decimal"
+                  value={draft.exchangeRateCdfPerUsd ?? ""}
+                  onChange={(event) =>
+                    updateField(
+                      "exchangeRateCdfPerUsd",
+                      event.target.value || null,
+                    )
+                  }
+                  placeholder="Ex. 2800"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+                <span className="shrink-0 text-slate-600">CDF</span>
+              </span>
+              <span className="block text-xs font-normal leading-5 text-slate-500">
+                Saisissez le taux appliqué par votre banque ou votre politique comptable; il n’est pas récupéré automatiquement. Les modifications sont historisées. Le taux de chaque facture sera figé à sa création pour afficher un équivalent indicatif sans modifier son montant comptable.
+              </span>
+              {profile?.exchangeRateAppliedAt && (
+                <span className="block text-xs font-normal text-slate-500">
+                  Dernière mise à jour :{" "}
+                  {new Intl.DateTimeFormat("fr-CD", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                    timeZone: "Africa/Kinshasa",
+                  }).format(new Date(profile.exchangeRateAppliedAt))}
+                </span>
+              )}
             </label>
           </section>
 

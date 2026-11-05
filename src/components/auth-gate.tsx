@@ -7,10 +7,11 @@ import { AUTH_TOKEN_KEY } from "@/lib/api";
 export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(!process.env.NEXT_PUBLIC_API_URL);
 
   useEffect(() => {
-    const handleExpiredSession = () => router.replace("/login");
+    const handleExpiredSession = () =>
+      router.replace("/login?reason=session-expired");
     window.addEventListener("factura-auth-expired", handleExpiredSession);
     const timer = window.setTimeout(() => {
       if (!process.env.NEXT_PUBLIC_API_URL) {

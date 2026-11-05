@@ -7,14 +7,29 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, apiRequestBlob, AUTH_TOKEN_KEY } from "@/lib/api";
 
 export type ClientDossier = {
   id: string;
+  type: "COMPANY" | "INDIVIDUAL";
   name: string;
   sector: string;
   contact: string;
   status: "À jour" | "À relancer" | "En retard";
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  nif?: string | null;
+  rccm?: string | null;
+  createdAt?: string;
+};
+
+export type ClientDossierDocument = {
+  id: string;
+  name: string;
+  mimeType: "application/pdf" | "image/jpeg" | "image/png";
+  size: number;
+  createdAt: string;
 };
 
 export type WorkspaceInvoice = {
@@ -25,8 +40,10 @@ export type WorkspaceInvoice = {
   amount: number;
   paidAmount?: number;
   currency: "CDF" | "USD";
+  exchangeRate?: string | null;
   status: "Certifiée" | "En attente" | "Rejetée" | "Payée" | "Brouillon";
   date: string;
+  dueDate?: string | null;
   period?: string;
   concern?: string;
   madeAt?: string;
@@ -45,8 +62,17 @@ export type WorkspacePayment = {
   customer: string;
   amount: string;
   currency: "CDF" | "USD";
-  method: "CASH_USD" | "CASH_CDF" | "BANK_TRANSFER" | "CARD" | "MOBILE_MONEY" | "OTHER";
+  method:
+    | "CASH_USD"
+    | "CASH_CDF"
+    | "BANK_TRANSFER"
+    | "CARD"
+    | "MOBILE_MONEY"
+    | "OTHER";
   reference?: string | null;
+  status?: string;
+  invoiceTotal?: number;
+  invoicePaidAmountAfter?: number | null;
   createdAt: string;
 };
 
@@ -56,33 +82,33 @@ type PaymentApiRecord = {
   currency: "CDF" | "USD";
   method: WorkspacePayment["method"];
   reference: string | null;
+  status: string;
+  invoicePaidAmountAfter: string | null;
   createdAt: string;
-  invoice: { id: string; invoiceNumber: string; currency: "CDF" | "USD" } | null;
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    currency: "CDF" | "USD";
+    totalAmount: string;
+  } | null;
   customer: { name: string } | null;
 };
 
 const hasConfiguredApi = Boolean(process.env.NEXT_PUBLIC_API_URL);
 
-const initialClients: ClientDossier[] = [
-  { id: "makala", name: "Makala Market", sector: "Commerce", contact: "Direction financière", status: "À jour" },
-  { id: "boreal", name: "Boreal Pharma", sector: "Pharmacie", contact: "Comptabilité", status: "À relancer" },
-  { id: "kivu", name: "Kivu Foods", sector: "Agroalimentaire", contact: "Gérance", status: "En retard" },
-  { id: "sierra", name: "Sierra Logistics", sector: "Transport", contact: "Finance", status: "À jour" },
-];
-
-const initialInvoices: WorkspaceInvoice[] = [
-  { id: "FAC-2026-1048", clientId: "makala", client: "Makala Market", amount: 1240000, currency: "CDF", status: "En attente", date: "2026-10-30" },
-  { id: "FAC-2026-1047", clientId: "boreal", client: "Boreal Pharma", amount: 840000, currency: "CDF", status: "En attente", date: "2026-10-30" },
-  { id: "FAC-2026-1046", clientId: "sierra", client: "Sierra Logistics", amount: 2150000, currency: "CDF", status: "Payée", date: "2026-10-29" },
-  { id: "FAC-2026-1045", clientId: "kivu", client: "Kivu Foods", amount: 620000, currency: "CDF", status: "Rejetée", date: "2026-10-28" },
-];
-
 type CustomerApiRecord = {
   id: string;
+  type: ClientDossier["type"];
   name: string;
   sector: string | null;
   contact: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  nif: string | null;
+  rccm: string | null;
   status: ClientDossier["status"];
+  createdAt: string;
 };
 
 type InvoiceApiRecord = {
@@ -93,7 +119,9 @@ type InvoiceApiRecord = {
   paidAmount: string;
   currency: "CDF" | "USD";
   fiscalStatus: string;
+  exchangeRate?: string | null;
   issueDate: string;
+  dueDate?: string | null;
   period?: string;
   concern?: string;
   madeAt?: string;
@@ -105,35 +133,70 @@ type InvoiceApiRecord = {
   }[];
 };
 
+type StatementPaymentApiRecord = {
+  id: string;
+  amount: string;
+  currency: "CDF" | "USD";
+  method: WorkspacePayment["method"];
+  reference: string | null;
+  status: string;
+  invoicePaidAmountAfter: string | null;
+  createdAt: string;
+};
+
+type CustomerStatementApiRecord = {
+  customer: CustomerApiRecord;
+  invoices: Array<
+    Omit<InvoiceApiRecord, "customer"> & {
+      payments: StatementPaymentApiRecord[];
+    }
+  >;
+  payments: PaymentApiRecord[];
+};
+
+export type WorkspaceClientStatement = {
+  client: ClientDossier;
+  invoices: Array<WorkspaceInvoice & { payments: WorkspacePayment[] }>;
+  payments: WorkspacePayment[];
+};
+
 type WorkspaceStore = {
   clients: ClientDossier[];
   invoices: WorkspaceInvoice[];
   databaseConnected: boolean;
   databaseError: string;
-  addClient: (client: Omit<ClientDossier, "id">) => Promise<void>;
+  clientsAvailable: boolean;
+  clientsError: string;
+  getClientDocuments: (clientId: string) => Promise<ClientDossierDocument[]>;
+  addClientDocument: (
+    clientId: string,
+    file: File,
+  ) => Promise<ClientDossierDocument>;
+  deleteClientDocument: (clientId: string, documentId: string) => Promise<void>;
+  getClientDocumentContent: (
+    clientId: string,
+    documentId: string,
+    download?: boolean,
+  ) => Promise<Blob>;
+  getClientStatement: (clientId: string) => Promise<WorkspaceClientStatement>;
+  addClient: (client: Omit<ClientDossier, "id" | "createdAt">) => Promise<void>;
+  updateClient: (
+    clientId: string,
+    changes: Partial<Omit<ClientDossier, "id" | "createdAt">>,
+  ) => Promise<void>;
+  deleteClient: (clientId: string) => Promise<void>;
   addInvoice: (invoice: WorkspaceInvoice) => Promise<WorkspaceInvoice>;
+  deleteInvoice: (invoice: WorkspaceInvoice) => Promise<void>;
   payments: WorkspacePayment[];
   addPayment: (payment: {
     invoice: WorkspaceInvoice;
     amount: string;
     method: WorkspacePayment["method"];
     reference?: string;
-  }) => Promise<void>;
+  }) => Promise<WorkspacePayment>;
 };
 
 const WorkspaceContext = createContext<WorkspaceStore | null>(null);
-
-function readStored<T>(key: string, fallback: T): T {
-  const raw = window.localStorage.getItem(key);
-  if (!raw) return fallback;
-
-  try {
-    return JSON.parse(raw) as T;
-  } catch (error) {
-    console.error(`Impossible de lire les données locales "${key}".`, error);
-    return fallback;
-  }
-}
 
 function mapInvoice(record: InvoiceApiRecord): WorkspaceInvoice {
   const paid =
@@ -143,7 +206,8 @@ function mapInvoice(record: InvoiceApiRecord): WorkspaceInvoice {
     ? "Payée"
     : record.fiscalStatus === "CERTIFIED"
       ? "Certifiée"
-      : record.fiscalStatus === "REJECTED" || record.fiscalStatus === "CANCELLED"
+      : record.fiscalStatus === "REJECTED" ||
+          record.fiscalStatus === "CANCELLED"
         ? "Rejetée"
         : record.fiscalStatus === "PENDING_FISCALIZATION"
           ? "En attente"
@@ -157,8 +221,10 @@ function mapInvoice(record: InvoiceApiRecord): WorkspaceInvoice {
     amount: Number(record.totalAmount),
     paidAmount: Number(record.paidAmount),
     currency: record.currency,
+    exchangeRate: record.exchangeRate ?? null,
     status,
     date: record.issueDate.slice(0, 10),
+    dueDate: record.dueDate,
     period: record.period,
     concern: record.concern,
     madeAt: record.madeAt,
@@ -171,73 +237,118 @@ function mapInvoice(record: InvoiceApiRecord): WorkspaceInvoice {
   };
 }
 
+function mapPayment(record: PaymentApiRecord): WorkspacePayment {
+  return {
+    id: record.id,
+    invoiceId: record.invoice?.id ?? "",
+    invoiceNumber: record.invoice?.invoiceNumber ?? "Paiement non affecté",
+    customer: record.customer?.name ?? "Client non renseigné",
+    amount: record.amount,
+    currency: record.currency,
+    method: record.method,
+    reference: record.reference,
+    status: record.status,
+    invoiceTotal: record.invoice?.totalAmount
+      ? Number(record.invoice.totalAmount)
+      : undefined,
+    invoicePaidAmountAfter: record.invoicePaidAmountAfter
+      ? Number(record.invoicePaidAmountAfter)
+      : null,
+    createdAt: record.createdAt,
+  };
+}
+
+function mapCustomer(record: CustomerApiRecord): ClientDossier {
+  return {
+    id: record.id,
+    type: record.type,
+    name: record.name,
+    sector: record.sector ?? "À préciser",
+    contact: record.contact ?? "Contact à renseigner",
+    status: record.status,
+    phone: record.phone,
+    email: record.email,
+    address: record.address,
+    nif: record.nif,
+    rccm: record.rccm,
+    createdAt: record.createdAt,
+  };
+}
+
 export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
-  const [clients, setClients] = useState<ClientDossier[]>(hasConfiguredApi ? [] : initialClients);
-  const [invoices, setInvoices] = useState<WorkspaceInvoice[]>(hasConfiguredApi ? [] : initialInvoices);
+  const [clients, setClients] = useState<ClientDossier[]>([]);
+  const [invoices, setInvoices] = useState<WorkspaceInvoice[]>([]);
   const [payments, setPayments] = useState<WorkspacePayment[]>([]);
   const [databaseConnected, setDatabaseConnected] = useState(false);
   const [databaseError, setDatabaseError] = useState("");
-  const [hydrated, setHydrated] = useState(false);
+  const [clientsAvailable, setClientsAvailable] = useState(false);
+  const [clientsError, setClientsError] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (!hasConfiguredApi) {
-        setClients(readStored("factura-clients", initialClients));
-        setInvoices(readStored("factura-invoices", initialInvoices));
-        setPayments(readStored("factura-payments", []));
+        setDatabaseError(
+          "API du cabinet non configurée. Aucune donnée métier ne sera enregistrée.",
+        );
+        return;
       }
-      setHydrated(true);
+      if (!window.localStorage.getItem(AUTH_TOKEN_KEY)) return;
 
-      void Promise.all([
+      void Promise.allSettled([
         apiRequest<CustomerApiRecord[]>("/customers"),
         apiRequest<InvoiceApiRecord[]>("/invoices"),
         apiRequest<PaymentApiRecord[]>("/payments"),
-      ])
-        .then(([customerRows, invoiceRows, paymentRows]) => {
-          setClients(
-            customerRows.map((customer) => ({
-              id: customer.id,
-              name: customer.name,
-              sector: customer.sector ?? "À préciser",
-              contact: customer.contact ?? "Contact à renseigner",
-              status: customer.status,
-            })),
+      ]).then(([customerResult, invoiceResult, paymentResult]) => {
+        if (customerResult.status === "fulfilled") {
+          setClients(customerResult.value.map(mapCustomer));
+          setClientsAvailable(true);
+          setClientsError("");
+        } else {
+          console.error(
+            "Chargement des dossiers clients impossible.",
+            customerResult.reason,
           );
-          setInvoices(invoiceRows.map(mapInvoice));
-          setPayments(paymentRows.map((payment) => ({
-            id: payment.id,
-            invoiceId: payment.invoice?.id ?? "",
-            invoiceNumber: payment.invoice?.invoiceNumber ?? "Paiement non affecté",
-            customer: payment.customer?.name ?? "Client non renseigné",
-            amount: payment.amount,
-            currency: payment.currency,
-            method: payment.method,
-            reference: payment.reference,
-            createdAt: payment.createdAt,
-          })));
-          setDatabaseConnected(true);
-          setDatabaseError("");
-        })
-        .catch((error: unknown) => {
-          console.error("Chargement de la base cabinet impossible.", error);
-          setDatabaseConnected(false);
-          setDatabaseError(
-            hasConfiguredApi
-              ? "API ou PostgreSQL indisponible. Aucune donnée locale de démonstration n’est affichée."
-              : "API ou PostgreSQL indisponible : affichage des données locales de démonstration. Configurez et démarrez le backend pour utiliser la base du cabinet.",
+          setClientsAvailable(false);
+          setClientsError(
+            customerResult.reason instanceof Error
+              ? customerResult.reason.message
+              : "Impossible de charger les dossiers clients.",
           );
-        });
+        }
+
+        if (invoiceResult.status === "fulfilled") {
+          setInvoices(invoiceResult.value.map(mapInvoice));
+        } else {
+          console.error(
+            "Chargement des factures impossible.",
+            invoiceResult.reason,
+          );
+        }
+
+        if (paymentResult.status === "fulfilled") {
+          setPayments(paymentResult.value.map(mapPayment));
+        } else {
+          console.error(
+            "Chargement des paiements impossible.",
+            paymentResult.reason,
+          );
+        }
+
+        const allRequestsSucceeded =
+          customerResult.status === "fulfilled" &&
+          invoiceResult.status === "fulfilled" &&
+          paymentResult.status === "fulfilled";
+        setDatabaseConnected(allRequestsSucceeded);
+        setDatabaseError(
+          allRequestsSucceeded
+            ? ""
+            : "Certains services API sont indisponibles. Consultez les données chargées et réessayez les actions concernées.",
+        );
+      });
     }, 0);
 
     return () => window.clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    window.localStorage.setItem("factura-clients", JSON.stringify(clients));
-    window.localStorage.setItem("factura-invoices", JSON.stringify(invoices));
-    window.localStorage.setItem("factura-payments", JSON.stringify(payments));
-  }, [clients, hydrated, invoices, payments]);
 
   const value: WorkspaceStore = {
     clients,
@@ -245,122 +356,267 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
     payments,
     databaseConnected,
     databaseError,
-    addClient: async (client) => {
-      let nextClient: ClientDossier;
-      if (databaseConnected) {
-        const created = await apiRequest<CustomerApiRecord>("/customers", {
-          method: "POST",
-          body: JSON.stringify(client),
-        });
-        nextClient = {
-          id: created.id,
-          name: created.name,
-          sector: created.sector ?? "À préciser",
-          contact: created.contact ?? "Contact à renseigner",
-          status: created.status,
-        };
-      } else {
-        if (hasConfiguredApi) {
-          throw new Error("Le serveur du cabinet est indisponible. Réessayez plus tard.");
-        }
-        nextClient = { ...client, id: crypto.randomUUID() };
+    clientsAvailable,
+    clientsError,
+    getClientDocuments: async (clientId) =>
+      apiRequest<ClientDossierDocument[]>(`/customers/${clientId}/documents`),
+    addClientDocument: async (clientId, file) => {
+      if (!clientsAvailable) {
+        throw new Error(
+          "Le service client est indisponible. Réessayez plus tard.",
+        );
       }
-      setClients((current) => [nextClient, ...current]);
-    },
-    addInvoice: async (invoice) => {
-      let nextInvoice = invoice;
-      if (databaseConnected) {
-        const created = await apiRequest<InvoiceApiRecord>("/invoices", {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () =>
+          reject(new Error("Impossible de lire ce document."));
+        reader.onload = () => {
+          if (typeof reader.result !== "string") {
+            reject(new Error("Le document sélectionné est invalide."));
+            return;
+          }
+          resolve(reader.result);
+        };
+        reader.readAsDataURL(file);
+      });
+      const [, data] = dataUrl.split(",", 2);
+      if (!data) throw new Error("Le document sélectionné est invalide.");
+      return apiRequest<ClientDossierDocument>(
+        `/customers/${clientId}/documents`,
+        {
           method: "POST",
           body: JSON.stringify({
-            customerId: invoice.clientId,
-            period: invoice.period,
-            concern: invoice.concern,
-            madeAt: invoice.madeAt ?? "Kinshasa",
-            issueDate: invoice.date,
-            currency: invoice.currency,
-            items: invoice.items?.map((item) => ({
-              rubric: item.rubric,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice.toFixed(2),
-            })),
+            name: file.name,
+            mimeType: file.type,
+            data,
           }),
-        });
-        nextInvoice = mapInvoice(created);
-      } else if (hasConfiguredApi) {
-        throw new Error("Le serveur du cabinet est indisponible. Réessayez plus tard.");
+        },
+      );
+    },
+    deleteClientDocument: async (clientId, documentId) => {
+      await apiRequest<{ id: string }>(
+        `/customers/${clientId}/documents/${documentId}`,
+        { method: "DELETE" },
+      );
+    },
+    getClientDocumentContent: (clientId, documentId, download = false) =>
+      apiRequestBlob(
+        `/customers/${clientId}/documents/${documentId}/content`,
+        download,
+      ),
+    getClientStatement: async (clientId) => {
+      const record = await apiRequest<CustomerStatementApiRecord>(
+        `/customers/${clientId}/statement`,
+      );
+      const client = mapCustomer(record.customer);
+      return {
+        client,
+        invoices: record.invoices.map((invoice) => ({
+          ...mapInvoice({
+            ...invoice,
+            customer: { id: client.id, name: client.name },
+          }),
+          payments: invoice.payments.map((payment) => ({
+            ...payment,
+            invoiceId: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            customer: client.name,
+            invoicePaidAmountAfter:
+              payment.invoicePaidAmountAfter === null
+                ? null
+                : Number(payment.invoicePaidAmountAfter),
+          })),
+        })),
+        payments: record.payments.map(mapPayment),
+      };
+    },
+    addClient: async (client) => {
+      if (!hasConfiguredApi) {
+        throw new Error(
+          "API du cabinet non configurée. Le client n’a pas été enregistré.",
+        );
       }
+      if (!clientsAvailable) {
+        throw new Error(
+          "Le serveur du cabinet est indisponible. Réessayez plus tard.",
+        );
+      }
+      const created = await apiRequest<CustomerApiRecord>("/customers", {
+        method: "POST",
+        body: JSON.stringify({
+          type: client.type,
+          status: client.status,
+          name: client.name,
+          sector: client.sector,
+          contact: client.contact,
+          phone: client.phone ?? undefined,
+          email: client.email ?? undefined,
+          address: client.address ?? undefined,
+          nif: client.nif ?? undefined,
+          rccm: client.rccm ?? undefined,
+        }),
+      });
+      const nextClient = mapCustomer(created);
+      setClients((current) => [nextClient, ...current]);
+    },
+    updateClient: async (clientId, changes) => {
+      if (!hasConfiguredApi) {
+        throw new Error(
+          "API du cabinet non configurée. Le client n’a pas été modifié.",
+        );
+      }
+      if (!clientsAvailable) {
+        throw new Error(
+          "Le serveur du cabinet est indisponible. Réessayez plus tard.",
+        );
+      }
+      const updated = await apiRequest<CustomerApiRecord>(
+        `/customers/${clientId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(changes),
+        },
+      );
+      const nextClient = mapCustomer(updated);
+      setClients((current) =>
+        current.map((client) => (client.id === clientId ? nextClient : client)),
+      );
+    },
+    deleteClient: async (clientId) => {
+      if (!hasConfiguredApi) {
+        throw new Error(
+          "API du cabinet non configurée. Le client n’a pas été supprimé.",
+        );
+      }
+      if (!clientsAvailable) {
+        throw new Error(
+          "Le serveur du cabinet est indisponible. Réessayez plus tard.",
+        );
+      }
+      await apiRequest<{ id: string; deletedAt: string }>(
+        `/customers/${clientId}`,
+        { method: "DELETE" },
+      );
+      setClients((current) =>
+        current.filter((client) => client.id !== clientId),
+      );
+    },
+    addInvoice: async (invoice) => {
+      if (!hasConfiguredApi) {
+        throw new Error(
+          "API du cabinet non configurée. La facture n’a pas été enregistrée.",
+        );
+      }
+      if (!databaseConnected) {
+        throw new Error(
+          "Le serveur du cabinet est indisponible. Réessayez plus tard.",
+        );
+      }
+      const created = await apiRequest<InvoiceApiRecord>("/invoices", {
+        method: "POST",
+        body: JSON.stringify({
+          customerId: invoice.clientId,
+          period: invoice.period,
+          concern: invoice.concern,
+          madeAt: invoice.madeAt ?? "Kinshasa",
+          issueDate: invoice.date,
+          dueDate: invoice.dueDate || undefined,
+          fiscalStatus:
+            invoice.status === "En attente" ? "PENDING_FISCALIZATION" : "DRAFT",
+          currency: invoice.currency,
+          items: invoice.items?.map((item) => ({
+            rubric: item.rubric,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice.toFixed(2),
+          })),
+        }),
+      });
+      const nextInvoice = mapInvoice(created);
       setInvoices((current) => [nextInvoice, ...current]);
       return nextInvoice;
     },
-    addPayment: async ({ invoice, amount, method, reference }) => {
-      if (databaseConnected) {
-        if (!invoice.databaseId) {
-          throw new Error("Cette facture n’a pas d’identifiant PostgreSQL.");
-        }
-        await apiRequest<PaymentApiRecord>("/payments", {
-          method: "POST",
-          body: JSON.stringify({
-            invoiceId: invoice.databaseId,
-            amount,
-            method,
-            reference,
-          }),
-        });
-        const [invoiceRows, paymentRows] = await Promise.all([
-          apiRequest<InvoiceApiRecord[]>("/invoices"),
-          apiRequest<PaymentApiRecord[]>("/payments"),
-        ]);
-        setInvoices(invoiceRows.map(mapInvoice));
-        setPayments(paymentRows.map((payment) => ({
-          id: payment.id,
-          invoiceId: payment.invoice?.id ?? "",
-          invoiceNumber: payment.invoice?.invoiceNumber ?? "Paiement non affecté",
-          customer: payment.customer?.name ?? "Client non renseigné",
-          amount: payment.amount,
-          currency: payment.currency,
-          method: payment.method,
-          reference: payment.reference,
-          createdAt: payment.createdAt,
-        })));
-        return;
+    deleteInvoice: async (invoice) => {
+      if (!hasConfiguredApi) {
+        throw new Error(
+          "API du cabinet non configurée. La facture n’a pas été supprimée.",
+        );
+      }
+      if (!databaseConnected) {
+        throw new Error(
+          "Le serveur du cabinet est indisponible. Réessayez plus tard.",
+        );
+      }
+      if (!invoice.databaseId) {
+        throw new Error(
+          "Cette facture n’a pas d’identifiant serveur et ne peut pas être supprimée.",
+        );
       }
 
-      if (hasConfiguredApi) {
-        throw new Error("Le serveur du cabinet est indisponible. Réessayez plus tard.");
-      }
-      setPayments((current) => [{
-        id: crypto.randomUUID(),
-        invoiceId: invoice.databaseId ?? invoice.id,
-        invoiceNumber: invoice.id,
-        customer: invoice.client,
-        amount,
-        currency: invoice.currency,
-        method,
-        reference: reference ?? null,
-        createdAt: new Date().toISOString(),
-      }, ...current]);
+      const deleted = await apiRequest<{
+        id: string;
+        deletedPaymentIds: string[];
+      }>(`/invoices/${invoice.databaseId}`, { method: "DELETE" });
       setInvoices((current) =>
-        current.map((entry) => {
-          if (entry.id !== invoice.id) return entry;
-          const nextPaidAmount = (entry.paidAmount ?? 0) + Number(amount);
+        current.filter((item) => item.databaseId !== deleted.id),
+      );
+      const deletedPaymentIds = new Set(deleted.deletedPaymentIds);
+      setPayments((current) =>
+        current.filter((payment) => !deletedPaymentIds.has(payment.id)),
+      );
+    },
+    addPayment: async ({ invoice, amount, method, reference }) => {
+      if (!hasConfiguredApi) {
+        throw new Error(
+          "API du cabinet non configurée. Le règlement n’a pas été enregistré.",
+        );
+      }
+      if (!databaseConnected) {
+        throw new Error(
+          "Le serveur du cabinet est indisponible. Réessayez plus tard.",
+        );
+      }
+      if (!invoice.databaseId) {
+        throw new Error("Cette facture n’a pas d’identifiant PostgreSQL.");
+      }
+      const created = await apiRequest<PaymentApiRecord>("/payments", {
+        method: "POST",
+        body: JSON.stringify({
+          invoiceId: invoice.databaseId,
+          amount,
+          method,
+          reference,
+        }),
+      });
+      const savedPayment = mapPayment(created);
+      setInvoices((current) =>
+        current.map((item) => {
+          if (item.databaseId !== invoice.databaseId) return item;
+          const paidAmount = (item.paidAmount ?? 0) + Number(amount);
           return {
-            ...entry,
-            paidAmount: nextPaidAmount,
-            status: nextPaidAmount >= entry.amount ? "Payée" : entry.status,
+            ...item,
+            paidAmount,
+            ...(paidAmount >= item.amount ? { status: "Payée" as const } : {}),
           };
         }),
       );
+      setPayments((current) => [savedPayment, ...current].slice(0, 200));
+      return savedPayment;
     },
   };
 
-  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
+  return (
+    <WorkspaceContext.Provider value={value}>
+      {children}
+    </WorkspaceContext.Provider>
+  );
 }
 
 export function useWorkspaceStore() {
   const context = useContext(WorkspaceContext);
   if (!context) {
-    throw new Error("useWorkspaceStore doit être utilisé dans WorkspaceStoreProvider.");
+    throw new Error(
+      "useWorkspaceStore doit être utilisé dans WorkspaceStoreProvider.",
+    );
   }
   return context;
 }

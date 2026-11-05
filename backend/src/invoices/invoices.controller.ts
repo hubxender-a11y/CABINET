@@ -1,18 +1,23 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
   Post,
+  UseGuards,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsUUID } from 'class-validator';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './invoices.dto';
 
 @ApiTags('invoices')
 @Controller('invoices')
+@UseGuards(RolesGuard)
 export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
@@ -29,8 +34,20 @@ export class InvoicesController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create an invoice draft from server-calculated lines' })
+  @ApiOperation({
+    summary: 'Create an invoice draft from server-calculated lines',
+  })
   create(@Body() dto: CreateInvoiceDto) {
     return this.invoicesService.create(dto);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.COMPANY_ADMIN, UserRole.ACCOUNTANT, UserRole.FINANCE_MANAGER)
+  @ApiOperation({
+    summary:
+      'Permanently delete an uncertified invoice and its related records',
+  })
+  delete(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.invoicesService.delete(id);
   }
 }

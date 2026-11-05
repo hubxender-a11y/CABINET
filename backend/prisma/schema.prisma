@@ -84,6 +84,10 @@ model Company {
   branches              Branch[]
   customers             Customer[]
   customerDocuments     CustomerDocument[]
+  fixedAssets           FixedAsset[]
+  fixedAssetMovements   FixedAssetMovement[]
+  archiveDocuments      ArchiveDocument[]
+  archiveBinders        ArchiveBinder[]
   suppliers             Supplier[]
   categories            ProductCategory[]
   products              Product[]
@@ -167,27 +171,28 @@ model Branch {
 }
 
 model Customer {
-  id        String             @id @default(uuid()) @db.Uuid
-  companyId String             @db.Uuid
-  name      String
-  type      String             @default("COMPANY")
-  sector    String?
-  contact   String?
-  phone     String?
-  email     String?
-  address   String?
-  nif       String?
-  rccm      String?
-  status    String             @default("À jour")
-  balance   Decimal            @default(0) @db.Decimal(18, 2)
-  deletedAt DateTime?
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
-  company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  invoices  Invoice[]
-  quotes    Quote[]
-  payments  Payment[]
-  documents CustomerDocument[]
+  id               String             @id @default(uuid()) @db.Uuid
+  companyId        String             @db.Uuid
+  name             String
+  type             String             @default("COMPANY")
+  sector           String?
+  contact          String?
+  phone            String?
+  email            String?
+  address          String?
+  nif              String?
+  rccm             String?
+  status           String             @default("À jour")
+  balance          Decimal            @default(0) @db.Decimal(18, 2)
+  deletedAt        DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoices         Invoice[]
+  quotes           Quote[]
+  payments         Payment[]
+  documents        CustomerDocument[]
+  archiveDocuments ArchiveDocument[]
 
   @@index([companyId, name])
   @@index([companyId, status])
@@ -304,6 +309,91 @@ model StockMovement {
 
   @@index([companyId, createdAt])
   @@index([productId, createdAt])
+}
+
+model FixedAsset {
+  id               String               @id @default(uuid()) @db.Uuid
+  companyId        String               @db.Uuid
+  assetNumber      String
+  name             String
+  category         String
+  serialNumber     String?
+  acquiredAt       DateTime
+  acquisitionCost  Decimal              @db.Decimal(18, 2)
+  residualValue    Decimal              @default(0) @db.Decimal(18, 2)
+  usefulLifeMonths Int
+  currency         String               @default("CDF")
+  status           String               @default("ACTIVE")
+  assignedTo       String?
+  location         String?
+  notes            String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  company          Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  movements        FixedAssetMovement[]
+
+  @@unique([companyId, assetNumber])
+  @@index([companyId, status, name])
+}
+
+model FixedAssetMovement {
+  id           String     @id @default(uuid()) @db.Uuid
+  companyId    String     @db.Uuid
+  assetId      String     @db.Uuid
+  movementType String
+  movementDate DateTime   @default(now())
+  fromAssignee String?
+  toAssignee   String?
+  fromLocation String?
+  toLocation   String?
+  description  String?
+  createdAt    DateTime   @default(now())
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  asset        FixedAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, assetId, movementDate])
+}
+
+model ArchiveDocument {
+  id            String         @id @default(uuid()) @db.Uuid
+  companyId     String         @db.Uuid
+  customerId    String?        @db.Uuid
+  binderId      String?        @db.Uuid
+  category      String
+  binder        String?
+  fiscalYear    Int
+  period        String?
+  title         String
+  originalName  String
+  mimeType      String
+  size          Int
+  documentDate  DateTime?
+  description   String?
+  data          Bytes
+  deletedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  archiveBinder ArchiveBinder? @relation(fields: [binderId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, binderId, createdAt])
+  @@index([companyId, category, fiscalYear, period, createdAt])
+  @@index([companyId, customerId, createdAt])
+  @@index([companyId, deletedAt])
+}
+
+model ArchiveBinder {
+  id         String            @id @default(uuid()) @db.Uuid
+  companyId  String            @db.Uuid
+  name       String
+  category   String
+  fiscalYear Int
+  period     String            @default("")
+  createdAt  DateTime          @default(now())
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  documents  ArchiveDocument[]
+
+  @@unique([companyId, category, fiscalYear, period, name])
 }
 
 model Quote {

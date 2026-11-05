@@ -1,99 +1,1040 @@
 "use client";
 
-import { useState } from "react";
-import { Files, Trash2, UploadCloud } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
+import Image from "next/image";
+import {
+  Archive,
+  Download,
+  Eye,
+  FileText,
+  FolderClosed,
+  FolderPlus,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Trash2,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import { useWorkspaceStore } from "@/components/workspace-store";
+import { apiRequest, apiRequestBlob } from "@/lib/api";
 
-type LocalDocument = {
+const categories = [
+  { value: "CLIENT", label: "Dossiers clients" },
+  { value: "FISCAL", label: "Fiscalité" },
+  { value: "ACCOUNTING", label: "Comptabilité" },
+  { value: "LEGAL", label: "Juridique" },
+  { value: "HR", label: "Ressources humaines" },
+  { value: "INTERNAL", label: "Documents internes" },
+] as const;
+
+const acceptedFiles = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+].join(",");
+
+type ArchiveDocument = {
+  id: string;
+  customerId: string | null;
+  binderId: string | null;
+  category: string;
+  binder: string | null;
+  fiscalYear: number;
+  period: string | null;
+  title: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  documentDate: string | null;
+  description: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  customer: { id: string; name: string } | null;
+  archiveBinder: {
+    id: string;
+    name: string;
+    category: string;
+    fiscalYear: number;
+    period: string;
+  } | null;
+};
+
+type ArchiveBinder = {
   id: string;
   name: string;
-  client: string;
-  size: number;
+  category: string;
+  fiscalYear: number;
+  period: string;
+  createdAt: string;
+  documentCount: number;
 };
+
+type Preview = { url: string; name: string; mimeType: string };
+
+function formatBytes(bytes: number) {
+  return bytes < 1024 * 1024
+    ? `${(bytes / 1024).toFixed(0)} Ko`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Impossible de lire ce fichier."));
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("Le contenu du fichier est invalide."));
+        return;
+      }
+      resolve(reader.result.slice(reader.result.indexOf(",") + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function DocumentsPage() {
   const { clients } = useWorkspaceStore();
-  const [documents, setDocuments] = useState<LocalDocument[]>([]);
-  const [clientId, setClientId] = useState("");
+  const [documents, setDocuments] = useState<ArchiveDocument[]>([]);
+  const [binders, setBinders] = useState<ArchiveBinder[]>([]);
+  const [category, setCategory] = useState("CLIENT");
+  const [binder, setBinder] = useState("");
+  const [uploadBinderId, setUploadBinderId] = useState("");
+  const [filterBinderId, setFilterBinderId] = useState("");
+  const [binderName, setBinderName] = useState("");
+  const [binderPeriod, setBinderPeriod] = useState("");
+  const [binderCategory, setBinderCategory] = useState("CLIENT");
+  const [binderFiscalYear, setBinderFiscalYear] = useState(
+    String(new Date().getFullYear()),
+  );
+  const [fiscalYear, setFiscalYear] = useState(
+    String(new Date().getFullYear()),
+  );
+  const [period, setPeriod] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [title, setTitle] = useState("");
+  const [documentDate, setDocumentDate] = useState("");
+  const [description, setDescription] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [search, setSearch] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterYear, setFilterYear] = useState("");
+  const [showTrash, setShowTrash] = useState(false);
+  const [showUploadForm, setShowUploadForm] = useState(false);
+  const [showBinderForm, setShowBinderForm] = useState(false);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savingBinder, setSavingBinder] = useState(false);
+  const [userRole, setUserRole] = useState("");
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [error, setError] = useState("");
-  const client = clients.find((candidate) => candidate.id === clientId);
+  const [message, setMessage] = useState("");
 
-  function addFiles(files: FileList | null) {
+  const loadDocuments = useCallback(async () => {
+    setLoading(true);
     setError("");
-    if (!client) {
-      setError("Choisissez d’abord le dossier client auquel rattacher ces pièces.");
+    try {
+      const params = new URLSearchParams();
+      if (filterYear) params.set("fiscalYear", filterYear);
+      if (filterBinderId) params.set("binderId", filterBinderId);
+      if (search.trim()) params.set("q", search.trim());
+      const query = params.size ? `?${params.toString()}` : "";
+      const result = await apiRequest<ArchiveDocument[]>(
+        `/archives${showTrash ? "/trash" : ""}${query}`,
+      );
+      setDocuments(result);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Impossible de charger les archives du cabinet.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [filterBinderId, filterYear, search, showTrash]);
+
+  const loadBinders = useCallback(async () => {
+    try {
+      const result = await apiRequest<ArchiveBinder[]>("/archives/binders");
+      setBinders(result);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Impossible de charger les classeurs du cabinet.",
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadDocuments);
+  }, [loadDocuments]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadBinders);
+  }, [loadBinders]);
+
+  useEffect(() => {
+    void apiRequest<{ role: string }>("/auth/me")
+      .then((user) => setUserRole(user.role))
+      .catch((requestError: unknown) => {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Impossible de vérifier les accès du compte.",
+        );
+      });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview.url);
+    };
+  }, [preview]);
+
+  const categoryCounts = useMemo(
+    () =>
+      categories.map((item) => ({
+        ...item,
+        count: documents.filter((document) => document.category === item.value)
+          .length,
+      })),
+    [documents],
+  );
+  const visibleDocuments = useMemo(
+    () =>
+      filterCategory
+        ? documents.filter((document) => document.category === filterCategory)
+        : documents,
+    [documents, filterCategory],
+  );
+  const visibleBinders = useMemo(
+    () =>
+      binders.filter(
+        (item) =>
+          (!filterCategory || item.category === filterCategory) &&
+          (!filterYear || item.fiscalYear === Number(filterYear)),
+      ),
+    [binders, filterCategory, filterYear],
+  );
+  const uploadBinders = useMemo(
+    () =>
+      binders.filter(
+        (item) =>
+          item.category === category && item.fiscalYear === Number(fiscalYear),
+      ),
+    [binders, category, fiscalYear],
+  );
+
+  async function saveBinder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingBinder(true);
+    setError("");
+    setMessage("");
+    try {
+      const created = await apiRequest<ArchiveBinder>("/archives/binders", {
+        method: "POST",
+        body: JSON.stringify({
+          name: binderName.trim(),
+          category: binderCategory,
+          fiscalYear: Number(binderFiscalYear),
+          ...(binderPeriod.trim() ? { period: binderPeriod.trim() } : {}),
+        }),
+      });
+      setBinderName("");
+      setBinderPeriod("");
+      setShowBinderForm(false);
+      setCategory(created.category);
+      setFiscalYear(String(created.fiscalYear));
+      setFilterCategory(created.category);
+      setFilterYear(String(created.fiscalYear));
+      setFilterBinderId(created.id);
+      setUploadBinderId(created.id);
+      setMessage(`Le classeur « ${created.name} » a été créé.`);
+      await loadBinders();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Impossible de créer ce classeur.",
+      );
+    } finally {
+      setSavingBinder(false);
+    }
+  }
+
+  async function deleteBinder(item: ArchiveBinder) {
+    if (item.documentCount > 0) return;
+    if (
+      !window.confirm(
+        `Supprimer le classeur vide « ${item.name} » ? Cette action est irréversible.`,
+      )
+    ) {
       return;
     }
-    if (!files?.length) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest(`/archives/binders/${item.id}`, { method: "DELETE" });
+      if (filterBinderId === item.id) setFilterBinderId("");
+      if (uploadBinderId === item.id) setUploadBinderId("");
+      setMessage(`Le classeur « ${item.name} » a été supprimé.`);
+      await loadBinders();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Impossible de supprimer ce classeur.",
+      );
+    }
+  }
 
-    setDocuments((current) => [
-      ...Array.from(files).map((file) => ({
-        id: crypto.randomUUID(),
-        name: file.name,
-        client: client.name,
-        size: file.size,
-      })),
-      ...current,
-    ]);
+  async function saveDocument(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!file) {
+      setError("Choisissez le document à classer.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Chaque document ne peut pas dépasser 10 Mo.");
+      return;
+    }
+    if (!file.type || !acceptedFiles.split(",").includes(file.type)) {
+      setError(
+        "Format non pris en charge. Utilisez PDF, JPG, PNG, DOCX ou XLSX.",
+      );
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const data = await fileToBase64(file);
+      await apiRequest("/archives", {
+        method: "POST",
+        body: JSON.stringify({
+          category,
+          fiscalYear: Number(fiscalYear),
+          ...(uploadBinderId ? { binderId: uploadBinderId } : {}),
+          title: title.trim(),
+          originalName: file.name,
+          mimeType: file.type,
+          data,
+          ...(binder.trim() ? { binder: binder.trim() } : {}),
+          ...(period.trim() ? { period: period.trim() } : {}),
+          ...(customerId ? { customerId } : {}),
+          ...(documentDate ? { documentDate } : {}),
+          ...(description.trim() ? { description: description.trim() } : {}),
+        }),
+      });
+      setFile(null);
+      setFileInputKey((key) => key + 1);
+      setTitle("");
+      setBinder("");
+      setUploadBinderId("");
+      setDescription("");
+      setShowUploadForm(false);
+      setMessage("Le document a été classé dans l’archive du cabinet.");
+      await loadDocuments();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Impossible d’enregistrer ce document.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function viewDocument(document: ArchiveDocument) {
+    setError("");
+    try {
+      const blob = await apiRequestBlob(`/archives/${document.id}/content`);
+      setPreview({
+        url: URL.createObjectURL(blob),
+        name: document.originalName,
+        mimeType: document.mimeType,
+      });
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Impossible d’ouvrir ce document.",
+      );
+    }
+  }
+
+  async function updateDocument(
+    document: ArchiveDocument,
+    action: "delete" | "restore" | "purge",
+  ) {
+    if (
+      action !== "restore" &&
+      !window.confirm(
+        action === "purge"
+          ? `Supprimer définitivement « ${document.title} » ? Cette action est irréversible.`
+          : `Placer « ${document.title} » dans la corbeille ?`,
+      )
+    ) {
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest(
+        `/archives/${document.id}${action === "purge" ? "/permanent" : action === "restore" ? "/restore" : ""}`,
+        {
+          method:
+            action === "delete"
+              ? "DELETE"
+              : action === "purge"
+                ? "DELETE"
+                : "POST",
+        },
+      );
+      setMessage(
+        action === "restore"
+          ? "Document restauré."
+          : action === "purge"
+            ? "Document supprimé définitivement."
+            : "Document déplacé dans la corbeille.",
+      );
+      await loadDocuments();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Impossible de modifier ce document.",
+      );
+    }
   }
 
   return (
     <div className="space-y-6">
-      <header className="border-b border-slate-200 pb-6">
-        <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">Gestion des dossiers</p>
-        <h1 className="mt-2 text-3xl font-semibold text-slate-900">Pièces comptables</h1>
-        <p className="mt-2 text-sm text-slate-500">Classez les justificatifs par client avant leur traitement par le cabinet.</p>
+      <header className="archive-page-header">
+        <div>
+          <p className="archive-page-eyebrow">
+            Gestion des dossiers · classeurs numériques
+          </p>
+          <h1>Archives du cabinet</h1>
+          <p>
+            Retrouvez et classez les pièces par famille, exercice, période et
+            client.
+          </p>
+        </div>
+        <div className="archive-page-actions">
+          <button
+            type="button"
+            onClick={() => void Promise.all([loadDocuments(), loadBinders()])}
+            disabled={loading}
+            aria-label="Actualiser les archives"
+            className="archive-refresh-button"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
+          {["COMPANY_ADMIN", "ACCOUNTANT", "FINANCE_MANAGER"].includes(
+            userRole,
+          ) && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowBinderForm((open) => !open)}
+                className="archive-add-button"
+              >
+                <FolderPlus className="h-4 w-4" />{" "}
+                {showBinderForm ? "Fermer" : "Nouveau classeur"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUploadForm((open) => !open)}
+                className="archive-add-button"
+              >
+                <Plus className="h-4 w-4" />{" "}
+                {showUploadForm ? "Fermer" : "Nouveau document"}
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
-      <section className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 md:grid-cols-[1fr_2fr] md:items-end">
-        <label className="space-y-2 text-sm font-medium text-slate-700">
-          Dossier client
-          <select value={clientId} onChange={(event) => setClientId(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-            <option value="">Choisir un dossier...</option>
-            {clients.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-        </label>
-        <label className="flex cursor-pointer items-center justify-center gap-3 rounded-xl border border-dashed border-blue-300 bg-white px-4 py-5 text-sm font-medium text-blue-800 hover:bg-blue-50">
-          <UploadCloud className="h-5 w-5" />
-          <span>Choisir des justificatifs à classer</span>
-          <input type="file" multiple className="sr-only" onChange={(event) => { addFiles(event.target.files); event.currentTarget.value = ""; }} />
-        </label>
-        {error && <p role="alert" className="text-sm text-rose-700 md:col-span-2">{error}</p>}
+      {message && (
+        <p
+          role="status"
+          className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"
+        >
+          {message}
+        </p>
+      )}
+      {error && (
+        <p
+          role="alert"
+          className="break-words rounded-xl bg-rose-50 p-3 text-sm text-rose-800"
+        >
+          {error}
+        </p>
+      )}
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {categoryCounts.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            aria-pressed={filterCategory === item.value}
+            onClick={() => {
+              setFilterCategory(
+                filterCategory === item.value ? "" : item.value,
+              );
+              setFilterBinderId("");
+            }}
+            className={`archive-binder-card ${filterCategory === item.value ? "is-selected" : ""}`}
+          >
+            <span className="archive-binder-icon">
+              <FolderClosed className="h-5 w-5" />
+            </span>
+            <span className="archive-binder-copy">
+              <span className="archive-binder-title">{item.label}</span>
+              <span className="archive-binder-detail">
+                Classeur par exercice et période
+              </span>
+            </span>
+            <span className="archive-binder-count">{item.count}</span>
+          </button>
+        ))}
       </section>
 
-      <div className="rounded-2xl border border-slate-200 bg-white">
-        <div className="flex items-center justify-between border-b border-slate-100 p-4">
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h2 className="font-semibold text-slate-900">Pièces ajoutées à cette session</h2>
-            <p className="mt-1 text-xs text-slate-500">Aucun fichier n’est envoyé ni conservé sur un serveur.</p>
+            <h2 className="font-semibold text-slate-900">
+              Classeurs personnalisés
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {filterCategory || filterYear
+                ? "Filtrés selon la famille et l’exercice sélectionnés."
+                : "Créez vos propres dossiers et organisez-y les documents."}
+            </p>
           </div>
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{documents.length}</span>
+          {filterBinderId && (
+            <button
+              type="button"
+              onClick={() => setFilterBinderId("")}
+              className="text-xs font-medium text-blue-700 hover:text-blue-900"
+            >
+              Retirer le filtre du classeur
+            </button>
+          )}
         </div>
-        {documents.length ? (
+        {visibleBinders.length ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {visibleBinders.map((item) => (
+              <div key={item.id} className="flex min-w-0 items-stretch gap-2">
+                <button
+                  type="button"
+                  aria-pressed={filterBinderId === item.id}
+                  onClick={() => {
+                    setFilterBinderId(item.id);
+                    setFilterCategory(item.category);
+                    setFilterYear(String(item.fiscalYear));
+                  }}
+                  className={`archive-binder-card min-w-0 flex-1 ${filterBinderId === item.id ? "is-selected" : ""}`}
+                >
+                  <span className="archive-binder-icon">
+                    <FolderClosed className="h-5 w-5" />
+                  </span>
+                  <span className="archive-binder-copy">
+                    <span className="archive-binder-title">{item.name}</span>
+                    <span className="archive-binder-detail">
+                      {categories.find(
+                        (candidate) => candidate.value === item.category,
+                      )?.label ?? item.category}{" "}
+                      · {item.fiscalYear}
+                      {item.period ? ` · ${item.period}` : ""}
+                    </span>
+                  </span>
+                  <span className="archive-binder-count">
+                    {item.documentCount}
+                  </span>
+                </button>
+                {["COMPANY_ADMIN", "ACCOUNTANT", "FINANCE_MANAGER"].includes(
+                  userRole,
+                ) && (
+                  <button
+                    type="button"
+                    disabled={item.documentCount > 0}
+                    onClick={() => void deleteBinder(item)}
+                    aria-label={`Supprimer le classeur ${item.name}`}
+                    title={
+                      item.documentCount > 0
+                        ? "Impossible : le classeur contient des documents, y compris dans la corbeille"
+                        : "Supprimer le classeur vide"
+                    }
+                    className="self-center rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-slate-500"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center">
+            <FolderClosed className="mx-auto h-6 w-6 text-slate-300" />
+            <p className="mt-2 text-sm font-medium text-slate-700">
+              Aucun classeur dans cette sélection
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Créez un classeur pour commencer à classer vos pièces.
+            </p>
+          </div>
+        )}
+      </section>
+
+      {["COMPANY_ADMIN", "ACCOUNTANT", "FINANCE_MANAGER"].includes(userRole) &&
+        showBinderForm && (
+          <form
+            onSubmit={saveBinder}
+            className="grid gap-4 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 sm:grid-cols-2 xl:grid-cols-4"
+          >
+            <h2 className="font-semibold text-slate-900 sm:col-span-2 xl:col-span-4">
+              Créer un classeur d’archives
+            </h2>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Nom du classeur *
+              <input
+                required
+                minLength={2}
+                maxLength={120}
+                value={binderName}
+                onChange={(event) => setBinderName(event.target.value)}
+                placeholder="Ex. Déclarations fiscales"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Famille *
+              <select
+                required
+                value={binderCategory}
+                onChange={(event) => setBinderCategory(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              >
+                {categories.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Exercice *
+              <input
+                required
+                type="number"
+                min="1900"
+                max="2200"
+                value={binderFiscalYear}
+                onChange={(event) => setBinderFiscalYear(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Période
+              <input
+                maxLength={40}
+                value={binderPeriod}
+                onChange={(event) => setBinderPeriod(event.target.value)}
+                placeholder="Ex. T1, janvier, annuel"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              />
+            </label>
+            <div className="flex items-end sm:col-span-2 xl:col-span-4">
+              <button
+                type="submit"
+                disabled={savingBinder}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                <FolderPlus className="h-4 w-4" />{" "}
+                {savingBinder ? "Création…" : "Créer le classeur"}
+              </button>
+            </div>
+          </form>
+        )}
+
+      {["COMPANY_ADMIN", "ACCOUNTANT", "FINANCE_MANAGER"].includes(userRole) &&
+        showUploadForm && (
+          <form
+            onSubmit={saveDocument}
+            className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/40 p-5 sm:grid-cols-2 xl:grid-cols-4"
+          >
+            <h2 className="font-semibold text-slate-900 sm:col-span-2 xl:col-span-4">
+              Classer un nouveau document
+            </h2>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Famille *
+              <select
+                required
+                value={category}
+                onChange={(event) => {
+                  setCategory(event.target.value);
+                  setUploadBinderId("");
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              >
+                {categories.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Exercice *
+              <input
+                required
+                type="number"
+                min="1900"
+                max="2200"
+                value={fiscalYear}
+                onChange={(event) => {
+                  setFiscalYear(event.target.value);
+                  setUploadBinderId("");
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Titre *
+              <input
+                required
+                maxLength={180}
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Ex. Déclaration de TVA — T1"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Classeur
+              <select
+                value={uploadBinderId}
+                onChange={(event) => setUploadBinderId(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              >
+                <option value="">Aucun classeur lié</option>
+                {uploadBinders.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                    {item.period ? ` · ${item.period}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Sous-classeur / précision
+              <input
+                maxLength={120}
+                value={binder}
+                onChange={(event) => setBinder(event.target.value)}
+                placeholder="Ex. Déclarations périodiques"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Période
+              <input
+                maxLength={40}
+                value={period}
+                onChange={(event) => setPeriod(event.target.value)}
+                placeholder="Ex. T1, janvier, 2026-03"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Dossier client
+              <select
+                value={customerId}
+                onChange={(event) => setCustomerId(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              >
+                <option value="">Aucun client lié</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Date du document
+              <input
+                type="date"
+                value={documentDate}
+                onChange={(event) => setDocumentDate(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              />
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700 sm:col-span-2">
+              Fichier *{" "}
+              <span className="font-normal text-slate-500">
+                (PDF, JPG, PNG, DOCX, XLSX — 10 Mo max.)
+              </span>
+              <input
+                key={fileInputKey}
+                required
+                type="file"
+                accept={acceptedFiles}
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700"
+              />
+              {file && (
+                <span className="block text-xs text-slate-500">
+                  {file.name} · {formatBytes(file.size)}
+                </span>
+              )}
+            </label>
+            <label className="space-y-2 text-sm font-medium text-slate-700 sm:col-span-2">
+              Description
+              <input
+                maxLength={1000}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Informations complémentaires"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              />
+            </label>
+            <div className="flex items-end sm:col-span-2 xl:col-span-4">
+              <button
+                type="submit"
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                <UploadCloud className="h-4 w-4" />{" "}
+                {saving ? "Enregistrement…" : "Classer le document"}
+              </button>
+            </div>
+          </form>
+        )}
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center">
+          <div>
+            <h2 className="font-semibold text-slate-900">
+              {showTrash ? "Corbeille des archives" : "Documents classés"}
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {visibleDocuments.length} document
+              {visibleDocuments.length === 1 ? "" : "s"} affiché
+              {visibleDocuments.length === 1 ? "" : "s"} · conservés sur le
+              serveur du cabinet
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <label className="relative min-w-48 flex-1">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <input
+                aria-label="Rechercher dans les archives"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Rechercher…"
+                className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm"
+              />
+            </label>
+            <select
+              aria-label="Filtrer par exercice"
+              value={filterYear}
+              onChange={(event) => setFilterYear(event.target.value)}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">Tous les exercices</option>
+              {Array.from({ length: 10 }, (_, index) =>
+                String(new Date().getFullYear() - index),
+              ).map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+            {["COMPANY_ADMIN", "ACCOUNTANT", "FINANCE_MANAGER"].includes(
+              userRole,
+            ) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTrash((value) => !value);
+                }}
+                className={`rounded-xl border px-3 py-2 text-sm ${showTrash ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 text-slate-600"}`}
+              >
+                {showTrash ? "Voir les classeurs" : "Corbeille"}
+              </button>
+            )}
+          </div>
+        </div>
+        {loading ? (
+          <p className="p-8 text-center text-sm text-slate-500">
+            Chargement des archives…
+          </p>
+        ) : visibleDocuments.length ? (
           <ul className="divide-y divide-slate-100">
-            {documents.map((document) => (
-              <li key={document.id} className="flex items-center justify-between gap-3 p-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <Files className="h-5 w-5 shrink-0 text-blue-600" />
+            {visibleDocuments.map((document) => (
+              <li
+                key={document.id}
+                className="flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <FileText className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-900">{document.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">{document.client} · {(document.size / 1024).toFixed(0)} Ko · À classer</p>
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {document.title}
+                    </p>
+                    <p className="mt-1 truncate text-xs text-slate-500">
+                      {document.originalName} · {formatBytes(document.size)} ·{" "}
+                      {categories.find(
+                        (item) => item.value === document.category,
+                      )?.label ?? document.category}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {document.fiscalYear}
+                      {document.period ? ` · ${document.period}` : ""}
+                      {document.archiveBinder
+                        ? ` · ${document.archiveBinder.name}`
+                        : ""}
+                      {document.binder ? ` · ${document.binder}` : ""}
+                      {document.customer ? ` · ${document.customer.name}` : ""}
+                    </p>
                   </div>
                 </div>
-                <button aria-label={`Retirer ${document.name}`} onClick={() => setDocuments((current) => current.filter((item) => item.id !== document.id))} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600">
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  {!showTrash && (
+                    <button
+                      type="button"
+                      onClick={() => void viewDocument(document)}
+                      aria-label={`Aperçu de ${document.title}`}
+                      title="Aperçu / ouvrir"
+                      className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  )}
+                  {showTrash ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void updateDocument(document, "restore")}
+                        aria-label={`Restaurer ${document.title}`}
+                        title="Restaurer"
+                        className="rounded-lg p-2 text-emerald-700 hover:bg-emerald-50"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </button>
+                      {userRole === "COMPANY_ADMIN" && (
+                        <button
+                          type="button"
+                          onClick={() => void updateDocument(document, "purge")}
+                          aria-label={`Supprimer définitivement ${document.title}`}
+                          title="Supprimer définitivement"
+                          className="rounded-lg p-2 text-rose-600 hover:bg-rose-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void updateDocument(document, "delete")}
+                      aria-label={`Mettre ${document.title} à la corbeille`}
+                      title="Mettre à la corbeille"
+                      className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
         ) : (
           <div className="p-10 text-center">
-            <Files className="mx-auto h-8 w-8 text-slate-300" />
-            <p className="mt-3 text-sm font-medium text-slate-700">Aucune pièce dans cette session</p>
-            <p className="mt-1 text-xs text-slate-500">Sélectionnez un dossier puis ajoutez des pièces justificatives.</p>
+            <Archive className="mx-auto h-8 w-8 text-slate-300" />
+            <p className="mt-3 text-sm font-medium text-slate-700">
+              {showTrash ? "La corbeille est vide" : "Aucun document classé"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Utilisez le formulaire pour déposer et organiser les pièces du
+              cabinet.
+            </p>
           </div>
         )}
-      </div>
+      </section>
+
+      {preview && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Aperçu de ${preview.name}`}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 sm:p-8"
+        >
+          <section className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <header className="flex items-center justify-between gap-3 border-b border-slate-200 p-4">
+              <h2 className="truncate font-semibold text-slate-900">
+                {preview.name}
+              </h2>
+              <div className="flex items-center gap-2">
+                <a
+                  href={preview.url}
+                  download={preview.name}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700"
+                >
+                  <Download className="h-4 w-4" /> Télécharger
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreview(null)}
+                  aria-label="Fermer l’aperçu"
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </header>
+            {preview.mimeType === "application/pdf" ? (
+              <iframe
+                title={`Aperçu de ${preview.name}`}
+                src={preview.url}
+                className="min-h-[65vh] w-full flex-1"
+              />
+            ) : preview.mimeType.startsWith("image/") ? (
+              <div className="relative flex min-h-[65vh] flex-1 items-center justify-center overflow-auto bg-slate-50 p-4">
+                <Image
+                  src={preview.url}
+                  alt={preview.name}
+                  fill
+                  unoptimized
+                  className="object-contain p-4"
+                />
+              </div>
+            ) : (
+              <p className="p-10 text-center text-sm text-slate-600">
+                Ce format ne peut pas être affiché dans l’aperçu. Téléchargez le
+                document pour le consulter.
+              </p>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 }

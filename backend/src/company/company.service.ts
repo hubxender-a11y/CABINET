@@ -70,15 +70,19 @@ function validateInvoiceTemplate(value: Record<string, unknown>) {
     value.version !== 1 ||
     !Array.isArray(value.elements) ||
     value.elements.length > 40 ||
-    Buffer.byteLength(JSON.stringify(value), 'utf8') > 50_000
+    Buffer.byteLength(JSON.stringify(value), 'utf8') > 1_800_000
   ) {
-    throw new BadRequestException('Le modèle de facture est invalide ou trop volumineux.');
+    throw new BadRequestException(
+      'Le modèle de facture est invalide ou trop volumineux.',
+    );
   }
 
   const ids = new Set<string>();
   const elements = value.elements.map((element) => {
     if (!isRecord(element)) {
-      throw new BadRequestException('Un objet du modèle de facture est invalide.');
+      throw new BadRequestException(
+        'Un objet du modèle de facture est invalide.',
+      );
     }
 
     const {
@@ -129,12 +133,16 @@ function validateInvoiceTemplate(value: Record<string, unknown>) {
       !(fill === 'transparent' || /^#[0-9a-f]{6}$/i.test(fill)) ||
       typeof visible !== 'boolean' ||
       typeof content !== 'string' ||
-      content.length > (kind === 'image' ? 20_000 : 2_000) ||
+      content.length > (kind === 'image' ? 65_000 : 2_000) ||
       (kind === 'image' &&
         content.length > 0 &&
-        !/^(?:\/[a-zA-Z0-9/_.,%-]+|https:\/\/[^\s]+|data:image\/jpeg;base64,[A-Za-z0-9+/=]+)$/i.test(content))
+        !/^(?:\/[a-zA-Z0-9/_.,%-]+|https:\/\/[^\s]+|data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+)$/i.test(
+          content,
+        ))
     ) {
-      throw new BadRequestException('Un objet du modèle de facture contient des valeurs invalides.');
+      throw new BadRequestException(
+        'Un objet du modèle de facture contient des valeurs invalides.',
+      );
     }
     ids.add(id);
 
@@ -156,7 +164,9 @@ function validateInvoiceTemplate(value: Record<string, unknown>) {
 
   const requiredIds = [...templateBuiltinIds];
   if (requiredIds.some((id) => !ids.has(id))) {
-    throw new BadRequestException('Le modèle de facture doit conserver tous ses éléments de base.');
+    throw new BadRequestException(
+      'Le modèle de facture doit conserver tous ses éléments de base.',
+    );
   }
 
   return { version: 1, elements };

@@ -8,7 +8,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
   });
-  app.useBodyParser('json', { limit: '7mb' });
+  app.useBodyParser('json', { limit: '15mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '7mb' });
   const frontendOrigins = (
     process.env.FRONTEND_ORIGIN ?? 'http://localhost:3000'

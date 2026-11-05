@@ -2,7 +2,22 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, BriefcaseBusiness, CalendarClock, FilePlus2, FileText, Users } from "lucide-react";
+import {
+  Activity,
+  Archive,
+  ArrowDownRight,
+  ArrowUpRight,
+  Boxes,
+  BriefcaseBusiness,
+  CalendarClock,
+  ChevronRight,
+  FilePlus2,
+  FileText,
+  PieChart,
+  Receipt,
+  Users,
+  Wallet,
+} from "lucide-react";
 import { useWorkspaceStore } from "@/components/workspace-store";
 import {
   companyDisplayName,
@@ -21,15 +36,40 @@ const moneyByCurrency = (
     .join(" · ") || formatMoney(0, primaryCurrency);
 
 const statusClass: Record<string, string> = {
-  Certifiée: "bg-emerald-100 text-emerald-700",
-  Payée: "bg-sky-100 text-sky-700",
-  Rejetée: "bg-rose-100 text-rose-700",
-  "En attente": "bg-amber-100 text-amber-700",
-  Brouillon: "bg-slate-100 text-slate-700",
+  Certifiée: "is-certified",
+  Payée: "is-paid",
+  Rejetée: "is-rejected",
+  "En attente": "is-pending",
+  Brouillon: "is-draft",
 };
 
+const moduleLinks = [
+  {
+    href: "/invoices",
+    label: "Facturation",
+    icon: Receipt,
+    tone: "is-billing",
+    metric: "clients & factures",
+  },
+  {
+    href: "/stocks",
+    label: "Stock & patrimoine",
+    icon: Boxes,
+    tone: "is-inventory",
+    metric: "articles & matériel",
+  },
+  {
+    href: "/documents",
+    label: "Archivage",
+    icon: Archive,
+    tone: "is-archive",
+    metric: "classeurs & documents",
+  },
+] as const;
+
 export default function HomePage() {
-  const { clients, invoices, databaseConnected, databaseError } = useWorkspaceStore();
+  const { clients, invoices, databaseConnected, databaseError } =
+    useWorkspaceStore();
   const { profile } = useCompanyProfile();
   const primaryCurrency = profile?.currencyCode ?? "CDF";
   const cabinetName = companyDisplayName(profile);
@@ -38,192 +78,442 @@ export default function HomePage() {
   const visibleInvoices = useMemo(
     () =>
       invoices.filter(
-        (invoice) => selectedClient === "all" || invoice.clientId === selectedClient,
+        (invoice) =>
+          selectedClient === "all" || invoice.clientId === selectedClient,
       ),
     [invoices, selectedClient],
   );
-  const issuedByCurrency = visibleInvoices
-    .filter((invoice) => invoice.status !== "Brouillon" && invoice.status !== "Rejetée")
-    .reduce(
-      (totals, invoice) => ({
-        ...totals,
-        [invoice.currency]: totals[invoice.currency] + invoice.amount,
-      }),
-      { CDF: 0, USD: 0 },
-    );
-  const outstandingByCurrency = visibleInvoices
-    .filter((invoice) => invoice.status !== "Brouillon" && invoice.status !== "Rejetée")
-    .reduce(
-      (totals, invoice) => {
-        const unpaid =
-          invoice.status === "Payée"
-            ? 0
-            : Math.max(invoice.amount - (invoice.paidAmount ?? 0), 0);
-        return {
-          ...totals,
-          [invoice.currency]: totals[invoice.currency] + unpaid,
-        };
-      },
-      { CDF: 0, USD: 0 },
-    );
-  const certified = visibleInvoices.filter((invoice) => invoice.status === "Certifiée").length;
-  const attentionCount = clients.filter((client) => client.status !== "À jour").length;
   const activeInvoices = visibleInvoices.filter(
     (invoice) => invoice.status !== "Brouillon" && invoice.status !== "Rejetée",
   );
+  const issuedByCurrency = activeInvoices.reduce(
+    (totals, invoice) => ({
+      ...totals,
+      [invoice.currency]: totals[invoice.currency] + invoice.amount,
+    }),
+    { CDF: 0, USD: 0 },
+  );
+  const outstandingByCurrency = activeInvoices.reduce(
+    (totals, invoice) => {
+      const balance =
+        invoice.status === "Payée"
+          ? 0
+          : Math.max(invoice.amount - (invoice.paidAmount ?? 0), 0);
+      return {
+        ...totals,
+        [invoice.currency]: totals[invoice.currency] + balance,
+      };
+    },
+    { CDF: 0, USD: 0 },
+  );
+  const attentionCount =
+    selectedClient === "all"
+      ? clients.filter((client) => client.status !== "À jour").length
+      : clients.find((client) => client.id === selectedClient)?.status ===
+          "À jour"
+        ? 0
+        : 1;
+  const certified = visibleInvoices.filter(
+    (invoice) => invoice.status === "Certifiée",
+  ).length;
   const clientsToFollowUp = clients
     .filter((client) => client.status !== "À jour")
     .slice(0, 3);
-  const invoicesToCollect = visibleInvoices
+  const invoicesToCollect = activeInvoices
     .filter(
       (invoice) =>
-        invoice.status !== "Brouillon" &&
-        invoice.status !== "Rejetée" &&
         invoice.amount -
-          (invoice.paidAmount ?? (invoice.status === "Payée" ? invoice.amount : 0)) >
-          0,
+          (invoice.paidAmount ??
+            (invoice.status === "Payée" ? invoice.amount : 0)) >
+        0,
     )
     .slice(0, 3);
+  const invoiceStatusCounts = [
+    {
+      label: "Payées",
+      count: visibleInvoices.filter((invoice) => invoice.status === "Payée")
+        .length,
+      color: "#43bd91",
+    },
+    { label: "Certifiées", count: certified, color: "#5268d8" },
+    {
+      label: "En attente",
+      count: visibleInvoices.filter(
+        (invoice) => invoice.status === "En attente",
+      ).length,
+      color: "#f2bd54",
+    },
+    {
+      label: "Autres",
+      count: visibleInvoices.filter(
+        (invoice) =>
+          invoice.status === "Rejetée" || invoice.status === "Brouillon",
+      ).length,
+      color: "#ef8399",
+    },
+  ];
+  let statusSweep = 0;
+  const statusGradient = invoiceStatusCounts
+    .filter((status) => status.count > 0)
+    .map((status) => {
+      const start = statusSweep;
+      statusSweep += (status.count / visibleInvoices.length) * 100;
+      return `${status.color} ${start}% ${statusSweep}%`;
+    })
+    .join(", ");
+  const monthLabels = [
+    "janv.",
+    "févr.",
+    "mars",
+    "avr.",
+    "mai",
+    "juin",
+    "juil.",
+    "août",
+    "sept.",
+    "oct.",
+    "nov.",
+    "déc.",
+  ];
+  const latestInvoiceMonth = visibleInvoices
+    .map((invoice) => invoice.date.slice(0, 7))
+    .filter((month) => /^\d{4}-(0[1-9]|1[0-2])$/.test(month))
+    .sort()
+    .at(-1);
+  const monthlyInvoiceCounts = latestInvoiceMonth
+    ? Array.from({ length: 6 }, (_, index) => {
+        const [year, month] = latestInvoiceMonth.split("-").map(Number);
+        const monthOffset = month - 1 - (5 - index);
+        const monthIndex = ((monthOffset % 12) + 12) % 12;
+        const monthYear = year + Math.floor(monthOffset / 12);
+        const key = `${monthYear}-${String(monthIndex + 1).padStart(2, "0")}`;
+        return {
+          key,
+          label: monthLabels[monthIndex],
+          count: visibleInvoices.filter((invoice) =>
+            invoice.date.startsWith(key),
+          ).length,
+        };
+      })
+    : [];
+  const maxMonthlyInvoices = Math.max(
+    ...monthlyInvoiceCounts.map((month) => month.count),
+    1,
+  );
+  const monthlyChartPoints = monthlyInvoiceCounts
+    .map(
+      (month, index) =>
+        `${14 + (index * 272) / 5},${82 - (month.count / maxMonthlyInvoices) * 56}`,
+    )
+    .join(" ");
 
   return (
-    <div className="space-y-7">
-      <header className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-end">
-        <div>
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">Vue du cabinet</p>
-          <h1 className="mt-2 text-3xl font-semibold text-slate-900">Bonjour, {cabinetName}</h1>
-          <p className="mt-2 text-sm text-slate-500">Suivez les dossiers, les échéances et la facturation de vos clients · {companyLocation(profile)}</p>
+    <div className="dashboard-page">
+      <header className="dashboard-hero">
+        <div className="dashboard-hero-copy">
+          <span className="dashboard-hero-icon" aria-hidden="true">
+            <Activity className="h-6 w-6" />
+          </span>
+          <div>
+            <p className="dashboard-eyebrow">
+              FACTURA RDC <span>·</span> {companyLocation(profile)}
+            </p>
+            <h1>Bienvenue, {cabinetName}</h1>
+            <p className="dashboard-hero-caption">
+              Votre cabinet, en un coup d’œil.
+            </p>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/clients" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-            <Users className="h-4 w-4" /> Nouveau dossier
+        <div className="dashboard-hero-actions">
+          <Link
+            href="/clients"
+            className="dashboard-hero-icon-button"
+            aria-label="Créer un dossier client"
+            title="Nouveau client"
+          >
+            <Users className="h-5 w-5" />
           </Link>
-          <Link href="/invoices" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
-            <FilePlus2 className="h-4 w-4" /> Nouvelle facture
+          <Link href="/invoices" className="dashboard-hero-primary">
+            <FilePlus2 className="h-4 w-4" />
+            Nouvelle facture
           </Link>
         </div>
       </header>
 
-      <div className={`flex flex-col justify-between gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center ${databaseConnected ? "border-emerald-100 bg-emerald-50/70" : "border-amber-100 bg-amber-50/70"}`}>
-        <div>
-          <p className={`text-sm font-semibold ${databaseConnected ? "text-emerald-950" : "text-amber-950"}`}>
-            {databaseConnected ? "Base de données du cabinet connectée" : "Mode démonstration local"}
-          </p>
-          <p className={`mt-1 text-xs ${databaseConnected ? "text-emerald-800" : "text-amber-800"}`}>
-            {databaseConnected
-              ? "Clients et factures sont chargés depuis PostgreSQL."
-              : databaseError || "Les données enregistrées dans ce navigateur ne sont visibles que sur cet appareil."}
-          </p>
+      <div className="dashboard-toolbar">
+        <div
+          className={`dashboard-connection ${databaseConnected ? "is-connected" : "is-unavailable"}`}
+          title={databaseError || undefined}
+        >
+          <span className="dashboard-connection-dot" />
+          <span>
+            {databaseConnected ? "Système connecté" : "Connexion limitée"}
+          </span>
         </div>
-        <label className="flex items-center gap-2 text-sm font-medium text-blue-950">
-          Dossier
+        <label className="dashboard-client-filter">
+          <Users className="h-4 w-4" aria-hidden="true" />
+          <span className="sr-only">Filtrer par client</span>
           <select
             value={selectedClient}
             onChange={(event) => setSelectedClient(event.target.value)}
-            className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm text-slate-800"
+            aria-label="Filtrer les données par client"
           >
             <option value="all">Tous les clients</option>
-            {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+            {clients.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.name}
+              </option>
+            ))}
           </select>
         </label>
       </div>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="dashboard-metrics" aria-label="Indicateurs clés">
         {[
-          { label: "Dossiers clients", value: selectedClient === "all" ? clients.length : 1, helper: "Portefeuille actif", icon: BriefcaseBusiness, tone: "text-blue-700 bg-blue-50" },
-          { label: "Facturation suivie", value: moneyByCurrency(issuedByCurrency, primaryCurrency), helper: `${activeInvoices.length} facture(s) émises · montants conservés par devise`, icon: FileText, tone: "text-indigo-700 bg-indigo-50" },
-          { label: "En attente de règlement", value: moneyByCurrency(outstandingByCurrency, primaryCurrency), helper: "À rapprocher des paiements · montants conservés par devise", icon: CalendarClock, tone: "text-amber-700 bg-amber-50" },
-          { label: "Dossiers à traiter", value: selectedClient === "all" ? attentionCount : clients.find((client) => client.id === selectedClient)?.status === "À jour" ? 0 : 1, helper: `${certified} facture(s) certifiée(s)`, icon: Users, tone: "text-rose-700 bg-rose-50" },
-        ].map((kpi) => {
-          const Icon = kpi.icon;
+          {
+            label: "Clients",
+            value: selectedClient === "all" ? clients.length : 1,
+            detail: `${attentionCount} à suivre`,
+            icon: BriefcaseBusiness,
+            tone: "is-blue",
+          },
+          {
+            label: "Factures",
+            value: activeInvoices.length,
+            detail: `${certified} certifiée${certified === 1 ? "" : "s"}`,
+            icon: FileText,
+            tone: "is-violet",
+          },
+          {
+            label: "Montant facturé",
+            value: moneyByCurrency(issuedByCurrency, primaryCurrency),
+            detail: "CDF · USD",
+            icon: Wallet,
+            tone: "is-pink",
+          },
+          {
+            label: "À encaisser",
+            value: moneyByCurrency(outstandingByCurrency, primaryCurrency),
+            detail: "Solde restant",
+            icon: ArrowDownRight,
+            tone: "is-amber",
+          },
+        ].map((metric) => {
+          const Icon = metric.icon;
           return (
-            <article key={kpi.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm text-slate-500">{kpi.label}</p>
-                  <p className="mt-3 text-2xl font-semibold text-slate-900">{kpi.value}</p>
-                </div>
-                <span className={`rounded-xl p-2.5 ${kpi.tone}`}><Icon className="h-5 w-5" /></span>
+            <article key={metric.label} className="dashboard-metric-card">
+              <span className={`dashboard-metric-icon ${metric.tone}`}>
+                <Icon className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div className="dashboard-metric-copy">
+                <span className="dashboard-metric-label">{metric.label}</span>
+                <strong className="dashboard-metric-value">
+                  {metric.value}
+                </strong>
+                <span className="dashboard-metric-detail">{metric.detail}</span>
               </div>
-              <p className="mt-3 text-xs text-slate-500">{kpi.helper}</p>
             </article>
           );
         })}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Factures des dossiers</h2>
-              <p className="mt-1 text-sm text-slate-500">Émission, suivi et statut de certification</p>
+      <section className="dashboard-module-grid" aria-label="Modules">
+        {moduleLinks.map((module) => {
+          const Icon = module.icon;
+          return (
+            <Link
+              key={module.href}
+              href={module.href}
+              className={`dashboard-module-card ${module.tone}`}
+            >
+              <span className="dashboard-module-icon">
+                <Icon className="h-6 w-6" aria-hidden="true" />
+              </span>
+              <span className="dashboard-module-copy">
+                <span className="dashboard-module-title">{module.label}</span>
+                <span className="dashboard-module-detail">{module.metric}</span>
+              </span>
+              <ChevronRight className="dashboard-module-arrow h-5 w-5" />
+            </Link>
+          );
+        })}
+      </section>
+
+      <section className="dashboard-content-grid">
+        <div className="dashboard-main-stack">
+          <article className="dashboard-panel dashboard-activity-panel">
+            <div className="dashboard-panel-heading">
+              <div>
+                <p className="dashboard-panel-eyebrow">Activité</p>
+                <h2>Factures émises</h2>
+              </div>
+              <span className="dashboard-panel-icon is-blue">
+                <Activity className="h-5 w-5" aria-hidden="true" />
+              </span>
             </div>
-            <Link href="/invoices" className="text-sm font-medium text-blue-600 hover:text-blue-800">Tout voir</Link>
-          </div>
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-100 text-slate-600">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Référence</th>
-                  <th className="px-4 py-3 font-medium">Dossier client</th>
-                  <th className="px-4 py-3 font-medium">Montant</th>
-                  <th className="px-4 py-3 font-medium">Statut</th>
-                  <th className="px-4 py-3 font-medium">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleInvoices.length ? visibleInvoices.map((invoice) => (
-                  <tr key={invoice.id} className="border-t border-slate-200">
-                    <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{invoice.id}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{invoice.client}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{formatMoney(invoice.amount, invoice.currency)}</td>
-                    <td className="px-4 py-3"><span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${statusClass[invoice.status]}`}>{invoice.status}</span></td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-500">{invoice.date}</td>
+            {monthlyInvoiceCounts.length ? (
+              <>
+                <svg
+                  className="dashboard-line-chart"
+                  viewBox="0 0 300 110"
+                  role="img"
+                  aria-label="Nombre de factures émises par mois"
+                >
+                  {[25, 55, 85].map((y) => (
+                    <line key={y} x1="14" x2="286" y1={y} y2={y} />
+                  ))}
+                  <polyline points={monthlyChartPoints} />
+                  {monthlyInvoiceCounts.map((month, index) => {
+                    const x = 14 + (index * 272) / 5;
+                    const y = 82 - (month.count / maxMonthlyInvoices) * 56;
+                    return <circle key={month.key} cx={x} cy={y} r="3" />;
+                  })}
+                </svg>
+                <div className="dashboard-chart-labels">
+                  {monthlyInvoiceCounts.map((month) => (
+                    <span key={month.key}>{month.label}</span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="dashboard-empty-chart">
+                <Activity className="h-7 w-7" />
+                <span>Les tendances apparaîtront avec vos factures.</span>
+              </div>
+            )}
+          </article>
+
+          <article className="dashboard-panel dashboard-recent-panel">
+            <div className="dashboard-panel-heading">
+              <div>
+                <p className="dashboard-panel-eyebrow">Registre</p>
+                <h2>Dernières factures</h2>
+              </div>
+              <Link
+                href="/invoices"
+                className="dashboard-panel-link"
+                aria-label="Voir toutes les factures"
+              >
+                Tout voir <ChevronRight className="h-4 w-4" />
+              </Link>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="dashboard-invoice-table">
+                <thead>
+                  <tr>
+                    <th>Référence</th>
+                    <th>Client</th>
+                    <th>Montant</th>
+                    <th>Statut</th>
                   </tr>
-                )) : (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">Aucune facture pour ce dossier.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {visibleInvoices.length ? (
+                    visibleInvoices.slice(0, 5).map((invoice) => (
+                      <tr key={invoice.id}>
+                        <td className="font-semibold text-slate-900">
+                          {invoice.id}
+                          <span className="dashboard-invoice-date">
+                            {invoice.date}
+                          </span>
+                        </td>
+                        <td>{invoice.client}</td>
+                        <td className="whitespace-nowrap font-medium text-slate-800">
+                          {formatMoney(invoice.amount, invoice.currency)}
+                        </td>
+                        <td>
+                          <span
+                            className={`dashboard-status-chip ${statusClass[invoice.status] ?? "is-draft"}`}
+                          >
+                            {invoice.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={4} className="dashboard-table-empty">
+                        <Receipt className="h-6 w-6" />
+                        <span>Aucune facture à afficher</span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </article>
         </div>
 
-        <div className="space-y-6">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="flex items-center justify-between">
+        <aside className="dashboard-side-stack">
+          <article className="dashboard-panel">
+            <div className="dashboard-panel-heading">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Dossiers clients</h2>
-                <p className="mt-1 text-sm text-slate-500">État du portefeuille</p>
+                <p className="dashboard-panel-eyebrow">En un regard</p>
+                <h2>Statut des factures</h2>
               </div>
-              <Link href="/clients" className="text-sm font-medium text-blue-600">Gérer</Link>
+              <PieChart className="h-5 w-5 text-indigo-500" />
             </div>
-            <div className="mt-4 space-y-3">
-              {clients.length ? clients.slice(0, 4).map((client) => (
-                <button key={client.id} onClick={() => setSelectedClient(client.id)} className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-100 p-3 text-left hover:border-blue-200 hover:bg-blue-50/40">
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-slate-800">{client.name}</span>
-                    <span className="mt-1 block text-xs text-slate-500">{client.sector}</span>
-                  </span>
-                  <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${client.status === "À jour" ? "bg-emerald-50 text-emerald-700" : client.status === "En retard" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>{client.status}</span>
-                </button>
-              )) : (
-                <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Aucun dossier client enregistré.</p>
-              )}
+            <div className="dashboard-donut-layout">
+              <div
+                className="dashboard-donut"
+                style={{
+                  background: visibleInvoices.length
+                    ? `conic-gradient(${statusGradient})`
+                    : "#edf1f7",
+                }}
+                role="img"
+                aria-label={`${visibleInvoices.length} factures au total`}
+              >
+                <span>
+                  <strong>{visibleInvoices.length}</strong>
+                  <small>factures</small>
+                </span>
+              </div>
+              <ul className="dashboard-legend">
+                {invoiceStatusCounts.map((status) => (
+                  <li key={status.label}>
+                    <span
+                      className="dashboard-legend-dot"
+                      style={{ background: status.color }}
+                    />
+                    <span>{status.label}</span>
+                    <strong>{status.count}</strong>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
+          </article>
 
-          <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-5">
-            <div className="flex items-center gap-2">
-              <CalendarClock className="h-5 w-5 text-amber-700" />
-              <h2 className="text-lg font-semibold text-amber-950">À traiter en priorité</h2>
+          <article className="dashboard-panel dashboard-priority-panel">
+            <div className="dashboard-panel-heading">
+              <div>
+                <p className="dashboard-panel-eyebrow">À ne pas oublier</p>
+                <h2>À suivre</h2>
+              </div>
+              <span className="dashboard-panel-icon is-amber">
+                <CalendarClock className="h-5 w-5" aria-hidden="true" />
+              </span>
             </div>
-            <div className="mt-4 space-y-3 text-sm">
-              {clientsToFollowUp.map((client) => (
-                <Link key={client.id} href="/clients" className="flex items-start gap-3 rounded-xl bg-white/80 p-3 hover:bg-white">
-                  <ArrowUpRight className={`mt-0.5 h-4 w-4 shrink-0 ${client.status === "En retard" ? "text-rose-600" : "text-amber-600"}`} />
-                  <span><strong className="font-medium text-slate-900">{client.name}</strong><span className="mt-0.5 block text-xs text-slate-500">Dossier {client.status.toLocaleLowerCase("fr")}</span></span>
+            <div className="dashboard-priority-list">
+              {clientsToFollowUp.slice(0, 2).map((client) => (
+                <Link
+                  key={client.id}
+                  href="/clients"
+                  className="dashboard-priority-item"
+                >
+                  <span className="dashboard-priority-icon is-rose">
+                    <ArrowUpRight className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <strong>{client.name}</strong>
+                    <small>
+                      Dossier {client.status.toLocaleLowerCase("fr")}
+                    </small>
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-slate-300" />
                 </Link>
               ))}
-              {invoicesToCollect.map((invoice) => {
+              {invoicesToCollect.slice(0, 2).map((invoice) => {
                 const balance = Math.max(
                   invoice.amount -
                     (invoice.paidAmount ??
@@ -231,18 +521,81 @@ export default function HomePage() {
                   0,
                 );
                 return (
-                  <Link key={invoice.id} href="/payments" className="flex items-start gap-3 rounded-xl bg-white/80 p-3 hover:bg-white">
-                    <ArrowDownRight className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                    <span><strong className="font-medium text-slate-900">{invoice.client}</strong><span className="mt-0.5 block text-xs text-slate-500">{invoice.id} · {formatMoney(balance, invoice.currency)} à recevoir</span></span>
+                  <Link
+                    key={invoice.id}
+                    href="/payments"
+                    className="dashboard-priority-item"
+                  >
+                    <span className="dashboard-priority-icon is-amber">
+                      <ArrowDownRight className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <strong>{invoice.client}</strong>
+                      <small>
+                        {formatMoney(balance, invoice.currency)} à recevoir
+                      </small>
+                    </span>
+                    <ChevronRight className="h-4 w-4 text-slate-300" />
                   </Link>
                 );
               })}
               {!clientsToFollowUp.length && !invoicesToCollect.length && (
-                <p className="rounded-xl bg-white/80 p-3 text-sm text-slate-600">Aucune action prioritaire pour le moment.</p>
+                <div className="dashboard-priority-empty">
+                  <span className="dashboard-priority-icon is-green">
+                    <CalendarClock className="h-4 w-4" />
+                  </span>
+                  <span>Tout est à jour</span>
+                </div>
               )}
             </div>
-          </div>
-        </div>
+          </article>
+
+          <article className="dashboard-panel dashboard-clients-panel">
+            <div className="dashboard-panel-heading">
+              <div>
+                <p className="dashboard-panel-eyebrow">Portefeuille</p>
+                <h2>Clients récents</h2>
+              </div>
+              <Link
+                href="/clients"
+                className="dashboard-panel-link"
+                aria-label="Voir tous les clients"
+              >
+                <Users className="h-4 w-4" />
+                <span className="sr-only">Tous</span>
+              </Link>
+            </div>
+            {clients.length ? (
+              <div className="dashboard-client-list">
+                {clients.slice(0, 3).map((client) => (
+                  <button
+                    key={client.id}
+                    type="button"
+                    onClick={() => setSelectedClient(client.id)}
+                    className="dashboard-client-item"
+                  >
+                    <span className="dashboard-client-avatar">
+                      {client.name.slice(0, 1).toLocaleUpperCase("fr")}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <strong>{client.name}</strong>
+                      <small>{client.sector || "Client du cabinet"}</small>
+                    </span>
+                    <span
+                      className={`dashboard-client-status ${client.status === "À jour" ? "is-good" : client.status === "En retard" ? "is-late" : "is-warning"}`}
+                      title={client.status}
+                    />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <Link href="/clients" className="dashboard-client-empty">
+                <Users className="h-5 w-5" />
+                Ajouter un premier client
+              </Link>
+            )}
+          </article>
+        </aside>
       </section>
     </div>
   );

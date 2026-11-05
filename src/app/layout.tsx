@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { WorkspaceStoreProvider } from "@/components/workspace-store";
 import { AuthGate } from "@/components/auth-gate";
 import { CompanyProfileProvider } from "@/components/company-profile";
+import { NotificationProvider } from "@/components/notification-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -23,15 +24,21 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="fr" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full bg-slate-100 text-slate-900">
-        <WorkspaceStoreProvider>
-          <AuthGate>
-            <CompanyProfileProvider>
-              <AppShell>{children}</AppShell>
-            </CompanyProfileProvider>
-          </AuthGate>
-        </WorkspaceStoreProvider>
+    <html
+      lang="fr"
+      data-scroll-behavior="smooth"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <body className="min-h-full">
+        <NotificationProvider>
+          <WorkspaceStoreProvider>
+            <AuthGate>
+              <CompanyProfileProvider>
+                <AppShell>{children}</AppShell>
+              </CompanyProfileProvider>
+            </AuthGate>
+          </WorkspaceStoreProvider>
+        </NotificationProvider>
       </body>
     </html>
   );

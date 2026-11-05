@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Plus, RefreshCw, ShieldCheck, UserRound, UserRoundX } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Plus, RefreshCw, Search, ShieldCheck, UserRound, UserRoundX } from "lucide-react";
 import { apiRequest } from "@/lib/api";
+import { useNotifications } from "@/components/notification-provider";
 
 type Role =
   | "COMPANY_ADMIN"
@@ -35,6 +36,7 @@ const roles: { value: Role; label: string }[] = [
 ];
 
 export default function UsersPage() {
+  const { notify } = useNotifications();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -45,18 +47,45 @@ export default function UsersPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("ACCOUNTANT");
+  const [query, setQuery] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [accessDenied, setAccessDenied] = useState(false);
+
+  const visibleMembers = useMemo(() => {
+    const search = query.trim().toLocaleLowerCase("fr");
+    if (!search) return members;
+    return members.filter((member) =>
+      `${member.name} ${member.email} ${member.role}`
+        .toLocaleLowerCase("fr")
+        .includes(search),
+    );
+  }, [members, query]);
 
   const loadMembers = useCallback(async () => {
     setLoading(true);
     setError("");
+    setAccessDenied(false);
     try {
-      setMembers(await apiRequest<TeamMember[]>("/users"));
+      const [currentUser, team] = await Promise.all([
+        apiRequest<{ id: string; role: Role }>("/auth/me"),
+        apiRequest<TeamMember[]>("/users"),
+      ]);
+      setCurrentUserId(currentUser.id);
+      setMembers(team);
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Impossible de charger l’équipe.",
-      );
+      if (
+        requestError instanceof Error &&
+        requestError.message.includes("API 403")
+      ) {
+        setAccessDenied(true);
+        setError("La gestion des utilisateurs est réservée à l’administrateur du cabinet.");
+      } else {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Impossible de charger l’équipe.",
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -81,13 +110,19 @@ export default function UsersPage() {
       setPassword("");
       setShowForm(false);
       setMessage("Le membre a été ajouté à l’équipe.");
+      notify({
+        type: "success",
+        title: "Utilisateur créé",
+        message: `${name.trim()} peut maintenant accéder à l’espace selon le rôle attribué.`,
+      });
       await loadMembers();
     } catch (requestError) {
-      setError(
+      const reason =
         requestError instanceof Error
           ? requestError.message
-          : "Impossible d’ajouter ce membre.",
-      );
+          : "Impossible d’ajouter ce membre.";
+      setError(reason);
+      notify({ type: "error", title: "Utilisateur non créé", message: reason });
     } finally {
       setSaving(false);
     }
@@ -106,13 +141,19 @@ export default function UsersPage() {
         body: JSON.stringify(changes),
       });
       setMessage(`Les accès de ${member.name} ont été mis à jour.`);
+      notify({
+        type: "success",
+        title: "Accès mis à jour",
+        message: `Le rôle ou le statut de ${member.name} a bien été enregistré.`,
+      });
       await loadMembers();
     } catch (requestError) {
-      setError(
+      const reason =
         requestError instanceof Error
           ? requestError.message
-          : "Impossible de modifier les accès.",
-      );
+          : "Impossible de modifier les accès.";
+      setError(reason);
+      notify({ type: "error", title: "Modification non enregistrée", message: reason });
     } finally {
       setSaving(false);
     }
@@ -126,15 +167,38 @@ export default function UsersPage() {
           <h1 className="mt-2 text-3xl font-semibold text-slate-900">Équipe & permissions</h1>
           <p className="mt-2 text-sm text-slate-500">Gérez les comptes, les rôles et les accès de votre équipe.</p>
         </div>
-        <button type="button" onClick={() => setShowForm((open) => !open)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">
-          <Plus className="h-4 w-4" /> Ajouter un membre
-        </button>
+        {!loading && !accessDenied && (
+          <button type="button" onClick={() => setShowForm((open) => !open)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">
+            <Plus className="h-4 w-4" /> Ajouter un membre
+          </button>
+        )}
       </header>
 
       {message && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
       {error && <p role="alert" className="break-words rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
 
-      {showForm && (
+      {!loading && !accessDenied && (
+        <section className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="text-sm text-slate-500">Membres du cabinet</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-900">{members.length}</p>
+          </div>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+            <p className="text-sm text-emerald-800">Comptes actifs</p>
+            <p className="mt-2 text-2xl font-semibold text-emerald-900">
+              {members.filter((member) => member.isActive).length}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+            <p className="text-sm text-amber-900">Accès suspendus</p>
+            <p className="mt-2 text-2xl font-semibold text-amber-950">
+              {members.filter((member) => !member.isActive).length}
+            </p>
+          </div>
+        </section>
+      )}
+
+      {!loading && !accessDenied && showForm && (
         <form onSubmit={createMember} className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/50 p-5 md:grid-cols-2">
           <label className="space-y-2 text-sm font-medium text-slate-700">
             Nom complet
@@ -162,6 +226,19 @@ export default function UsersPage() {
         </form>
       )}
 
+      {!loading && !accessDenied && (
+      <label className="flex max-w-lg items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-slate-400">
+        <Search className="h-4 w-4" />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Rechercher par nom, adresse e-mail ou rôle…"
+          className="w-full border-0 bg-transparent text-sm text-slate-900 outline-none"
+        />
+      </label>
+      )}
+
+      {!accessDenied && (
       <section className="overflow-hidden rounded-2xl border border-slate-200">
         <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
           <div>
@@ -173,10 +250,10 @@ export default function UsersPage() {
           </button>
         </div>
         {loading ? (
-          <p className="p-6 text-sm text-slate-500">Chargement de l’équipe…</p>
-        ) : members.length ? (
+          <p role="status" className="p-6 text-sm text-slate-500">Chargement de l’équipe…</p>
+        ) : visibleMembers.length ? (
           <div className="divide-y divide-slate-100">
-            {members.map((member) => (
+            {visibleMembers.map((member) => (
               <article key={member.id} className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_240px_auto] lg:items-center">
                 <div className="flex items-center gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-700"><UserRound className="h-5 w-5" /></span>
@@ -192,16 +269,21 @@ export default function UsersPage() {
                     {roles.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                   </select>
                 </label>
-                <button type="button" disabled={saving} onClick={() => void updateMember(member, { isActive: !member.isActive })} className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${member.isActive ? "border border-slate-200 text-slate-700 hover:bg-slate-50" : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"}`}>
-                  {member.isActive ? <><UserRoundX className="h-4 w-4" /> Désactiver</> : <><ShieldCheck className="h-4 w-4" /> Réactiver</>}
+                <button type="button" disabled={saving || member.id === currentUserId} title={member.id === currentUserId ? "Vous ne pouvez pas suspendre votre propre compte." : undefined} onClick={() => void updateMember(member, { isActive: !member.isActive })} className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${member.isActive ? "border border-slate-200 text-slate-700 hover:bg-slate-50" : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"}`}>
+                  {member.id === currentUserId
+                    ? "Compte actuel"
+                    : member.isActive
+                      ? <><UserRoundX className="h-4 w-4" /> Désactiver</>
+                      : <><ShieldCheck className="h-4 w-4" /> Réactiver</>}
                 </button>
               </article>
             ))}
           </div>
         ) : (
-          <p className="p-6 text-sm text-slate-500">Aucun membre n’est encore enregistré.</p>
+          <p className="p-6 text-sm text-slate-500">Aucun membre ne correspond à cette recherche.</p>
         )}
       </section>
+      )}
       <p className="text-xs text-slate-500">La gestion de l’équipe est réservée à l’administrateur du cabinet.</p>
     </div>
   );

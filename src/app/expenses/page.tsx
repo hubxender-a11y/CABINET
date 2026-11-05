@@ -58,7 +58,6 @@ export default function ExpensesPage() {
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     if (profile && !currencyWasChanged.current) {
@@ -70,23 +69,12 @@ export default function ExpensesPage() {
     let active = true;
     const timer = window.setTimeout(() => {
       if (!databaseConnected) {
-        if (apiConfigured) {
-          setExpenses([]);
-          setError("API indisponible : les charges réelles ne peuvent pas être chargées.");
-          setHydrated(true);
-          return;
-        }
-        try {
-          setExpenses(
-            JSON.parse(
-              window.localStorage.getItem("factura-expenses") ?? "[]",
-            ) as Expense[],
-          );
-        } catch (caught) {
-          console.error("Lecture des charges locales impossible.", caught);
-          setExpenses([]);
-        }
-        setHydrated(true);
+        setExpenses([]);
+        setError(
+          apiConfigured
+            ? "API indisponible : les charges ne peuvent pas être chargées ni enregistrées."
+            : "API du cabinet non configurée. Aucune charge ne sera enregistrée.",
+        );
         return;
       }
 
@@ -96,7 +84,6 @@ export default function ExpensesPage() {
           if (active) {
             setExpenses(rows);
             setError("");
-            setHydrated(true);
           }
         })
         .catch((caught: unknown) => {
@@ -107,7 +94,6 @@ export default function ExpensesPage() {
                 ? caught.message
                 : "Impossible de charger les charges enregistrées.",
             );
-            setHydrated(true);
           }
         })
         .finally(() => {
@@ -120,11 +106,6 @@ export default function ExpensesPage() {
       window.clearTimeout(timer);
     };
   }, [databaseConnected]);
-
-  useEffect(() => {
-    if (!hydrated || databaseConnected) return;
-    window.localStorage.setItem("factura-expenses", JSON.stringify(expenses));
-  }, [databaseConnected, expenses, hydrated]);
 
   const totals = useMemo(
     () =>
@@ -164,18 +145,18 @@ export default function ExpensesPage() {
         description: description.trim() || undefined,
       };
 
-      if (databaseConnected) {
-        const created = await apiRequest<Expense>("/expenses", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-        setExpenses((current) => [created, ...current]);
-      } else {
-        setExpenses((current) => [
-          { ...payload, id: crypto.randomUUID() },
-          ...current,
-        ]);
+      if (!databaseConnected) {
+        throw new Error(
+          apiConfigured
+            ? "Serveur indisponible : la charge n’a pas été enregistrée."
+            : "API du cabinet non configurée. La charge n’a pas été enregistrée.",
+        );
       }
+      const created = await apiRequest<Expense>("/expenses", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setExpenses((current) => [created, ...current]);
 
       setAmount("");
       setDescription("");
@@ -214,7 +195,7 @@ export default function ExpensesPage() {
       >
         {databaseConnected
           ? "Les charges sont enregistrées dans PostgreSQL et journalisées."
-          : "Mode démonstration : les charges restent dans ce navigateur et ne sont pas partagées."}
+          : "Base de données indisponible : les charges ne peuvent pas être enregistrées."}
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2">
@@ -319,7 +300,7 @@ export default function ExpensesPage() {
           {success && <p role="status" className="text-sm text-emerald-700">{success}</p>}
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || !databaseConnected}
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? "Enregistrement…" : "Enregistrer la charge"}
