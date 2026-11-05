@@ -203,15 +203,6 @@ export default function DocumentsPage() {
     };
   }, [preview]);
 
-  const categoryCounts = useMemo(
-    () =>
-      categories.map((item) => ({
-        ...item,
-        count: documents.filter((document) => document.category === item.value)
-          .length,
-      })),
-    [documents],
-  );
   const visibleDocuments = useMemo(
     () =>
       filterCategory
@@ -487,44 +478,16 @@ export default function DocumentsPage() {
         </p>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {categoryCounts.map((item) => (
-          <button
-            key={item.value}
-            type="button"
-            aria-pressed={filterCategory === item.value}
-            onClick={() => {
-              setFilterCategory(
-                filterCategory === item.value ? "" : item.value,
-              );
-              setFilterBinderId("");
-            }}
-            className={`archive-binder-card ${filterCategory === item.value ? "is-selected" : ""}`}
-          >
-            <span className="archive-binder-icon">
-              <FolderClosed className="h-5 w-5" />
-            </span>
-            <span className="archive-binder-copy">
-              <span className="archive-binder-title">{item.label}</span>
-              <span className="archive-binder-detail">
-                Classeur par exercice et période
-              </span>
-            </span>
-            <span className="archive-binder-count">{item.count}</span>
-          </button>
-        ))}
-      </section>
-
       <section className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <h2 className="font-semibold text-slate-900">
-              Classeurs personnalisés
+              Mes classeurs
             </h2>
             <p className="mt-1 text-xs text-slate-500">
               {filterCategory || filterYear
-                ? "Filtrés selon la famille et l’exercice sélectionnés."
-                : "Créez vos propres dossiers et organisez-y les documents."}
+                ? "Classeurs filtrés par famille et exercice."
+                : "Seuls les classeurs que vous créez apparaissent ici."}
             </p>
           </div>
           {filterBinderId && (
@@ -852,6 +815,22 @@ export default function DocumentsPage() {
                 className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm"
               />
             </label>
+            <select
+              aria-label="Filtrer par famille"
+              value={filterCategory}
+              onChange={(event) => {
+                setFilterCategory(event.target.value);
+                setFilterBinderId("");
+              }}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">Toutes les familles</option>
+              {categories.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
             <select
               aria-label="Filtrer par exercice"
               value={filterYear}

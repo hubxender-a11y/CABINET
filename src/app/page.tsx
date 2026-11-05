@@ -13,7 +13,6 @@ import {
   ChevronRight,
   FilePlus2,
   FileText,
-  PieChart,
   Receipt,
   Users,
   Wallet,
@@ -117,7 +116,11 @@ export default function HomePage() {
     (invoice) => invoice.status === "Certifiée",
   ).length;
   const clientsToFollowUp = clients
-    .filter((client) => client.status !== "À jour")
+    .filter(
+      (client) =>
+        client.status !== "À jour" &&
+        (selectedClient === "all" || client.id === selectedClient),
+    )
     .slice(0, 3);
   const invoicesToCollect = activeInvoices
     .filter(
@@ -128,85 +131,6 @@ export default function HomePage() {
         0,
     )
     .slice(0, 3);
-  const invoiceStatusCounts = [
-    {
-      label: "Payées",
-      count: visibleInvoices.filter((invoice) => invoice.status === "Payée")
-        .length,
-      color: "#43bd91",
-    },
-    { label: "Certifiées", count: certified, color: "#5268d8" },
-    {
-      label: "En attente",
-      count: visibleInvoices.filter(
-        (invoice) => invoice.status === "En attente",
-      ).length,
-      color: "#f2bd54",
-    },
-    {
-      label: "Autres",
-      count: visibleInvoices.filter(
-        (invoice) =>
-          invoice.status === "Rejetée" || invoice.status === "Brouillon",
-      ).length,
-      color: "#ef8399",
-    },
-  ];
-  let statusSweep = 0;
-  const statusGradient = invoiceStatusCounts
-    .filter((status) => status.count > 0)
-    .map((status) => {
-      const start = statusSweep;
-      statusSweep += (status.count / visibleInvoices.length) * 100;
-      return `${status.color} ${start}% ${statusSweep}%`;
-    })
-    .join(", ");
-  const monthLabels = [
-    "janv.",
-    "févr.",
-    "mars",
-    "avr.",
-    "mai",
-    "juin",
-    "juil.",
-    "août",
-    "sept.",
-    "oct.",
-    "nov.",
-    "déc.",
-  ];
-  const latestInvoiceMonth = visibleInvoices
-    .map((invoice) => invoice.date.slice(0, 7))
-    .filter((month) => /^\d{4}-(0[1-9]|1[0-2])$/.test(month))
-    .sort()
-    .at(-1);
-  const monthlyInvoiceCounts = latestInvoiceMonth
-    ? Array.from({ length: 6 }, (_, index) => {
-        const [year, month] = latestInvoiceMonth.split("-").map(Number);
-        const monthOffset = month - 1 - (5 - index);
-        const monthIndex = ((monthOffset % 12) + 12) % 12;
-        const monthYear = year + Math.floor(monthOffset / 12);
-        const key = `${monthYear}-${String(monthIndex + 1).padStart(2, "0")}`;
-        return {
-          key,
-          label: monthLabels[monthIndex],
-          count: visibleInvoices.filter((invoice) =>
-            invoice.date.startsWith(key),
-          ).length,
-        };
-      })
-    : [];
-  const maxMonthlyInvoices = Math.max(
-    ...monthlyInvoiceCounts.map((month) => month.count),
-    1,
-  );
-  const monthlyChartPoints = monthlyInvoiceCounts
-    .map(
-      (month, index) =>
-        `${14 + (index * 272) / 5},${82 - (month.count / maxMonthlyInvoices) * 56}`,
-    )
-    .join(" ");
-
   return (
     <div className="dashboard-page">
       <header className="dashboard-hero">
@@ -341,48 +265,6 @@ export default function HomePage() {
 
       <section className="dashboard-content-grid">
         <div className="dashboard-main-stack">
-          <article className="dashboard-panel dashboard-activity-panel">
-            <div className="dashboard-panel-heading">
-              <div>
-                <p className="dashboard-panel-eyebrow">Activité</p>
-                <h2>Factures émises</h2>
-              </div>
-              <span className="dashboard-panel-icon is-blue">
-                <Activity className="h-5 w-5" aria-hidden="true" />
-              </span>
-            </div>
-            {monthlyInvoiceCounts.length ? (
-              <>
-                <svg
-                  className="dashboard-line-chart"
-                  viewBox="0 0 300 110"
-                  role="img"
-                  aria-label="Nombre de factures émises par mois"
-                >
-                  {[25, 55, 85].map((y) => (
-                    <line key={y} x1="14" x2="286" y1={y} y2={y} />
-                  ))}
-                  <polyline points={monthlyChartPoints} />
-                  {monthlyInvoiceCounts.map((month, index) => {
-                    const x = 14 + (index * 272) / 5;
-                    const y = 82 - (month.count / maxMonthlyInvoices) * 56;
-                    return <circle key={month.key} cx={x} cy={y} r="3" />;
-                  })}
-                </svg>
-                <div className="dashboard-chart-labels">
-                  {monthlyInvoiceCounts.map((month) => (
-                    <span key={month.key}>{month.label}</span>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="dashboard-empty-chart">
-                <Activity className="h-7 w-7" />
-                <span>Les tendances apparaîtront avec vos factures.</span>
-              </div>
-            )}
-          </article>
-
           <article className="dashboard-panel dashboard-recent-panel">
             <div className="dashboard-panel-heading">
               <div>
@@ -445,45 +327,6 @@ export default function HomePage() {
         </div>
 
         <aside className="dashboard-side-stack">
-          <article className="dashboard-panel">
-            <div className="dashboard-panel-heading">
-              <div>
-                <p className="dashboard-panel-eyebrow">En un regard</p>
-                <h2>Statut des factures</h2>
-              </div>
-              <PieChart className="h-5 w-5 text-indigo-500" />
-            </div>
-            <div className="dashboard-donut-layout">
-              <div
-                className="dashboard-donut"
-                style={{
-                  background: visibleInvoices.length
-                    ? `conic-gradient(${statusGradient})`
-                    : "#edf1f7",
-                }}
-                role="img"
-                aria-label={`${visibleInvoices.length} factures au total`}
-              >
-                <span>
-                  <strong>{visibleInvoices.length}</strong>
-                  <small>factures</small>
-                </span>
-              </div>
-              <ul className="dashboard-legend">
-                {invoiceStatusCounts.map((status) => (
-                  <li key={status.label}>
-                    <span
-                      className="dashboard-legend-dot"
-                      style={{ background: status.color }}
-                    />
-                    <span>{status.label}</span>
-                    <strong>{status.count}</strong>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </article>
-
           <article className="dashboard-panel dashboard-priority-panel">
             <div className="dashboard-panel-heading">
               <div>
@@ -548,52 +391,6 @@ export default function HomePage() {
                 </div>
               )}
             </div>
-          </article>
-
-          <article className="dashboard-panel dashboard-clients-panel">
-            <div className="dashboard-panel-heading">
-              <div>
-                <p className="dashboard-panel-eyebrow">Portefeuille</p>
-                <h2>Clients récents</h2>
-              </div>
-              <Link
-                href="/clients"
-                className="dashboard-panel-link"
-                aria-label="Voir tous les clients"
-              >
-                <Users className="h-4 w-4" />
-                <span className="sr-only">Tous</span>
-              </Link>
-            </div>
-            {clients.length ? (
-              <div className="dashboard-client-list">
-                {clients.slice(0, 3).map((client) => (
-                  <button
-                    key={client.id}
-                    type="button"
-                    onClick={() => setSelectedClient(client.id)}
-                    className="dashboard-client-item"
-                  >
-                    <span className="dashboard-client-avatar">
-                      {client.name.slice(0, 1).toLocaleUpperCase("fr")}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <strong>{client.name}</strong>
-                      <small>{client.sector || "Client du cabinet"}</small>
-                    </span>
-                    <span
-                      className={`dashboard-client-status ${client.status === "À jour" ? "is-good" : client.status === "En retard" ? "is-late" : "is-warning"}`}
-                      title={client.status}
-                    />
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <Link href="/clients" className="dashboard-client-empty">
-                <Users className="h-5 w-5" />
-                Ajouter un premier client
-              </Link>
-            )}
           </article>
         </aside>
       </section>
