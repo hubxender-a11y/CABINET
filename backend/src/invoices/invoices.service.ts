@@ -56,7 +56,7 @@ export class InvoicesService {
       if (!initialInvoice) throw new NotFoundException('Facture introuvable.');
 
       const issueYear = initialInvoice.issueDate.getUTCFullYear();
-      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), CAST(${issueYear} AS INTEGER))`;
+      await transaction.$queryRaw`WITH advisory_lock AS MATERIALIZED (           SELECT pg_advisory_xact_lock(hashtext(${companyId}), CAST(${issueYear} AS INTEGER))         )         SELECT 1 FROM advisory_lock`;
 
       const invoice = await transaction.invoice.findFirst({
         where: { id, companyId },
@@ -236,7 +236,7 @@ export class InvoicesService {
     const issueYear = Number(dto.issueDate.slice(0, 4));
 
     return this.prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), CAST(${issueYear} AS INTEGER))`;
+      await transaction.$queryRaw`WITH advisory_lock AS MATERIALIZED (           SELECT pg_advisory_xact_lock(hashtext(${companyId}), CAST(${issueYear} AS INTEGER))         )         SELECT 1 FROM advisory_lock`;
 
       const company = await transaction.company.findUnique({
         where: { id: companyId },
