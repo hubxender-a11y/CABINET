@@ -1,4 +1,4 @@
-# FACTURA RDC — API
+# API du Cabinet Transparency
 
 API NestJS du cabinet, avec PostgreSQL, Prisma et authentification JWT. Les routes de gestion sont protégées; seules l’authentification et la vérification d’état sont publiques.
 

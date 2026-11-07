@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Printer } from "lucide-react";
-import { useWorkspaceStore, type WorkspaceInvoice } from "@/components/workspace-store";
+import type { WorkspaceInvoice } from "@/components/workspace-store";
 import { apiRequest } from "@/lib/api";
 import {
   companyDisplayName,
@@ -49,6 +49,8 @@ type MonthlyReportData = {
   payments: ReturnType<typeof mapMonthlyPayment>[];
   expenses: ReportExpense[];
 };
+
+const hasConfiguredApi = Boolean(process.env.NEXT_PUBLIC_API_URL);
 
 function isReportExpense(value: unknown): value is ReportExpense {
   if (!value || typeof value !== "object") return false;
@@ -187,13 +189,13 @@ function mapMonthlyInvoice(invoice: MonthlyReportResponse["invoices"][number]): 
 }
 
 export default function ReportsPage() {
-  const { databaseConnected, databaseError } = useWorkspaceStore();
   const { profile } = useCompanyProfile();
   const primaryCurrency = profile?.currencyCode ?? "CDF";
   const [period, setPeriod] = useState("");
   const [monthlyData, setMonthlyData] = useState<MonthlyReportData | null>(null);
   const [generatedAt, setGeneratedAt] = useState<Date | null>(null);
   const [error, setError] = useState("");
+  const [reloadCount, setReloadCount] = useState(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -212,13 +214,14 @@ export default function ReportsPage() {
   }, [period]);
 
   useEffect(() => {
-    if (!databaseConnected || !periodBounds) return;
+    if (!hasConfiguredApi || !periodBounds) return;
     const controller = new AbortController();
     void apiRequest<MonthlyReportResponse>(
       `/dashboard/monthly?period=${encodeURIComponent(period)}`,
       { signal: controller.signal },
     )
       .then((data) => {
+        if (controller.signal.aborted) return;
         if (data.period !== period || !Array.isArray(data.invoices) ||
             !Array.isArray(data.payments) || !Array.isArray(data.expenses) ||
             !data.invoices.every(isMonthlyInvoice) ||
@@ -233,9 +236,10 @@ export default function ReportsPage() {
           expenses: data.expenses,
         });
         setError("");
+        setGeneratedAt(new Date());
       })
       .catch((caught: unknown) => {
-        if (caught instanceof DOMException && caught.name === "AbortError") return;
+        if (controller.signal.aborted) return;
         console.error("Chargement du rapport mensuel impossible.", caught);
         setError(
           caught instanceof Error
@@ -245,19 +249,19 @@ export default function ReportsPage() {
       });
 
     return () => controller.abort();
-  }, [databaseConnected, period, periodBounds]);
+  }, [period, periodBounds, reloadCount]);
 
   const monthlyLoading =
-    databaseConnected && Boolean(periodBounds) && monthlyData?.period !== period && !error;
+    hasConfiguredApi && Boolean(periodBounds) && monthlyData?.period !== period && !error;
 
   const report = useMemo(() => {
     if (!periodBounds) return null;
     const sourceInvoices =
-      databaseConnected && monthlyData?.period === period ? monthlyData.invoices : [];
+      monthlyData?.period === period ? monthlyData.invoices : [];
     const sourcePayments =
-      databaseConnected && monthlyData?.period === period ? monthlyData.payments : [];
+      monthlyData?.period === period ? monthlyData.payments : [];
     const sourceExpenses =
-      databaseConnected && monthlyData?.period === period ? monthlyData.expenses : [];
+      monthlyData?.period === period ? monthlyData.expenses : [];
     const periodInvoices = sourceInvoices.filter(
       (invoice) => invoice.date >= periodBounds.start && invoice.date <= periodBounds.end,
     );
@@ -365,7 +369,6 @@ export default function ReportsPage() {
       hasAuditAttention: auditChecks.some((check) => check.attention),
     };
   }, [
-    databaseConnected,
     monthlyData,
     period,
     periodBounds,
@@ -374,8 +377,8 @@ export default function ReportsPage() {
 
   const title = companyDisplayName(profile);
   const selectedMonthLabel = monthLabel(period);
-  const monthlyReady = databaseConnected && monthlyData?.period === period;
-  const reportError = error || (!databaseConnected ? databaseError : "");
+  const monthlyReady = monthlyData?.period === period;
+  const reportError = error || (hasConfiguredApi ? "" : "Connectez l’API du cabinet pour charger le rapport.");
   const reportAvailable = !reportError && monthlyReady;
 
   return (
@@ -416,7 +419,18 @@ export default function ReportsPage() {
       </header>
 
       {reportError && (
-        <p role="alert" className="report-error report-screen-only">{reportError}</p>
+        <div role="alert" className="report-error report-screen-only">
+          <p>{reportError}</p>
+          {hasConfiguredApi && (
+            <button type="button" className="mt-2 font-semibold underline" onClick={() => {
+              setError("");
+              setMonthlyData(null);
+              setReloadCount((count) => count + 1);
+            }}>
+              Réessayer
+            </button>
+          )}
+        </div>
       )}
 
       {report && periodBounds && reportAvailable && (
@@ -452,7 +466,7 @@ export default function ReportsPage() {
                     <th>Factures</th>
                     <th>Honoraires facturés</th>
                     <th>Règlements reçus</th>
-                    <th>Créances restantes</th>
+                    <th>Solde actuel des factures du mois</th>
                     <th>Charges</th>
                     <th>Flux net*</th>
                   </tr>
@@ -472,7 +486,7 @@ export default function ReportsPage() {
                 </tbody>
               </table>
             </div>
-            <p className="report-footnote">* Règlements enregistrés moins charges saisies pour la période ; ce montant n’est pas un rapprochement bancaire.</p>
+            <p className="report-footnote">Le solde actuel tient compte des règlements enregistrés après la fin du mois. Le flux net* correspond aux règlements reçus moins les charges saisies pendant la période.</p>
           </section>
 
           <section className="report-panel">
@@ -620,7 +634,7 @@ export default function ReportsPage() {
         </>
       )}
 
-      {(monthlyLoading || (databaseConnected && !monthlyReady)) && (
+      {monthlyLoading && (
         <p className="report-loading report-screen-only">Chargement des données du rapport…</p>
       )}
       {!periodBounds && period && <p role="alert" className="report-error">La période sélectionnée est invalide.</p>}

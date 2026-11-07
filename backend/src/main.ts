@@ -36,10 +36,11 @@ async function bootstrap() {
     credentials: false,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 600,
   });
 
   const config = new DocumentBuilder()
-    .setTitle('FACTURA RDC API')
+    .setTitle('Cabinet Transparency API')
     .setDescription('API de facturation, fiscalité et gestion commerciale RDC')
     .setVersion('1.0')
     .addBearerAuth()

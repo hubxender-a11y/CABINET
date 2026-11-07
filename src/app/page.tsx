@@ -7,12 +7,14 @@ import {
   Archive,
   ArrowDownRight,
   ArrowUpRight,
-  Boxes,
+  BarChart3,
   BriefcaseBusiness,
+  Building2,
   CalendarClock,
   ChevronRight,
   FilePlus2,
   FileText,
+  Landmark,
   Receipt,
   Users,
   Wallet,
@@ -24,6 +26,8 @@ import {
   useCompanyProfile,
 } from "@/components/company-profile";
 import { formatMoney } from "@/lib/formatting";
+import { getReceivables, receivableLabels } from "@/lib/receivables";
+import { useKinshasaDate } from "@/lib/use-kinshasa-date";
 
 const moneyByCurrency = (
   totals: Record<"CDF" | "USD", number>,
@@ -44,25 +48,60 @@ const statusClass: Record<string, string> = {
 
 const moduleLinks = [
   {
-    href: "/invoices",
-    label: "Facturation",
-    icon: Receipt,
-    tone: "is-billing",
-    metric: "clients & factures",
+    href: "/clients",
+    label: "Dossiers clients",
+    icon: BriefcaseBusiness,
+    tone: "is-blue",
+    metric: "Entreprises accompagnées",
   },
   {
-    href: "/stocks",
-    label: "Stock & patrimoine",
-    icon: Boxes,
-    tone: "is-inventory",
-    metric: "articles & matériel",
+    href: "/invoices",
+    label: "Factures clients",
+    icon: Receipt,
+    tone: "is-violet",
+    metric: "Facturation des entreprises",
+  },
+  {
+    href: "/payments",
+    label: "Règlements",
+    icon: Wallet,
+    tone: "is-teal",
+    metric: "Suivi des encaissements",
+  },
+  {
+    href: "/expenses",
+    label: "Dépenses",
+    icon: FileText,
+    tone: "is-rose",
+    metric: "Charges des entreprises",
+  },
+  {
+    href: "/fiscal",
+    label: "Suivi fiscal",
+    icon: Landmark,
+    tone: "is-amber",
+    metric: "Contrôle des factures et justificatifs",
+  },
+  {
+    href: "/patrimoine",
+    label: "Patrimoine",
+    icon: Building2,
+    tone: "is-green",
+    metric: "Matériel & immobilisations",
   },
   {
     href: "/documents",
     label: "Archivage",
     icon: Archive,
-    tone: "is-archive",
-    metric: "classeurs & documents",
+    tone: "is-orange",
+    metric: "Documents des dossiers",
+  },
+  {
+    href: "/reports",
+    label: "Rapports",
+    icon: BarChart3,
+    tone: "is-slate",
+    metric: "Vue d’ensemble de l’activité",
   },
 ] as const;
 
@@ -92,45 +131,28 @@ export default function HomePage() {
     }),
     { CDF: 0, USD: 0 },
   );
-  const outstandingByCurrency = activeInvoices.reduce(
-    (totals, invoice) => {
-      const balance =
-        invoice.status === "Payée"
-          ? 0
-          : Math.max(invoice.amount - (invoice.paidAmount ?? 0), 0);
-      return {
-        ...totals,
-        [invoice.currency]: totals[invoice.currency] + balance,
-      };
-    },
+  const today = useKinshasaDate();
+  const receivables = today ? getReceivables(activeInvoices, today) : [];
+  const outstandingByCurrency = receivables.reduce(
+    (totals, { invoice, balance }) => ({
+      ...totals,
+      [invoice.currency]: totals[invoice.currency] + balance,
+    }),
     { CDF: 0, USD: 0 },
   );
-  const attentionCount =
-    selectedClient === "all"
-      ? clients.filter((client) => client.status !== "À jour").length
-      : clients.find((client) => client.id === selectedClient)?.status ===
-          "À jour"
-        ? 0
-        : 1;
+  const visibleClients = clients.filter((client) =>
+    selectedClient === "all" || client.id === selectedClient,
+  );
+  const clientsToFollowUp = visibleClients.filter((client) => client.status !== "À jour");
+  const attentionCount = clientsToFollowUp.length;
   const certified = visibleInvoices.filter(
-    (invoice) => invoice.status === "Certifiée",
+    (invoice) => invoice.fiscalStatus === "CERTIFIED",
   ).length;
-  const clientsToFollowUp = clients
-    .filter(
-      (client) =>
-        client.status !== "À jour" &&
-        (selectedClient === "all" || client.id === selectedClient),
-    )
-    .slice(0, 3);
-  const invoicesToCollect = activeInvoices
-    .filter(
-      (invoice) =>
-        invoice.amount -
-          (invoice.paidAmount ??
-            (invoice.status === "Payée" ? invoice.amount : 0)) >
-        0,
-    )
-    .slice(0, 3);
+  const fiscalReviewCount = visibleInvoices.filter(({ fiscalStatus }) =>
+    fiscalStatus === "PENDING_FISCALIZATION" || fiscalStatus === "REJECTED",
+  ).length;
+  const overdueCount = receivables.filter((item) => item.status === "overdue").length;
+  const dueTodayCount = receivables.filter((item) => item.status === "today").length;
   return (
     <div className="dashboard-page">
       <header className="dashboard-hero">
@@ -140,11 +162,11 @@ export default function HomePage() {
           </span>
           <div>
             <p className="dashboard-eyebrow">
-              FACTURA RDC <span>·</span> {companyLocation(profile)}
+              {cabinetName} <span>·</span> {companyLocation(profile)}
             </p>
-            <h1>Bienvenue, {cabinetName}</h1>
+            <h1>Vue d’ensemble</h1>
             <p className="dashboard-hero-caption">
-              Votre cabinet, en un coup d’œil.
+              Dossiers, facturation et trésorerie du cabinet
             </p>
           </div>
         </div>
@@ -152,19 +174,20 @@ export default function HomePage() {
           <Link
             href="/clients"
             className="dashboard-hero-icon-button"
-            aria-label="Créer un dossier client"
-            title="Nouveau client"
+            aria-label="Ouvrir les dossiers clients"
+            title="Dossiers clients"
           >
             <Users className="h-5 w-5" />
           </Link>
           <Link href="/invoices" className="dashboard-hero-primary">
             <FilePlus2 className="h-4 w-4" />
-            Nouvelle facture
+            Gérer les factures
           </Link>
         </div>
       </header>
 
       <div className="dashboard-toolbar">
+        <h2>Indicateurs du cabinet</h2>
         <div
           className={`dashboard-connection ${databaseConnected ? "is-connected" : "is-unavailable"}`}
           title={databaseError || undefined}
@@ -195,14 +218,14 @@ export default function HomePage() {
       <section className="dashboard-metrics" aria-label="Indicateurs clés">
         {[
           {
-            label: "Clients",
-            value: selectedClient === "all" ? clients.length : 1,
-            detail: `${attentionCount} à suivre`,
+            label: "Entreprises suivies",
+            value: visibleClients.length,
+            detail: `${attentionCount} dossier${attentionCount === 1 ? "" : "s"} à suivre`,
             icon: BriefcaseBusiness,
             tone: "is-blue",
           },
           {
-            label: "Factures",
+            label: "Factures clients",
             value: activeInvoices.length,
             detail: `${certified} certifiée${certified === 1 ? "" : "s"}`,
             icon: FileText,
@@ -218,7 +241,7 @@ export default function HomePage() {
           {
             label: "À encaisser",
             value: moneyByCurrency(outstandingByCurrency, primaryCurrency),
-            detail: "Solde restant",
+            detail: `${overdueCount} facture${overdueCount === 1 ? "" : "s"} en retard`,
             icon: ArrowDownRight,
             tone: "is-amber",
           },
@@ -241,26 +264,46 @@ export default function HomePage() {
         })}
       </section>
 
-      <section className="dashboard-module-grid" aria-label="Modules">
-        {moduleLinks.map((module) => {
-          const Icon = module.icon;
-          return (
-            <Link
-              key={module.href}
-              href={module.href}
-              className={`dashboard-module-card ${module.tone}`}
-            >
-              <span className="dashboard-module-icon">
-                <Icon className="h-6 w-6" aria-hidden="true" />
-              </span>
-              <span className="dashboard-module-copy">
-                <span className="dashboard-module-title">{module.label}</span>
-                <span className="dashboard-module-detail">{module.metric}</span>
-              </span>
-              <ChevronRight className="dashboard-module-arrow h-5 w-5" />
-            </Link>
-          );
-        })}
+      <section className="grid gap-3 md:grid-cols-3" aria-label="Priorités du cabinet">
+        {[
+          { href: "/recouvrement", label: "Recouvrement", detail: `${overdueCount} en retard · ${dueTodayCount} à échéance aujourd’hui`, Icon: CalendarClock },
+          { href: "/fiscal", label: "Contrôle fiscal", detail: `${fiscalReviewCount} facture(s) à examiner`, Icon: Landmark },
+          { href: "/reports", label: "Clôture mensuelle", detail: "Consulter les registres et les contrôles", Icon: BarChart3 },
+        ].map(({ href, label, detail, Icon }) => (
+          <Link key={href} href={href} className="dashboard-priority-item">
+            <span className="dashboard-priority-icon is-amber"><Icon className="h-4 w-4" aria-hidden="true" /></span>
+            <span className="min-w-0 flex-1">
+              <strong>{label}</strong>
+              <small>{!databaseConnected && href !== "/reports" ? "Données du cabinet à vérifier" : detail}</small>
+            </span>
+            <ChevronRight className="h-4 w-4 text-slate-500" aria-hidden="true" />
+          </Link>
+        ))}
+      </section>
+
+      <section className="dashboard-modules" aria-labelledby="dashboard-modules-title">
+        <h2 id="dashboard-modules-title">Accès rapides</h2>
+        <div className="dashboard-module-grid">
+          {moduleLinks.map((module) => {
+            const Icon = module.icon;
+            return (
+              <Link
+                key={module.href}
+                href={module.href}
+                className={`dashboard-module-card ${module.tone}`}
+              >
+                <span className="dashboard-module-icon">
+                  <Icon className="h-6 w-6" aria-hidden="true" />
+                </span>
+                <span className="dashboard-module-copy">
+                  <span className="dashboard-module-title">{module.label}</span>
+                  <span className="dashboard-module-detail">{module.metric}</span>
+                </span>
+                <ChevronRight className="dashboard-module-arrow h-5 w-5" />
+              </Link>
+            );
+          })}
+        </div>
       </section>
 
       <section className="dashboard-content-grid">
@@ -356,38 +399,30 @@ export default function HomePage() {
                   <ChevronRight className="h-4 w-4 text-slate-300" />
                 </Link>
               ))}
-              {invoicesToCollect.slice(0, 2).map((invoice) => {
-                const balance = Math.max(
-                  invoice.amount -
-                    (invoice.paidAmount ??
-                      (invoice.status === "Payée" ? invoice.amount : 0)),
-                  0,
-                );
-                return (
+              {receivables.slice(0, 2).map(({ invoice, balance, status }) => (
                   <Link
                     key={invoice.id}
-                    href="/payments"
+                    href={{ pathname: "/payments", query: { facture: invoice.databaseId ?? invoice.id } }}
                     className="dashboard-priority-item"
                   >
-                    <span className="dashboard-priority-icon is-amber">
+                    <span className={`dashboard-priority-icon ${status === "overdue" ? "is-rose" : "is-amber"}`}>
                       <ArrowDownRight className="h-4 w-4" />
                     </span>
                     <span className="min-w-0 flex-1">
                       <strong>{invoice.client}</strong>
                       <small>
-                        {formatMoney(balance, invoice.currency)} à recevoir
+                        {formatMoney(balance, invoice.currency)} · {receivableLabels[status]}
                       </small>
                     </span>
                     <ChevronRight className="h-4 w-4 text-slate-300" />
                   </Link>
-                );
-              })}
-              {!clientsToFollowUp.length && !invoicesToCollect.length && (
+              ))}
+              {!clientsToFollowUp.length && !receivables.length && (
                 <div className="dashboard-priority-empty">
                   <span className="dashboard-priority-icon is-green">
                     <CalendarClock className="h-4 w-4" />
                   </span>
-                  <span>Tout est à jour</span>
+                  <span>{databaseConnected ? "Tout est à jour" : "Données du cabinet indisponibles"}</span>
                 </div>
               )}
             </div>

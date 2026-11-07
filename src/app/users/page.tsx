@@ -161,7 +161,7 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end">
+      <header className="workspace-page-heading flex flex-col justify-between gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end">
         <div>
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">Administration du cabinet</p>
           <h1 className="mt-2 text-3xl font-semibold text-slate-900">Équipe & permissions</h1>

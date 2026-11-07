@@ -15,11 +15,7 @@ const defaultPhone = "+243 98 00 69 950";
 const defaultEmail = "contact@ctrs.cd";
 
 function isDefaultBrand(name: string, hasProfile: boolean) {
-  return (
-    !hasProfile ||
-    /transparency/i.test(name) ||
-    /^factura rdc$/i.test(name)
-  );
+  return !hasProfile || /transparency/i.test(name);
 }
 
 export function DocumentLetterhead() {
@@ -44,6 +40,21 @@ export function DocumentLetterhead() {
         </div>
       )}
     </header>
+  );
+}
+
+export function DocumentFooterWave({ fill = "#003367" }: { fill?: string }) {
+  return (
+    <svg
+      className="document-footer-wave"
+      viewBox="0 0 210 50"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <path d="M0 0 Q87 26 210 4 L210 50 L0 50 Z" fill="#ffae00" />
+      <path d="M0 4.5 Q87 29 210 5 L210 50 L0 50 Z" fill="#ffffff" />
+      <path d="M0 6 Q87 31 210 6.5 L210 50 L0 50 Z" fill={fill} />
+    </svg>
   );
 }
 
@@ -80,18 +91,12 @@ export function DocumentFooter() {
   return (
     <footer className="document-footer">
       <div className="document-footer-content">
-        <div className="document-footer-identity">
-          <p className="document-footer-legal">{legalName}</p>
-          {identifiers.length > 0 && (
-            <p className="document-footer-identifiers">
-              {identifiers.join(" · ")}
-            </p>
-          )}
-        </div>
-        <div className="document-footer-contact">
-          {address.length > 0 && <p>{address.join(" · ")}</p>}
-          {contacts.length > 0 && <p>{contacts.join(" · ")}</p>}
-        </div>
+        <p className="document-footer-legal">
+          {legalName}
+          {identifiers.length > 0 && ` · ${identifiers.join(" · ")}`}
+        </p>
+        {address.length > 0 && <p>{address.join(" · ")}</p>}
+        {contacts.length > 0 && <p>{contacts.join(" · ")}</p>}
       </div>
     </footer>
   );

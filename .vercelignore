@@ -1,0 +1,12 @@
+.git
+.next
+.vercel
+.vscode
+node_modules
+backend
+.env*
+*.log
+*.pdf
+/*.png
+/*.jpg
+*.tsbuildinfo

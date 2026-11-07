@@ -1,4 +1,4 @@
-# FACTURA RDC — Cabinet Transparency
+# Cabinet Transparency
 
 Application de gestion des dossiers, honoraires, règlements et charges du cabinet comptable. Le frontend Next.js se trouve à la racine; l’API NestJS et le schéma PostgreSQL/Prisma sont dans [`backend`](./backend).
 

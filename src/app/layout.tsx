@@ -18,8 +18,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FACTURA RDC",
-  description: "Plateforme intelligente de facturation et gestion commerciale pour la RDC",
+  title: "Cabinet Transparency | Gestion de cabinet",
+  description:
+    "Espace de pilotage comptable des entreprises clientes, de leur facturation, fiscalité et archivage en RDC.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -31,13 +32,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     >
       <body className="min-h-full">
         <NotificationProvider>
-          <WorkspaceStoreProvider>
-            <AuthGate>
+          <AuthGate>
+            <WorkspaceStoreProvider>
               <CompanyProfileProvider>
                 <AppShell>{children}</AppShell>
               </CompanyProfileProvider>
-            </AuthGate>
-          </WorkspaceStoreProvider>
+            </WorkspaceStoreProvider>
+          </AuthGate>
         </NotificationProvider>
       </body>
     </html>

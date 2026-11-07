@@ -323,8 +323,15 @@ export function useCompanyProfile() {
   return context;
 }
 
+export function displayCabinetName(name?: string | null) {
+  const value = name?.trim();
+  return value && !/^factur[ae][ _-]+rdc$/i.test(value)
+    ? value
+    : "Cabinet Transparency";
+}
+
 export function companyDisplayName(profile: CompanyProfile | null) {
-  return profile?.tradeName?.trim() || profile?.legalName?.trim() || "FACTURA RDC";
+  return displayCabinetName(profile?.tradeName?.trim() || profile?.legalName);
 }
 
 export function companyLocation(profile: CompanyProfile | null) {

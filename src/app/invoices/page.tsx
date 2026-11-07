@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import {
   useEffect,
   useMemo,
@@ -33,6 +32,7 @@ import {
 } from "@/components/workspace-store";
 import {
   DocumentFooter,
+  DocumentFooterWave,
   DocumentLetterhead,
   DocumentSignature,
 } from "@/components/document-letterhead";
@@ -176,14 +176,16 @@ function amountInWords(amount: number, currency: "CDF" | "USD") {
   const scaledAmount = Math.round(Math.abs(amount) * 10 ** fractionDigits);
   const wholeAmount = Math.floor(scaledAmount / 10 ** fractionDigits);
   const fractionAmount = scaledAmount % 10 ** fractionDigits;
-  const currencyName =
-    currency === "USD" ? "dollars américains" : "francs congolais";
+  const currencyName = currency === "USD"
+    ? wholeAmount > 1 ? "dollars américains" : "dollar américain"
+    : wholeAmount > 1 ? "francs congolais" : "franc congolais";
   const fractionWords =
     fractionAmount > 0
       ? ` et ${frenchNumberInWords(fractionAmount)} centime${fractionAmount > 1 ? "s" : ""}`
       : "";
 
-  return `${currencyName} ${frenchNumberInWords(wholeAmount)}${fractionWords}`.toLocaleUpperCase(
+  const sign = amount < 0 ? "moins " : "";
+  return `${sign}${frenchNumberInWords(wholeAmount)} ${currencyName}${fractionWords}`.toLocaleUpperCase(
     "fr",
   );
 }
@@ -198,18 +200,24 @@ function templateObjectStyle(
 
   const scaleX = element.width / base.width;
   const scaleY = element.height / base.height;
+  const hasCustomGeometry =
+    element.x !== base.x || element.y !== base.y || scaleX !== 1 || scaleY !== 1;
   return {
+    "--invoice-print-size": `${base.fontSize}pt`,
+    "--invoice-print-color": base.color,
     display: element.visible ? undefined : "none",
     color: element.color,
     fontSize: `${element.fontSize}pt`,
     zIndex: template.elements.indexOf(element) + 1,
     backgroundColor:
-      element.fill !== "transparent" && element.fill !== "#ffffff"
+      id !== "footer" && element.fill !== "transparent" && element.fill !== "#ffffff"
         ? element.fill
         : undefined,
-    transform: `translate(${element.x - base.x}mm, ${element.y - base.y}mm) scale(${scaleX}, ${scaleY})`,
+    transform: hasCustomGeometry
+      ? `translate(${element.x - base.x}mm, ${element.y - base.y}mm) scale(${scaleX}, ${scaleY})`
+      : undefined,
     transformOrigin: "top left",
-  };
+  } as CSSProperties;
 }
 
 function templateText(
@@ -233,13 +241,13 @@ function templateElement(
   return template.elements.find((element) => element.id === id);
 }
 
-function invoiceDateLabel(date: string) {
+function invoiceDateLabel(date: string, month: "short" | "long" = "short") {
   if (!date) return "Date à préciser";
   const parsedDate = new Date(`${date.slice(0, 10)}T12:00:00`);
   if (Number.isNaN(parsedDate.getTime())) return "Date invalide";
   return new Intl.DateTimeFormat("fr-CD", {
-    day: "2-digit",
-    month: "short",
+    day: "numeric",
+    month,
     year: "numeric",
     timeZone: "Africa/Kinshasa",
   }).format(parsedDate);
@@ -254,7 +262,7 @@ export default function InvoicesPage() {
     invoiceTemplateDraft ?? normalizeInvoiceTemplate(profile?.invoiceTemplate);
   const companyName = companyDisplayName(profile);
   const usesDefaultBrand =
-    !profile || /transparency|factura rdc/i.test(companyName);
+    !profile || /transparency/i.test(companyName);
   const { notify } = useNotifications();
   const [view, setView] = useState<InvoiceView>("list");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
@@ -397,6 +405,10 @@ export default function InvoicesPage() {
   const documentNumber = selectedInvoice?.id ?? savedInvoiceNumber;
   const documentMadeAt = selectedInvoice?.madeAt ?? madeAt;
   const documentStatus = selectedInvoice?.status;
+  const tableElement = templateElement(invoiceTemplate, "items");
+  const totalElement = templateElement(invoiceTemplate, "total");
+  const showTableTotal = tableElement?.visible && !tableElement.content &&
+    totalElement?.visible && !totalElement.content;
   const templateValues = {
     numero: documentNumber || "À attribuer",
     client: documentClient || "À renseigner",
@@ -421,7 +433,7 @@ export default function InvoicesPage() {
       : null;
   const equivalentCurrency = documentCurrency === "CDF" ? "USD" : "CDF";
   const invoiceQrValue = JSON.stringify({
-    application: "FACTURA RDC",
+    application: "Cabinet Transparency",
     invoiceId: selectedInvoice?.databaseId,
     number: documentNumber || null,
     client: documentClient || null,
@@ -687,6 +699,17 @@ export default function InvoicesPage() {
               {exportingInvoiceId !== null
                 ? "Préparation Word…"
                 : "Télécharger Word"}
+            </button>
+          )}
+          {view === "detail" && (
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="invoice-secondary-button"
+              aria-label="Imprimer ou enregistrer la facture en PDF"
+            >
+              <Printer className="h-4 w-4" />
+              Imprimer / PDF
             </button>
           )}
           {view === "create" && (
@@ -1315,12 +1338,9 @@ export default function InvoicesPage() {
                   style={templateObjectStyle(invoiceTemplate, "title")}
                 >
                   <h2>
-                    {templateText(
-                      invoiceTemplate,
-                      "title",
-                      `FACTURE N° ${documentNumber || "À attribuer"}`,
-                      templateValues,
-                    )}
+                    {templateElement(invoiceTemplate, "title")?.content
+                      ? templateText(invoiceTemplate, "title", "", templateValues)
+                      : <>FACTURE <span>N° {documentNumber || "À attribuer"}</span></>}
                   </h2>
                   {documentStatus && (
                     <span
@@ -1373,14 +1393,14 @@ export default function InvoicesPage() {
                     ) : (
                       <>
                         <p className="invoice-document-label">Période :</p>
-                        <p>
-                          {selectedInvoice?.period || period || "À renseigner"}
-                        </p>
+                        <p>{selectedInvoice ? selectedInvoice.period : period}</p>
                       </>
                     )}
                   </div>
                 )}
-                {templateElement(invoiceTemplate, "prestation")?.visible && (
+                {templateElement(invoiceTemplate, "prestation")?.visible &&
+                  (templateElement(invoiceTemplate, "prestation")?.content ||
+                    (selectedInvoice ? selectedInvoice.concern : prestation)) && (
                   <div
                     className="invoice-document-prestation"
                     data-invoice-object="prestation"
@@ -1397,9 +1417,7 @@ export default function InvoicesPage() {
                       <>
                         <p className="invoice-document-label">Concerne :</p>
                         <p>
-                          {selectedInvoice?.concern ||
-                            prestation ||
-                            "À renseigner"}
+                          {selectedInvoice ? selectedInvoice.concern : prestation}
                         </p>
                       </>
                     )}
@@ -1407,16 +1425,23 @@ export default function InvoicesPage() {
                 )}
               </div>
 
-              {templateElement(invoiceTemplate, "items")?.visible && (
+              {tableElement?.visible && (
                 <div
                   className="invoice-document-table-wrap"
                   data-invoice-object="items"
                   style={templateObjectStyle(invoiceTemplate, "items")}
                 >
-                  {templateElement(invoiceTemplate, "items")?.content ? (
+                  {tableElement.content ? (
                     templateText(invoiceTemplate, "items", "", templateValues)
                   ) : (
                     <table className="invoice-document-table">
+                      <colgroup>
+                        <col className="invoice-column-number" />
+                        <col className="invoice-column-rubric" />
+                        <col className="invoice-column-quantity" />
+                        <col className="invoice-column-price" />
+                        <col className="invoice-column-total" />
+                      </colgroup>
                       <thead>
                         <tr className="border-y border-slate-300 bg-slate-50 text-xs uppercase tracking-[0.08em] text-slate-600">
                           <th className="w-10 px-2 py-3 text-center">N°</th>
@@ -1470,18 +1495,29 @@ export default function InvoicesPage() {
                           </tr>
                         ))}
                       </tbody>
+                      {showTableTotal && (
+                        <tfoot>
+                          <tr
+                            data-invoice-object="total"
+                            style={templateObjectStyle(invoiceTemplate, "total")}
+                          >
+                            <th scope="row" colSpan={4}>Total général</th>
+                            <td>{formatMoney(documentTotal, documentCurrency)}</td>
+                          </tr>
+                        </tfoot>
+                      )}
                     </table>
                   )}
                 </div>
               )}
 
-              {templateElement(invoiceTemplate, "total")?.visible && (
+              {totalElement?.visible && !showTableTotal && (
                 <div
                   className="invoice-document-total"
                   data-invoice-object="total"
                   style={templateObjectStyle(invoiceTemplate, "total")}
                 >
-                  {templateElement(invoiceTemplate, "total")?.content ? (
+                  {totalElement.content ? (
                     templateText(invoiceTemplate, "total", "", templateValues)
                   ) : (
                     <>
@@ -1508,7 +1544,7 @@ export default function InvoicesPage() {
                 </p>
               )}
               {documentExchangeRate && Number(documentExchangeRate) > 0 && (
-                <div className="mt-3 text-right text-xs text-slate-500">
+                <div className="invoice-document-exchange">
                   <p>Taux appliqué : 1 USD = {documentExchangeRate} CDF</p>
                   {equivalentAmount !== null && (
                     <p className="mt-1">
@@ -1571,10 +1607,13 @@ export default function InvoicesPage() {
                         {templateText(
                           invoiceTemplate,
                           "date",
-                          `Fait à ${documentMadeAt || "________"}, le ${displayDate(documentDate)}${documentDueDate ? ` · Échéance : ${displayDate(documentDueDate)}` : ""}`,
+                          `Fait à ${documentMadeAt || "________"}, le ${invoiceDateLabel(documentDate, "long")}`,
                           templateValues,
                         )}
                       </p>
+                      {documentDueDate && !templateElement(invoiceTemplate, "date")?.content && (
+                        <p>Échéance : {invoiceDateLabel(documentDueDate, "long")}</p>
+                      )}
                     </div>
                   )}
                   {templateElement(invoiceTemplate, "signature")?.visible && (
@@ -1603,14 +1642,11 @@ export default function InvoicesPage() {
                   data-invoice-object="footer"
                   style={templateObjectStyle(invoiceTemplate, "footer")}
                 >
-                  <Image
-                    src="/branding/ctrs-invoice-footer.svg"
-                    alt=""
-                    aria-hidden="true"
-                    width={2100}
-                    height={600}
-                    unoptimized
-                    className="invoice-document-footer-art"
+                  <DocumentFooterWave
+                    fill={
+                      templateElement(invoiceTemplate, "footer")?.fill ??
+                      "#003367"
+                    }
                   />
                   {templateElement(invoiceTemplate, "footer")?.content ? (
                     <div className="invoice-template-footer-text">

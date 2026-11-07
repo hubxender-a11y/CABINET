@@ -42,13 +42,16 @@ async function main() {
     throw new Error('ADMIN_PASSWORD doit contenir au moins 14 caractères.');
   }
 
-  const passwordHash = await hash(adminPassword, 12);
-  const admin = await prisma.user.upsert({
+  const existingAdmin = await prisma.user.findUnique({
+    where: { email: adminEmail },
+    select: { id: true },
+  });
+  const admin = existingAdmin ?? await prisma.user.upsert({
     where: { email: adminEmail },
     update: {},
     create: {
       email: adminEmail,
-      passwordHash,
+      passwordHash: await hash(adminPassword, 12),
       name: 'Administrateur du cabinet',
     },
   });

@@ -5,6 +5,8 @@ import { PrismaService } from '../database/prisma.service';
 import { getCompanyId } from '../database/company-context';
 import { LoginDto } from './auth.dto';
 
+export const ACCESS_TOKEN_LIFETIME = '1h';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -44,7 +46,7 @@ export class AuthService {
     return {
       accessToken,
       tokenType: 'Bearer',
-      expiresIn: '15m',
+      expiresIn: ACCESS_TOKEN_LIFETIME,
       user: {
         id: user.id,
         email: user.email,

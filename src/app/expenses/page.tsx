@@ -174,7 +174,7 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-6">
-      <header className="border-b border-slate-200 pb-5">
+      <header className="workspace-page-heading border-b border-slate-200 pb-5">
         <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">
           Comptabilité interne
         </p>

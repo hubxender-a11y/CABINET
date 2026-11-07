@@ -11,6 +11,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { apiRequest } from "@/lib/api";
+import { useKinshasaDate } from "@/lib/use-kinshasa-date";
 
 type MovementType =
   "ASSIGNMENT" | "TRANSFER" | "MAINTENANCE" | "RETURN" | "DISPOSAL";
@@ -54,7 +55,7 @@ const movementOptions: { value: MovementType; label: string }[] = [
   { value: "DISPOSAL", label: "Sortie du patrimoine" },
 ];
 
-function formatAmount(value: string, currency: string) {
+function formatAmount(value: string | number, currency: string) {
   return new Intl.NumberFormat("fr-CD", {
     style: "currency",
     currency,
@@ -77,7 +78,10 @@ function statusLabel(status: string) {
 }
 
 export default function PatrimoinePage() {
+  const today = useKinshasaDate() ?? "";
   const [assets, setAssets] = useState<FixedAsset[]>([]);
+  const [assetSearch, setAssetSearch] = useState("");
+  const [assetStatus, setAssetStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [userRole, setUserRole] = useState("");
@@ -89,9 +93,7 @@ export default function PatrimoinePage() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
-  const [acquiredAt, setAcquiredAt] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  const [acquiredAt, setAcquiredAt] = useState("");
   const [acquisitionCost, setAcquisitionCost] = useState("");
   const [residualValue, setResidualValue] = useState("0");
   const [usefulLifeMonths, setUsefulLifeMonths] = useState("60");
@@ -100,9 +102,7 @@ export default function PatrimoinePage() {
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
   const [movementDescription, setMovementDescription] = useState("");
-  const [movementDate, setMovementDate] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  const [movementDate, setMovementDate] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -230,6 +230,17 @@ export default function PatrimoinePage() {
   const disposedCount = assets.filter(
     (asset) => asset.status === "DISPOSED",
   ).length;
+  const search = assetSearch.trim().toLocaleLowerCase("fr");
+  const visibleAssets = assets.filter((asset) =>
+    (!assetStatus || asset.status === assetStatus) &&
+    [asset.assetNumber, asset.name, asset.category, asset.serialNumber, asset.assignedTo, asset.location]
+      .join(" ").toLocaleLowerCase("fr").includes(search),
+  );
+  const activeValues = new Map<string, number>();
+  for (const asset of assets) {
+    if (asset.status === "DISPOSED") continue;
+    activeValues.set(asset.currency, (activeValues.get(asset.currency) ?? 0) + Number(asset.netBookValue));
+  }
 
   return (
     <div className="space-y-6">
@@ -259,7 +270,10 @@ export default function PatrimoinePage() {
           ) && (
             <button
               type="button"
-              onClick={() => setShowForm((open) => !open)}
+              onClick={() => {
+                if (!showForm && !acquiredAt) setAcquiredAt(today);
+                setShowForm((open) => !open);
+              }}
               className="asset-add-button"
             >
               <Plus className="h-4 w-4" />{" "}
@@ -331,6 +345,15 @@ export default function PatrimoinePage() {
         })}
       </section>
 
+      {activeValues.size > 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Valeurs nettes par devise">
+          <h2 className="font-semibold">Valeur nette des biens encore détenus</h2>
+          <ul className="mt-2 flex flex-wrap gap-3 text-sm tabular-nums">
+            {[...activeValues].map(([code, value]) => <li key={code} className="rounded-lg bg-slate-100 px-3 py-2">{formatAmount(value, code)}</li>)}
+          </ul>
+        </section>
+      )}
+
       {showForm &&
         ["COMPANY_ADMIN", "ACCOUNTANT", "FINANCE_MANAGER"].includes(
           userRole,
@@ -392,7 +415,7 @@ export default function PatrimoinePage() {
               <input
                 required
                 type="date"
-                max={new Date().toISOString().slice(0, 10)}
+                max={today || undefined}
                 value={acquiredAt}
                 onChange={(event) => setAcquiredAt(event.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
@@ -507,13 +530,24 @@ export default function PatrimoinePage() {
           </div>
           <Building2 className="h-5 w-5 text-blue-600" />
         </div>
+        <div className="grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-[2fr_1fr]">
+          <label className="grid gap-1 text-sm">Rechercher un bien
+            <input type="search" value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Inventaire, désignation, personne ou lieu" className="border px-3" />
+          </label>
+          <label className="grid gap-1 text-sm">État du bien
+            <select value={assetStatus} onChange={(event) => setAssetStatus(event.target.value)} className="border px-3">
+              <option value="">Tous les états</option>
+              {["ACTIVE", "MAINTENANCE", "DISPOSED"].map((value) => <option key={value} value={value}>{statusLabel(value)}</option>)}
+            </select>
+          </label>
+        </div>
         {loading ? (
           <p className="p-8 text-center text-sm text-slate-500">
             Chargement du patrimoine…
           </p>
-        ) : assets.length ? (
+        ) : visibleAssets.length ? (
           <ul className="divide-y divide-slate-100">
-            {assets.map((asset) => (
+            {visibleAssets.map((asset) => (
               <li key={asset.id}>
                 <article className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))_auto] lg:items-center">
                   <div className="min-w-0">
@@ -573,7 +607,7 @@ export default function PatrimoinePage() {
                             setMovementAsset(asset);
                             setMovementType("ASSIGNMENT");
                             setMovementDate(
-                              new Date().toISOString().slice(0, 10),
+                              today,
                             );
                           }}
                           aria-label={`Ajouter un mouvement pour ${asset.name}`}
@@ -647,7 +681,7 @@ export default function PatrimoinePage() {
           <div className="p-10 text-center">
             <Building2 className="mx-auto h-8 w-8 text-slate-300" />
             <p className="mt-3 text-sm font-medium text-slate-700">
-              Aucun bien patrimonial enregistré
+              {error ? "Registre indisponible" : assets.length ? "Aucun bien ne correspond aux filtres" : "Aucun bien patrimonial enregistré"}
             </p>
             <p className="mt-1 text-xs text-slate-500">
               Ajoutez le matériel durable du cabinet ici. Les fournitures
@@ -703,7 +737,7 @@ export default function PatrimoinePage() {
                 <input
                   required
                   type="date"
-                  max={new Date().toISOString().slice(0, 10)}
+                  max={today || undefined}
                   value={movementDate}
                   onChange={(event) => setMovementDate(event.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5"

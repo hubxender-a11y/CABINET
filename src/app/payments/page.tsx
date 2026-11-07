@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, FormEvent, useMemo, useState } from "react";
+import { Fragment, FormEvent, Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ChevronDown, Printer, X } from "lucide-react";
 import { useWorkspaceStore, type WorkspacePayment } from "@/components/workspace-store";
 import {
@@ -8,9 +9,10 @@ import {
   DocumentLetterhead,
   DocumentSignature,
 } from "@/components/document-letterhead";
-import { useCompanyProfile } from "@/components/company-profile";
+import { displayCabinetName, useCompanyProfile } from "@/components/company-profile";
 import { useNotifications } from "@/components/notification-provider";
 import { formatDate, formatMoney } from "@/lib/formatting";
+import { invoiceBalance } from "@/lib/receivables";
 
 const methodLabels: Record<WorkspacePayment["method"], string> = {
   CASH_USD: "Espèces (USD)",
@@ -22,23 +24,25 @@ const methodLabels: Record<WorkspacePayment["method"], string> = {
 };
 
 export default function PaymentsPage() {
+  return (
+    <Suspense fallback={<p role="status">Chargement des règlements…</p>}>
+      <PaymentsRegister />
+    </Suspense>
+  );
+}
+
+function PaymentsRegister() {
   const { invoices, payments, addPayment, databaseConnected } = useWorkspaceStore();
+  const requestedInvoiceId = useSearchParams().get("facture");
   const { profile } = useCompanyProfile();
   const { notify } = useNotifications();
   const [selectedReceipt, setSelectedReceipt] = useState<WorkspacePayment | null>(null);
   const [expandedPaymentId, setExpandedPaymentId] = useState<string | null>(null);
   const payableInvoices = useMemo(
-    () =>
-      invoices.filter(
-        (invoice) =>
-          invoice.status !== "Rejetée" &&
-          invoice.status !== "Brouillon" &&
-          (invoice.paidAmount ?? (invoice.status === "Payée" ? invoice.amount : 0)) <
-            invoice.amount,
-      ),
+    () => invoices.filter((invoice) => invoiceBalance(invoice) > 0),
     [invoices],
   );
-  const [invoiceId, setInvoiceId] = useState("");
+  const [invoiceId, setInvoiceId] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<WorkspacePayment["method"]>("BANK_TRANSFER");
   const [reference, setReference] = useState("");
@@ -47,12 +51,10 @@ export default function PaymentsPage() {
   const [saving, setSaving] = useState(false);
 
   const selectedInvoice = payableInvoices.find(
-    (invoice) => (invoice.databaseId ?? invoice.id) === invoiceId,
+    (invoice) => (invoice.databaseId ?? invoice.id) === (invoiceId ?? requestedInvoiceId),
   );
   const paid = selectedInvoice?.paidAmount ?? 0;
-  const remaining = selectedInvoice
-    ? Math.max(selectedInvoice.amount - paid, 0)
-    : 0;
+  const remaining = selectedInvoice ? invoiceBalance(selectedInvoice) : 0;
   const availableMethods = Object.entries(methodLabels).filter(
     ([value]) =>
       value !== "CASH_CDF" ||
@@ -152,7 +154,7 @@ export default function PaymentsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="border-b border-slate-200 pb-5">
+      <header className="workspace-page-heading border-b border-slate-200 pb-5">
         <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">
           Trésorerie du cabinet
         </p>
@@ -192,7 +194,7 @@ export default function PaymentsPage() {
             Facture concernée
             <select
               required
-              value={invoiceId}
+              value={selectedInvoice ? selectedInvoice.databaseId ?? selectedInvoice.id : ""}
               onChange={(event) => {
                 setInvoiceId(event.target.value);
                 setAmount("");
@@ -562,7 +564,7 @@ export default function PaymentsPage() {
               </div>
               <DocumentFooter />
               <p className="text-center text-[10px] text-slate-400">
-                {profile?.legalName || "Document généré par FACTURA RDC"}
+                {displayCabinetName(profile?.legalName)}
               </p>
             </article>
           </div>

@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
@@ -25,6 +26,7 @@ import {
 } from "lucide-react";
 import { useWorkspaceStore } from "@/components/workspace-store";
 import { apiRequest, apiRequestBlob } from "@/lib/api";
+import { useKinshasaDate } from "@/lib/use-kinshasa-date";
 
 const categories = [
   { value: "CLIENT", label: "Dossiers clients" },
@@ -104,6 +106,8 @@ function fileToBase64(file: File): Promise<string> {
 
 export default function DocumentsPage() {
   const { clients } = useWorkspaceStore();
+  const currentYear = useKinshasaDate()?.slice(0, 4) ?? "";
+  const latestDocumentRequest = useRef(0);
   const [documents, setDocuments] = useState<ArchiveDocument[]>([]);
   const [binders, setBinders] = useState<ArchiveBinder[]>([]);
   const [category, setCategory] = useState("CLIENT");
@@ -113,12 +117,10 @@ export default function DocumentsPage() {
   const [binderName, setBinderName] = useState("");
   const [binderPeriod, setBinderPeriod] = useState("");
   const [binderCategory, setBinderCategory] = useState("CLIENT");
-  const [binderFiscalYear, setBinderFiscalYear] = useState(
-    String(new Date().getFullYear()),
-  );
-  const [fiscalYear, setFiscalYear] = useState(
-    String(new Date().getFullYear()),
-  );
+  const [chosenBinderYear, setBinderFiscalYear] = useState<string | null>(null);
+  const [chosenFiscalYear, setFiscalYear] = useState<string | null>(null);
+  const binderFiscalYear = chosenBinderYear ?? currentYear;
+  const fiscalYear = chosenFiscalYear ?? currentYear;
   const [period, setPeriod] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [title, setTitle] = useState("");
@@ -141,28 +143,32 @@ export default function DocumentsPage() {
   const [message, setMessage] = useState("");
 
   const loadDocuments = useCallback(async () => {
+    const requestId = ++latestDocumentRequest.current;
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();
       if (filterYear) params.set("fiscalYear", filterYear);
+      if (filterCategory) params.set("category", filterCategory);
       if (filterBinderId) params.set("binderId", filterBinderId);
       if (search.trim()) params.set("q", search.trim());
       const query = params.size ? `?${params.toString()}` : "";
       const result = await apiRequest<ArchiveDocument[]>(
         `/archives${showTrash ? "/trash" : ""}${query}`,
       );
-      setDocuments(result);
+      if (requestId === latestDocumentRequest.current) setDocuments(result);
     } catch (requestError) {
+      if (requestId !== latestDocumentRequest.current) return;
+      setDocuments([]);
       setError(
         requestError instanceof Error
           ? requestError.message
           : "Impossible de charger les archives du cabinet.",
       );
     } finally {
-      setLoading(false);
+      if (requestId === latestDocumentRequest.current) setLoading(false);
     }
-  }, [filterBinderId, filterYear, search, showTrash]);
+  }, [filterBinderId, filterCategory, filterYear, search, showTrash]);
 
   const loadBinders = useCallback(async () => {
     try {
@@ -219,6 +225,12 @@ export default function DocumentsPage() {
       ),
     [binders, filterCategory, filterYear],
   );
+  const filterYears = [...new Set([
+    ...binders.map((item) => item.fiscalYear),
+    ...documents.map((item) => item.fiscalYear),
+    ...(currentYear ? Array.from({ length: 10 }, (_, index) => Number(currentYear) - index) : []),
+    ...(filterYear ? [Number(filterYear)] : []),
+  ])].sort((left, right) => right - left);
   const uploadBinders = useMemo(
     () =>
       binders.filter(
@@ -834,13 +846,14 @@ export default function DocumentsPage() {
             <select
               aria-label="Filtrer par exercice"
               value={filterYear}
-              onChange={(event) => setFilterYear(event.target.value)}
+              onChange={(event) => {
+                setFilterYear(event.target.value);
+                setFilterBinderId("");
+              }}
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
             >
               <option value="">Tous les exercices</option>
-              {Array.from({ length: 10 }, (_, index) =>
-                String(new Date().getFullYear() - index),
-              ).map((year) => (
+              {filterYears.map((year) => (
                 <option key={year} value={year}>
                   {year}
                 </option>

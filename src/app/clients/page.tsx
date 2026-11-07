@@ -1393,7 +1393,7 @@ export default function ClientsPage() {
               aria-label="Récapitulatif imprimable du dossier client"
             >
               <header className="client-dossier-print-header">
-                <p>FACTURA RDC · DOSSIER CLIENT</p>
+                <p>Cabinet Transparency · DOSSIER CLIENT</p>
                 <h1>{selectedClient.name}</h1>
                 <p>
                   {selectedClient.type === "INDIVIDUAL"
@@ -1661,7 +1661,7 @@ export default function ClientsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end">
+      <header className="workspace-page-heading flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">
             Portefeuille du cabinet

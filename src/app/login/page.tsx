@@ -2,8 +2,9 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
-import { ArrowRight, ShieldCheck } from "lucide-react";
-import { apiRequest, AUTH_TOKEN_KEY } from "@/lib/api";
+import { ArrowRight, BriefcaseBusiness, ShieldCheck } from "lucide-react";
+import { apiRequest } from "@/lib/api";
+import { setSessionToken } from "@/lib/session";
 
 type LoginResponse = {
   accessToken: string;
@@ -17,11 +18,19 @@ export default function LoginPage() {
   const [sessionExpired, setSessionExpired] = useState(false);
 
   useEffect(() => {
-    const expired = new URLSearchParams(window.location.search).get("reason") === "session-expired";
-    if (!expired) return;
-    window.history.replaceState(null, "", "/login");
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("reason") !== "session-expired") return;
+    url.searchParams.delete("reason");
+    window.history.replaceState(window.history.state, "", url);
     const timer = window.setTimeout(() => setSessionExpired(true), 0);
     return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_API_URL) return;
+    const controller = new AbortController();
+    void apiRequest("/auth/health", { signal: controller.signal }).catch(() => undefined);
+    return () => controller.abort();
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -33,8 +42,7 @@ export default function LoginPage() {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      window.localStorage.setItem(AUTH_TOKEN_KEY, result.accessToken);
-      window.location.reload();
+      setSessionToken(result.accessToken);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -47,10 +55,22 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-[75vh] items-center justify-center">
+    <main className="login-layout">
+      <aside className="login-intro" aria-label="Cabinet Transparency">
+        <div className="login-intro-brand">
+          <span><BriefcaseBusiness aria-hidden="true" /></span>
+          Cabinet Transparency
+        </div>
+        <div className="login-intro-copy">
+          <p>ESPACE PROFESSIONNEL</p>
+          <h2>Le bureau numérique de votre cabinet.</h2>
+          <p>Dossiers clients, facturation, règlements et archives réunis au même endroit.</p>
+        </div>
+        <p className="login-intro-footer">Cabinet Transparency · République Démocratique du Congo</p>
+      </aside>
       <form
         onSubmit={submit}
-        className="login-card w-full max-w-md space-y-5 rounded-3xl border border-slate-200 bg-white p-7 shadow-lg"
+        className="login-card space-y-5"
       >
         <div className="login-brand">
           <Image
@@ -74,7 +94,7 @@ export default function LoginPage() {
         </div>
         {sessionExpired && (
           <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-            Votre session a expiré. Reconnectez-vous; les dernières modifications refusées ne sont pas enregistrées.
+            Votre session a expiré. Reconnectez-vous pour reprendre votre travail.
           </p>
         )}
         <label className="block space-y-1.5 text-sm font-medium text-slate-700">

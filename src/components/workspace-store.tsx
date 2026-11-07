@@ -39,6 +39,7 @@ export type WorkspaceInvoice = {
   client: string;
   amount: number;
   paidAmount?: number;
+  fiscalStatus?: string;
   currency: "CDF" | "USD";
   exchangeRate?: string | null;
   status: "Certifiée" | "En attente" | "Rejetée" | "Payée" | "Brouillon";
@@ -220,6 +221,7 @@ function mapInvoice(record: InvoiceApiRecord): WorkspaceInvoice {
     client: record.customer.name,
     amount: Number(record.totalAmount),
     paidAmount: Number(record.paidAmount),
+    fiscalStatus: record.fiscalStatus,
     currency: record.currency,
     exchangeRate: record.exchangeRate ?? null,
     status,
@@ -285,6 +287,7 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
   const [clientsError, setClientsError] = useState("");
 
   useEffect(() => {
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
       if (!hasConfiguredApi) {
         setDatabaseError(
@@ -295,10 +298,11 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
       if (!window.localStorage.getItem(AUTH_TOKEN_KEY)) return;
 
       void Promise.allSettled([
-        apiRequest<CustomerApiRecord[]>("/customers"),
-        apiRequest<InvoiceApiRecord[]>("/invoices"),
-        apiRequest<PaymentApiRecord[]>("/payments"),
+        apiRequest<CustomerApiRecord[]>("/customers", { signal: controller.signal }),
+        apiRequest<InvoiceApiRecord[]>("/invoices", { signal: controller.signal }),
+        apiRequest<PaymentApiRecord[]>("/payments", { signal: controller.signal }),
       ]).then(([customerResult, invoiceResult, paymentResult]) => {
+        if (controller.signal.aborted) return;
         if (customerResult.status === "fulfilled") {
           setClients(customerResult.value.map(mapCustomer));
           setClientsAvailable(true);
@@ -347,7 +351,10 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
       });
     }, 0);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, []);
 
   const value: WorkspaceStore = {

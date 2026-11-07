@@ -9,24 +9,23 @@ import {
   BarChart3,
   Boxes,
   Building2,
+  BriefcaseBusiness,
+  CalendarClock,
   ChevronRight,
   ChevronDown,
-  FileText,
   Landmark,
   LayoutDashboard,
   LogOut,
   Menu,
-  Package,
   Paintbrush,
   RefreshCw,
   Receipt,
-  ShoppingCart,
   Settings,
   Users,
   Wallet,
   X,
 } from "lucide-react";
-import { AUTH_TOKEN_KEY } from "@/lib/api";
+import { setSessionToken } from "@/lib/session";
 import {
   companyDisplayName,
   companyLocation,
@@ -35,27 +34,24 @@ import {
 
 const navigationGroups = [
   {
-    label: "Facturation",
-    icon: Receipt,
+    label: "Espace cabinet",
+    icon: BriefcaseBusiness,
     items: [
       { href: "/", label: "Tableau de bord", icon: LayoutDashboard },
-      { href: "/clients", label: "Clients du cabinet", icon: Users },
-      { href: "/quotes", label: "Devis", icon: FileText },
-      { href: "/sales", label: "Ventes", icon: ShoppingCart },
+      { href: "/clients", label: "Dossiers clients", icon: Users },
       { href: "/invoices", label: "Factures clients", icon: Receipt },
       { href: "/payments", label: "Règlements clients", icon: Wallet },
+      { href: "/recouvrement", label: "Recouvrement", icon: CalendarClock },
       { href: "/expenses", label: "Dépenses", icon: Receipt },
       { href: "/fiscal", label: "Suivi fiscal", icon: Landmark },
       { href: "/reports", label: "Rapports", icon: BarChart3 },
     ],
   },
   {
-    label: "Stock, matériel & patrimoine",
-    icon: Boxes,
+    label: "Patrimoine",
+    icon: Building2,
     items: [
-      { href: "/products", label: "Produits", icon: Package },
       { href: "/stocks", label: "Stocks", icon: Boxes },
-      { href: "/purchases", label: "Achats", icon: ShoppingCart },
       { href: "/patrimoine", label: "Patrimoine", icon: Building2 },
     ],
   },
@@ -83,26 +79,22 @@ const allNavigationItems = navigationGroups.flatMap((group) => group.items);
 
 const primaryNavigation = [
   {
-    href: "/invoices",
-    label: "Facturation",
-    icon: Receipt,
-    paths: [
-      "/",
-      "/clients",
-      "/quotes",
-      "/sales",
-      "/invoices",
-      "/payments",
-      "/expenses",
-      "/fiscal",
-      "/reports",
-    ],
+    href: "/clients",
+    label: "Dossiers",
+    icon: Users,
+    paths: ["/clients"],
   },
   {
-    href: "/stocks",
-    label: "Stock, matériel & patrimoine",
-    icon: Boxes,
-    paths: ["/products", "/stocks", "/purchases", "/patrimoine"],
+    href: "/invoices",
+    label: "Gestion",
+    icon: Receipt,
+    paths: ["/invoices", "/payments", "/recouvrement", "/expenses", "/fiscal", "/reports"],
+  },
+  {
+    href: "/patrimoine",
+    label: "Patrimoine",
+    icon: Building2,
+    paths: ["/stocks", "/patrimoine"],
   },
   {
     href: "/documents",
@@ -168,7 +160,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [mobileMenuOpen]);
 
   function logout() {
-    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    setSessionToken(null);
     router.replace("/login");
   }
 
@@ -292,7 +284,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Link
               href="/"
               className="app-shell-brand"
-              aria-label="FACTURA RDC, accueil"
+              aria-label="Cabinet Transparency, accueil"
             >
               <Image
                 src="/branding/ctrs-logo.jpg"
@@ -304,7 +296,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               />
             </Link>
             <div className="app-mobile-brand">
-              <Link href="/" aria-label="FACTURA RDC, accueil">
+              <Link href="/" aria-label="Cabinet Transparency, accueil">
                 <Image
                   src="/branding/ctrs-logo.jpg"
                   alt="Cabinet Transparency"
@@ -463,7 +455,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         </button>
                         {expanded &&
                           group.items.map(({ href, label, icon: Icon }) => {
-                            const active = isActiveRoute(pathname, href);
+                            const active = activeHref === href;
                             return (
                               <Link
                                 key={href}
@@ -492,7 +484,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     Se déconnecter
                   </button>
                   <p className="app-sidebar-version">
-                    FACTURA RDC · Gestion du cabinet
+                    Cabinet Transparency · Gestion du cabinet
                   </p>
                 </div>
               </aside>
@@ -505,7 +497,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span>{companyName}</span>
               <span>·</span>
               <span>{location}</span>
-              <span className="ml-auto">FACTURA RDC · Gestion du cabinet</span>
+              <span className="ml-auto">Cabinet Transparency · Gestion du cabinet</span>
             </footer>
           </main>
         </div>

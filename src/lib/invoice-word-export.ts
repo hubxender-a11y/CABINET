@@ -2,18 +2,39 @@ function safeFilename(value: string) {
   return value.replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-").trim() || "facture";
 }
 
-function documentStyles() {
-  return Array.from(document.styleSheets)
-    .map((stylesheet) => {
-      try {
-        return Array.from(stylesheet.cssRules, (rule) => rule.cssText).join("\n");
-      } catch {
-        throw new Error(
-          "Les styles du modèle ne sont pas accessibles pour préparer le fichier Word.",
-        );
+function paintFooterText(context: CanvasRenderingContext2D, footer: HTMLElement) {
+  const paragraphs = Array.from(footer.querySelectorAll(".document-footer-content p"));
+  const custom = footer.querySelector(".invoice-template-footer-text");
+  const lines = (custom ? [custom] : paragraphs).flatMap((paragraph) =>
+    (paragraph.textContent ?? "").split("\n").map((text) => ({
+      text,
+      bold: paragraph.classList.contains("document-footer-legal"),
+    })),
+  );
+  const fontSize = (Number.parseFloat(footer.style.fontSize) || 8) * 25.4 / 72;
+  const lineHeight = fontSize * 1.4;
+  const wrapped = lines.flatMap(({ text, bold }) => {
+    const font = `${bold ? "bold " : ""}${fontSize}px Arial`;
+    context.font = font;
+    const rows = [""];
+    for (const word of text.split(/\s+/)) {
+      const row = rows.length - 1;
+      const candidate = rows[row] ? `${rows[row]} ${word}` : word;
+      if (rows[row] && context.measureText(candidate).width > 198) {
+        rows.push(word);
+      } else {
+        rows[row] = candidate;
       }
-    })
-    .join("\n");
+    }
+    return rows.map((row) => ({ text: row, font }));
+  });
+  const start = Math.max(19, 31 - (wrapped.length - 1) * lineHeight / 2);
+  context.fillStyle = footer.style.color || "#fff";
+  context.textAlign = "center";
+  wrapped.forEach(({ text, font }, index) => {
+    context.font = font;
+    context.fillText(text, 105, start + index * lineHeight, 198);
+  });
 }
 
 async function rasterizeInlineSvgs(root: HTMLElement) {
@@ -30,7 +51,7 @@ async function rasterizeInlineSvgs(root: HTMLElement) {
         await new Promise<void>((resolve, reject) => {
           image.onload = () => resolve();
           image.onerror = () =>
-            reject(new Error("Le code QR de la facture n’a pas pu être converti."));
+            reject(new Error("Un visuel de la facture n’a pas pu être converti."));
           image.src = imageUrl;
         });
         const viewBox = svg.viewBox.baseVal;
@@ -41,16 +62,23 @@ async function rasterizeInlineSvgs(root: HTMLElement) {
         canvas.height = height * 3;
         const context = canvas.getContext("2d");
         if (!context) {
-          throw new Error("Le code QR de la facture n’a pas pu être converti.");
+          throw new Error("Un visuel de la facture n’a pas pu être converti.");
         }
         context.scale(3, 3);
         context.drawImage(image, 0, 0, width, height);
+        const footer = svg.closest<HTMLElement>(".invoice-document-footer");
+        if (footer) paintFooterText(context, footer);
         const png = document.createElement("img");
         png.src = canvas.toDataURL("image/png");
-        png.alt =
-          svg.querySelector("title")?.textContent || "Code QR de la facture";
-        png.style.cssText = "display:block;width:100%;height:auto";
-        svg.replaceWith(png);
+        if (footer) {
+          png.alt = footer.innerText || footer.textContent || "Pied de page";
+          png.style.cssText = "display:block;width:210mm;height:51mm";
+          footer.replaceChildren(png);
+        } else {
+          png.alt = svg.querySelector("title")?.textContent || "Code QR de la facture";
+          png.style.cssText = "display:block;width:33mm;height:33mm";
+          svg.replaceWith(png);
+        }
       } finally {
         URL.revokeObjectURL(imageUrl);
       }
@@ -102,44 +130,42 @@ function formatWordHeader(header: HTMLElement) {
   table.border = "0";
   table.cellPadding = "0";
   table.cellSpacing = "0";
-  table.style.cssText = "width:188mm;border-collapse:collapse;table-layout:fixed";
+  table.style.cssText = "width:198mm;border-collapse:collapse;table-layout:fixed";
   const row = table.insertRow();
   const logoCell = row.insertCell();
-  logoCell.style.cssText = "width:78%;padding:0;vertical-align:middle";
+  logoCell.style.cssText = "width:76%;padding:0 0 0 7mm;vertical-align:top";
   logoCell.append(logo);
   const qrCell = row.insertCell();
   qrCell.setAttribute("align", "right");
-  qrCell.style.cssText = "width:22%;padding:0;vertical-align:middle";
+  qrCell.style.cssText = "width:24%;padding:0 10mm 0 0;vertical-align:top";
   qrCell.append(qr);
   header.replaceChildren(table);
   header.style.cssText =
-    "position:relative;width:188mm;height:30mm;margin:0;background:#fff";
+    "width:198mm;height:33mm;margin:0;background:#fff";
   return header;
 }
 
-function createWordBottom(invoice: HTMLElement) {
-  const bottom = invoice.querySelector<HTMLElement>(".invoice-document-bottom");
-  if (!bottom) return null;
+function formatWordDetails(invoice: HTMLElement) {
+  const details = invoice.querySelector(".invoice-document-details");
+  if (!details) return;
 
-  const terms = bottom.querySelector<HTMLElement>(".invoice-payment-terms");
-  const approval = bottom.querySelector<HTMLElement>(".invoice-document-approval");
   const table = document.createElement("table");
-  table.className = "invoice-word-bottom";
+  table.className = "invoice-document-details";
   table.setAttribute("role", "presentation");
-  table.border = "0";
-  table.cellPadding = "0";
-  table.cellSpacing = "0";
-  table.style.cssText =
-    "width:100%;border-collapse:collapse;table-layout:fixed;margin-top:42mm";
   const row = table.insertRow();
-  const termsCell = row.insertCell();
-  termsCell.style.cssText = "width:62%;padding:0;vertical-align:top";
-  if (terms) termsCell.append(terms);
-  const approvalCell = row.insertCell();
-  approvalCell.style.cssText = "width:38%;padding:0;vertical-align:top";
-  if (approval) approvalCell.append(approval);
-  bottom.remove();
-  return table;
+  for (const id of ["client", "period"]) {
+    const cell = row.insertCell();
+    cell.style.width = id === "client" ? "54%" : "46%";
+    const field = details.querySelector(`[data-invoice-object="${id}"]`);
+    if (field) cell.append(field);
+  }
+  const concern = details.querySelector(".invoice-document-prestation");
+  if (concern) {
+    const cell = table.insertRow().insertCell();
+    cell.colSpan = 2;
+    cell.append(concern);
+  }
+  details.replaceWith(table);
 }
 
 export async function downloadInvoiceWord(invoiceId: string, source: HTMLElement) {
@@ -152,9 +178,10 @@ export async function downloadInvoiceWord(invoiceId: string, source: HTMLElement
   originalHeader.remove();
   footer?.remove();
   const header = formatWordHeader(originalHeader);
-  const wordBottom = createWordBottom(invoice);
+  formatWordDetails(invoice);
+  invoice.querySelector(".invoice-document-status")?.remove();
 
-  const imagesToEmbed = [invoice, header, footer, wordBottom].filter(
+  const imagesToEmbed = [invoice, header, footer].filter(
     (element): element is HTMLElement => element !== null,
   );
   await Promise.all(imagesToEmbed.map(rasterizeInlineSvgs));
@@ -171,134 +198,61 @@ export async function downloadInvoiceWord(invoiceId: string, source: HTMLElement
 <head>
 <meta charset="utf-8">
 <meta name="ProgId" content="Word.Document">
-<meta name="Generator" content="FACTURA RDC">
-<title>Facture ${invoiceId}</title>
+<meta name="Generator" content="Cabinet Transparency">
+<title>Facture</title>
 <style>
-${documentStyles()}
 @page WordSection1 {
-  size: A4;
-  margin: 48mm 11mm 65mm;
-  mso-header-margin: 14mm;
+  size: 210mm 297mm;
+  margin: 58mm 6mm 54mm;
+  mso-header-margin: 16mm;
   mso-footer-margin: 0mm;
   mso-header: h1;
   ${wordFooter ? "mso-footer: f1;" : ""}
 }
 div.WordSection1 { page: WordSection1; }
-body { background: #fff; }
-.WordSection1 .invoice-document {
-  box-sizing: border-box;
-  display: block !important;
-  width: auto !important;
-  min-height: 0 !important;
-  max-width: none !important;
-  margin: 0 !important;
-  border: 0 !important;
-  padding: 0 !important;
-  box-shadow: none !important;
-}
-.WordSection1 .invoice-document-top {
-  position: relative !important;
-  top: auto !important;
-  right: auto !important;
-  left: auto !important;
-  z-index: auto !important;
-  width: 188mm !important;
-  height: 30mm !important;
-  margin: 0 !important;
-  background: #fff !important;
-}
-.WordSection1 .invoice-document-top table {
-  width: 188mm;
-  border-collapse: collapse;
-}
-.WordSection1 .invoice-document-top .document-letterhead-logo {
-  width: 98.5mm;
-}
-.WordSection1 .invoice-document-top [data-invoice-object],
-.WordSection1 .invoice-document-footer {
-  transform: none !important;
-}
-.WordSection1 .invoice-document-heading { margin-top: 0; }
-.WordSection1 .invoice-document-accent-rule {
-  height: 1.4mm;
-  background: linear-gradient(to bottom, #f3b51b 0 45%, #fff 45% 58%, #073b70 58% 100%);
-}
-.WordSection1 .invoice-document-qr { width: 25mm; }
-.WordSection1 .invoice-document-table-wrap { overflow: visible; }
-.WordSection1 .invoice-document-table { width: 100%; min-width: 0; font-size: 9pt; }
-.WordSection1 .invoice-document-table th {
-  background: #073b70 !important;
-  color: #fff !important;
-}
-.WordSection1 .invoice-document-table th,
-.WordSection1 .invoice-document-table td { border-color: #164b80; }
-.WordSection1 .invoice-document-total {
-  width: 100%;
-  background: #dceaf8;
-}
-.WordSection1 .invoice-document-table thead { display: table-header-group; }
-.WordSection1 .invoice-document-table tfoot { display: table-footer-group; }
-.WordSection1 .invoice-document-table tr,
-.WordSection1 .invoice-document-total,
-.WordSection1 .invoice-document-bottom,
-.WordSection1 .invoice-document-approval,
-.WordSection1 .document-signature {
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-.WordSection1 .invoice-document-footer {
-  position: relative !important;
-  top: auto !important;
-  right: auto !important;
-  bottom: auto !important;
-  left: -11mm !important;
-  z-index: auto !important;
-  width: 210mm !important;
-  height: 60mm !important;
-  margin: 0 !important;
-  overflow: hidden !important;
-  background: transparent !important;
-}
-.WordSection1 .invoice-document-footer .invoice-document-footer-art {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 210mm !important;
-  height: 60mm !important;
-}
-.WordSection1 .invoice-document-footer .document-footer,
-.WordSection1 .invoice-document-footer .invoice-template-footer-text {
-  position: relative !important;
-  z-index: 1 !important;
-  box-sizing: border-box;
-  width: 100% !important;
-  min-height: 0 !important;
-  margin: 0;
-  border: 0 !important;
-  background: transparent !important;
-  padding: 27mm 4mm 2mm !important;
-  color: #fff !important;
-  font-size: 7pt;
-  line-height: 1.45;
-  text-align: center;
-}
-.WordSection1 .invoice-word-bottom {
-  width: 100%;
-  margin-top: 42mm;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-.WordSection1 .invoice-word-bottom td {
-  border: 0;
-  vertical-align: top;
-}
-.WordSection1 .invoice-document-approval { padding-top: 17mm; }
-.WordSection1 .invoice-document-approval .document-signature {
-  min-height: 20mm;
-  margin: 0;
-  padding: 0;
-}
-.WordSection1 .invoice-document .document-signature-image,
-.WordSection1 .invoice-document .document-signature-space { height: 14mm; }
+body { background: #fff; color: #081f4b; font: 10pt Arial, sans-serif; }
+p, h2, h3 { margin: 0; }
+.invoice-document { position: relative; }
+.document-letterhead-logo { width: 128mm; height: auto; }
+.invoice-document-title-row h2 { font-size: inherit; font-weight: bold; text-transform: uppercase; }
+.invoice-document-title-row h2 span { font-size: 76%; }
+.invoice-document-accent-rule { height: 1mm; margin: 4mm 0 5mm; border-top: 1pt solid #ffae00; border-bottom: 1pt solid #214f8d; }
+.invoice-document-details { width: 100%; border-collapse: collapse; border-bottom: 1pt solid #214f8d; }
+.invoice-document-details td { height: 18mm; padding: 0 0 4mm; vertical-align: top; }
+.invoice-document-details td[colspan] { height: auto; }
+.invoice-document-label { color: #003367; font: bold 10pt Arial, sans-serif; text-transform: uppercase; }
+[data-invoice-object="client"] { font-weight: bold; text-transform: uppercase; }
+.invoice-document-table-wrap { margin-top: 7mm; }
+.invoice-document-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: inherit; }
+.invoice-column-number { width: 6%; }
+.invoice-column-rubric { width: 36%; }
+.invoice-column-quantity { width: 15%; }
+.invoice-column-price { width: 23%; }
+.invoice-column-total { width: 20%; }
+.invoice-document-table thead { display: table-header-group; }
+.invoice-document-table tfoot { display: table-row-group; }
+.invoice-document-table th, .invoice-document-table td { border: 0.8pt solid #214f8d; padding: 2.5mm 1.8mm; text-align: center; vertical-align: top; }
+.invoice-document-table thead th { background: #003367; color: #fff; font-size: 9pt; text-transform: uppercase; }
+.invoice-document-table tbody td:nth-child(2) { text-align: left; }
+.invoice-document-table tfoot th, .invoice-document-table tfoot td, .invoice-document-total { background: #d1e7f7; font-weight: bold; text-transform: uppercase; }
+.invoice-document-table tfoot th, .invoice-document-total { text-align: right; }
+.invoice-document-total { border: 0.8pt solid #214f8d; padding: 3mm 2mm; }
+.invoice-document-total strong { margin-left: 4mm; }
+.invoice-document-amount-words { padding: 4mm 0 2mm; border-bottom: 1pt solid #214f8d; font-weight: bold; }
+.invoice-document-exchange { margin-top: 2mm; text-align: right; font-size: 7pt; color: #52627a; }
+.invoice-document-bottom { margin-top: 6mm; page-break-inside: avoid; }
+.invoice-payment-terms { width: 184mm; }
+.invoice-payment-terms h3 { font-size: 12pt; }
+.invoice-document-approval { margin-top: 8mm; text-align: right; }
+.document-signature { width: 83mm; margin: 3mm 0 0 auto; text-align: center; }
+.document-signature-label { display: none; }
+.document-signature-image, .document-signature-space { width: 58mm; height: 11mm; }
+.document-signature-name { padding-top: 1mm; border-top: 1pt solid #214f8d; font-weight: bold; }
+.document-signature-title { color: #003367; font-size: 83%; }
+.invoice-document-footer { margin-left: -6mm; width: 210mm; }
+.invoice-template-custom-object { position: absolute; white-space: pre-wrap; overflow: hidden; }
+.invoice-template-custom-object img { width: 100%; height: 100%; }
+.invoice-document-table tr { page-break-inside: avoid; }
 </style>
 </head>
 <body>
@@ -306,7 +260,6 @@ body { background: #fff; }
 ${wordHeader}
 ${wordFooter}
 ${invoice.outerHTML}
-${wordBottom?.outerHTML ?? ""}
 </div>
 </body>
 </html>`;

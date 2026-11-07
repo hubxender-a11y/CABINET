@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
+import { ACCESS_TOKEN_LIFETIME, AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Module({
@@ -21,7 +21,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
         }
         return {
           secret,
-          signOptions: { expiresIn: '15m' },
+          signOptions: { expiresIn: ACCESS_TOKEN_LIFETIME },
         };
       },
     }),
