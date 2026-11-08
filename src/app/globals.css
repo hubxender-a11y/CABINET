@@ -3413,7 +3413,8 @@ summary:focus-visible {
   }
 }
 
-.client-dossier-print {
+.client-dossier-print,
+.cash-voucher-print {
   display: none;
 }
 
@@ -3548,6 +3549,11 @@ summary:focus-visible {
     margin: 0;
   }
 
+  @page cash-voucher-document {
+    size: A4;
+    margin: 12mm;
+  }
+
   @page monthly-report {
     size: A4 landscape;
     margin: 12mm;
@@ -3556,6 +3562,227 @@ summary:focus-visible {
   body {
     background: #ffffff;
     print-color-adjust: exact;
+  }
+
+  body.print-cash-voucher-mode * {
+    visibility: hidden !important;
+  }
+
+  body.print-cash-voucher-mode .cash-voucher-print,
+  body.print-cash-voucher-mode .cash-voucher-print * {
+    visibility: visible !important;
+  }
+
+  body.print-cash-voucher-mode .cash-voucher-print {
+    page: cash-voucher-document;
+    display: flex !important;
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    padding: 4mm 2mm 0 !important;
+    background: #fff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .cash-voucher-print .document-letterhead {
+    margin: 0 0 8mm !important;
+    padding: 0 0 4mm !important;
+    border-bottom: 2px solid #0a4577 !important;
+  }
+
+  .cash-voucher-print .document-letterhead-logo {
+    width: 76mm !important;
+    height: auto !important;
+  }
+
+  .cash-voucher-document-body {
+    flex: 1;
+  }
+
+  .cash-voucher-title-row {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 12mm;
+    border-bottom: 3px solid #edaa16;
+    padding-bottom: 5mm;
+  }
+
+  .cash-voucher-overline,
+  .cash-voucher-number span,
+  .cash-voucher-meta span,
+  .cash-voucher-amount-box > span,
+  .cash-voucher-words > span {
+    color: #52647a;
+    font-size: 8pt;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .cash-voucher-title-row h2 {
+    margin-top: 2mm;
+    color: #073c6d;
+    font-size: 19pt;
+    font-weight: 800;
+    line-height: 1.1;
+  }
+
+  .cash-voucher-number {
+    display: grid;
+    gap: 1mm;
+    text-align: right;
+  }
+
+  .cash-voucher-number strong {
+    color: #073c6d;
+    font-size: 13pt;
+  }
+
+  .cash-voucher-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10mm;
+    margin: 7mm 0;
+  }
+
+  .cash-voucher-meta > div {
+    display: grid;
+    gap: 1.5mm;
+    border-bottom: 1px solid #94a3b8;
+    padding-bottom: 2.5mm;
+  }
+
+  .cash-voucher-meta strong {
+    color: #102d4c;
+    font-size: 11pt;
+  }
+
+  .cash-voucher-amount-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8mm;
+    border: 1px solid #b8d4ea;
+    border-left: 4px solid #0a4577;
+    background: #eff7fc !important;
+    padding: 5mm;
+  }
+
+  .cash-voucher-amount-box strong {
+    color: #073c6d;
+    font-size: 18pt;
+    font-weight: 800;
+  }
+
+  .cash-voucher-words {
+    margin: 6mm 0;
+    border: 1px solid #d7dee7;
+    border-radius: 2mm;
+    padding: 4mm;
+  }
+
+  .cash-voucher-words p {
+    margin-top: 2mm;
+    color: #102d4c;
+    font-size: 11pt;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+
+  .cash-voucher-details {
+    overflow: hidden;
+    border: 1px solid #d7dee7;
+    border-radius: 2mm;
+  }
+
+  .cash-voucher-details > div {
+    display: grid;
+    grid-template-columns: 55mm 1fr;
+    gap: 4mm;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 3mm 4mm;
+  }
+
+  .cash-voucher-details > div:last-child {
+    border-bottom: 0;
+  }
+
+  .cash-voucher-details dt {
+    color: #64748b;
+    font-size: 9pt;
+    font-weight: 600;
+  }
+
+  .cash-voucher-details dd {
+    color: #102d4c;
+    font-size: 10pt;
+    font-weight: 600;
+  }
+
+  .cash-voucher-acknowledgement {
+    margin-top: 7mm;
+    color: #475569;
+    font-size: 9pt;
+    line-height: 1.5;
+  }
+
+  .cash-voucher-signatures {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 9mm;
+    margin-top: 11mm;
+  }
+
+  .cash-voucher-signatures > div {
+    display: flex;
+    min-height: 27mm;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid #d7dee7;
+    border-radius: 2mm;
+    padding: 3mm;
+    text-align: center;
+  }
+
+  .cash-voucher-signatures strong {
+    color: #073c6d;
+    font-size: 9pt;
+    text-transform: uppercase;
+  }
+
+  .cash-voucher-signatures span {
+    color: #475569;
+    font-size: 8pt;
+  }
+
+  .cash-voucher-signatures i {
+    width: 90%;
+    border-bottom: 1px solid #64748b;
+  }
+
+  .cash-voucher-copy-note {
+    margin-top: 5mm;
+    color: #64748b;
+    font-size: 8pt;
+    text-align: center;
+  }
+
+  .cash-voucher-cancelled {
+    margin-top: 5mm;
+    border: 2px solid #be123c;
+    color: #be123c;
+    padding: 2mm 3mm;
+    font-size: 11pt;
+    font-weight: 800;
+    text-align: center;
+    text-transform: uppercase;
   }
 
   .screen-only {
