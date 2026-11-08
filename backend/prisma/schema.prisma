@@ -100,6 +100,7 @@ model Company {
   creditNotes           CreditNote[]
   payments              Payment[]
   expenses              Expense[]
+  cashVouchers          CashVoucher[]
   purchases             Purchase[]
   currencies            Currency[]
   exchangeRates         ExchangeRate[]
@@ -555,6 +556,30 @@ model Expense {
   company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId, date])
+}
+
+model CashVoucher {
+  id                 String        @id @default(uuid()) @db.Uuid
+  companyId          String        @db.Uuid
+  voucherNumber      String
+  date               DateTime
+  beneficiary        String
+  category           String
+  reason             String
+  amount             Decimal       @db.Decimal(18, 2)
+  currency           String        @default("CDF")
+  method             PaymentMethod
+  accountCode        String?
+  reference          String?
+  status             String        @default("ISSUED")
+  cancellationReason String?
+  cancelledAt        DateTime?
+  createdAt          DateTime      @default(now())
+  company            Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, voucherNumber])
+  @@index([companyId, date])
+  @@index([companyId, status, date])
 }
 
 model Purchase {
