@@ -13,6 +13,7 @@ import {
   CalendarClock,
   ChevronRight,
   ChevronDown,
+  BookOpen,
   Landmark,
   LayoutDashboard,
   LogOut,
@@ -275,6 +276,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <LogOut className="h-4 w-4" />
               Se déconnecter
             </button>
+            <a
+              href="/guide-utilisation-cabinet-transparency.pdf"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            >
+              <BookOpen className="h-4 w-4" />
+              Guide utilisateur
+            </a>
             <p className="app-sidebar-version">Gestion professionnelle · RDC</p>
           </div>
         </aside>
@@ -483,6 +493,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <LogOut className="h-4 w-4" />
                     Se déconnecter
                   </button>
+                  <a
+                    href="/guide-utilisation-cabinet-transparency.pdf"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                  >
+                    <BookOpen className="h-4 w-4" />
+                    Guide utilisateur
+                  </a>
                   <p className="app-sidebar-version">
                     Cabinet Transparency · Gestion du cabinet
                   </p>
