@@ -1,5 +1,10 @@
 import {
   IsDateString,
+  IsBoolean,
+  IsArray,
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  ArrayUnique,
   IsIn,
   IsInt,
   IsOptional,
@@ -18,6 +23,7 @@ export const archiveCategories = [
   'ACCOUNTING',
   'LEGAL',
   'HR',
+  'HR_CV',
   'INTERNAL',
 ] as const;
 
@@ -41,6 +47,11 @@ export class CreateArchiveDocumentDto {
   @IsOptional()
   @IsUUID()
   binderId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  personName?: string;
 
   @IsInt()
   @Min(1900)
@@ -101,6 +112,10 @@ export class ArchiveListQueryDto {
   @IsString()
   @MaxLength(120)
   q?: string;
+
+  @IsOptional()
+  @IsIn(['true'])
+  pinnedOnly?: string;
 }
 
 export class CreateArchiveBinderDto {
@@ -111,6 +126,11 @@ export class CreateArchiveBinderDto {
 
   @IsIn(archiveCategories)
   category: (typeof archiveCategories)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  personName?: string;
 
   @IsInt()
   @Min(1900)
@@ -133,4 +153,16 @@ export class ArchiveBinderListQueryDto {
   @Min(1900)
   @Max(2200)
   fiscalYear?: number;
+}
+
+export class UpdateArchivePinsDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(300)
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  documentIds: string[];
+
+  @IsBoolean()
+  isPinned: boolean;
 }

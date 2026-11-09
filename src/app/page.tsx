@@ -16,6 +16,7 @@ import {
   FileText,
   Landmark,
   Receipt,
+  ScrollText,
   Users,
   Wallet,
 } from "lucide-react";
@@ -67,6 +68,13 @@ const moduleLinks = [
     icon: Wallet,
     tone: "is-teal",
     metric: "Suivi des encaissements",
+  },
+  {
+    href: "/payment-orders",
+    label: "Ordres de paiement",
+    icon: ScrollText,
+    tone: "is-amber",
+    metric: "Demandes et visas de paiement",
   },
   {
     href: "/expenses",

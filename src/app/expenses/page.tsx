@@ -7,12 +7,7 @@ import { useCompanyProfile } from "@/components/company-profile";
 import { formatMoney } from "@/lib/formatting";
 
 type ExpenseMethod =
-  | "CASH_USD"
-  | "CASH_CDF"
-  | "BANK_TRANSFER"
-  | "CARD"
-  | "MOBILE_MONEY"
-  | "OTHER";
+  "CASH_USD" | "CASH_CDF" | "BANK_TRANSFER" | "CARD" | "MOBILE_MONEY" | "OTHER";
 
 type Expense = {
   id: string;
@@ -22,6 +17,22 @@ type Expense = {
   currency: "CDF" | "USD";
   method: ExpenseMethod;
   description?: string | null;
+  cashVoucherId?: string | null;
+  cashVoucher?: { voucherNumber: string } | null;
+  status: "RECORDED" | "CANCELLED";
+};
+type CashVoucher = {
+  id: string;
+  voucherNumber: string;
+  date: string;
+  beneficiary: string;
+  category: string;
+  reason: string;
+  amount: string;
+  currency: "CDF" | "USD";
+  method: ExpenseMethod;
+  status: "ISSUED" | "CANCELLED";
+  expense?: { id: string } | null;
 };
 
 const categories = [
@@ -47,6 +58,7 @@ export default function ExpensesPage() {
   const { databaseConnected } = useWorkspaceStore();
   const { profile } = useCompanyProfile();
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [cashVouchers, setCashVouchers] = useState<CashVoucher[]>([]);
   const [category, setCategory] = useState(categories[0]);
   const [date, setDate] = useState("");
   const [amount, setAmount] = useState("");
@@ -54,6 +66,7 @@ export default function ExpensesPage() {
   const currencyWasChanged = useRef(false);
   const [method, setMethod] = useState<ExpenseMethod>("BANK_TRANSFER");
   const [description, setDescription] = useState("");
+  const [cashVoucherId, setCashVoucherId] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
@@ -79,15 +92,22 @@ export default function ExpensesPage() {
       }
 
       setLoading(true);
-      void apiRequest<Expense[]>("/expenses")
-        .then((rows) => {
+      void Promise.all([
+        apiRequest<Expense[]>("/expenses"),
+        apiRequest<CashVoucher[]>("/cash-vouchers"),
+      ])
+        .then(([rows, vouchers]) => {
           if (active) {
             setExpenses(rows);
+            setCashVouchers(vouchers);
             setError("");
           }
         })
         .catch((caught: unknown) => {
-          console.error("Chargement des charges du cabinet impossible.", caught);
+          console.error(
+            "Chargement des charges du cabinet impossible.",
+            caught,
+          );
           if (active) {
             setError(
               caught instanceof Error
@@ -110,10 +130,13 @@ export default function ExpensesPage() {
   const totals = useMemo(
     () =>
       expenses.reduce(
-        (sum, expense) => ({
-          ...sum,
-          [expense.currency]: sum[expense.currency] + Number(expense.amount),
-        }),
+        (sum, expense) => {
+          if (expense.status === "CANCELLED") return sum;
+          return {
+            ...sum,
+            [expense.currency]: sum[expense.currency] + Number(expense.amount),
+          };
+        },
         { CDF: 0, USD: 0 },
       ),
     [expenses],
@@ -123,6 +146,31 @@ export default function ExpensesPage() {
       (value !== "CASH_CDF" || currency === "CDF") &&
       (value !== "CASH_USD" || currency === "USD"),
   );
+  const availableCashVouchers = cashVouchers.filter(
+    (voucher) =>
+      voucher.status === "ISSUED" &&
+      !voucher.expense?.id &&
+      voucher.currency === currency &&
+      voucher.method === method,
+  );
+
+  function selectCashVoucher(id: string) {
+    setCashVoucherId(id);
+    if (!id) {
+      setAmount("");
+      setDescription("");
+      setCategory(categories[0]);
+      return;
+    }
+    const voucher = cashVouchers.find((item) => item.id === id);
+    if (!voucher) return;
+    setDate(voucher.date.slice(0, 10));
+    setAmount(voucher.amount);
+    setCurrency(voucher.currency);
+    setMethod(voucher.method);
+    setCategory(voucher.category);
+    setDescription(`${voucher.beneficiary} · ${voucher.reason}`);
+  }
 
   async function submitExpense(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -143,6 +191,7 @@ export default function ExpensesPage() {
         currency,
         method,
         description: description.trim() || undefined,
+        cashVoucherId: cashVoucherId || undefined,
       };
 
       if (!databaseConnected) {
@@ -160,6 +209,16 @@ export default function ExpensesPage() {
 
       setAmount("");
       setDescription("");
+      setCashVoucherId("");
+      if (cashVoucherId) {
+        setCashVouchers((current) =>
+          current.map((item) =>
+            item.id === cashVoucherId
+              ? { ...item, expense: { id: created.id } }
+              : item,
+          ),
+        );
+      }
       setSuccess("Charge enregistrée.");
     } catch (caught) {
       setError(
@@ -182,7 +241,8 @@ export default function ExpensesPage() {
           Charges opérationnelles
         </h1>
         <p className="mt-2 text-sm text-slate-500">
-          Saisissez les dépenses du cabinet et consultez leur historique par devise.
+          Saisissez les dépenses du cabinet et consultez leur historique par
+          devise.
         </p>
       </header>
 
@@ -200,7 +260,10 @@ export default function ExpensesPage() {
 
       <section className="grid gap-4 sm:grid-cols-2">
         {(["CDF", "USD"] as const).map((code) => (
-          <article key={code} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <article
+            key={code}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
             <p className="text-sm text-slate-500">Charges enregistrées</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">
               {formatMoney(totals[code], code)}
@@ -215,9 +278,12 @@ export default function ExpensesPage() {
           className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
         >
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Nouvelle charge</h2>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Nouvelle charge
+            </h2>
             <p className="mt-1 text-sm text-slate-500">
-              La correction d’une écriture se fait par une nouvelle écriture d’ajustement.
+              La correction d’une écriture se fait par une nouvelle écriture
+              d’ajustement.
             </p>
           </div>
           <label className="block space-y-1.5 text-sm font-medium text-slate-700">
@@ -227,7 +293,12 @@ export default function ExpensesPage() {
               onChange={(event) => setCategory(event.target.value)}
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
             >
-              {categories.map((option) => <option key={option}>{option}</option>)}
+              {cashVoucherId && !categories.includes(category) && (
+                <option>{category}</option>
+              )}
+              {categories.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
             </select>
           </label>
           <label className="block space-y-1.5 text-sm font-medium text-slate-700">
@@ -237,6 +308,7 @@ export default function ExpensesPage() {
               type="date"
               value={date}
               onChange={(event) => setDate(event.target.value)}
+              disabled={Boolean(cashVoucherId)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
             />
           </label>
@@ -247,9 +319,10 @@ export default function ExpensesPage() {
                 required
                 type="number"
                 min="0.01"
-                step="0.01"
+                step={currency === "CDF" ? "1" : "0.01"}
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
+                disabled={Boolean(cashVoucherId)}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
               />
             </label>
@@ -258,15 +331,18 @@ export default function ExpensesPage() {
               <select
                 value={currency}
                 onChange={(event) => {
-                  const nextCurrency = event.target.value as Expense["currency"];
+                  const nextCurrency = event.target
+                    .value as Expense["currency"];
                   currencyWasChanged.current = true;
                   setCurrency(nextCurrency);
                   if (
                     (method === "CASH_CDF" && nextCurrency !== "CDF") ||
                     (method === "CASH_USD" && nextCurrency !== "USD")
-                  ) setMethod("BANK_TRANSFER");
+                  )
+                    setMethod("BANK_TRANSFER");
                 }}
                 className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                disabled={Boolean(cashVoucherId)}
               >
                 <option value="CDF">CDF</option>
                 <option value="USD">USD</option>
@@ -277,14 +353,45 @@ export default function ExpensesPage() {
             Moyen de paiement
             <select
               value={method}
-              onChange={(event) => setMethod(event.target.value as ExpenseMethod)}
+              onChange={(event) =>
+                setMethod(event.target.value as ExpenseMethod)
+              }
+              disabled={Boolean(cashVoucherId)}
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
             >
               {availableMethods.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+                <option key={value} value={value}>
+                  {label}
+                </option>
               ))}
             </select>
           </label>
+          {(method === "CASH_CDF" || method === "CASH_USD") && (
+            <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+              Bon de sortie lié (facultatif)
+              <select
+                value={cashVoucherId}
+                onChange={(event) => selectCashVoucher(event.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+              >
+                <option value="">Aucun bon — nouvelle sortie de caisse</option>
+                {availableCashVouchers.map((voucher) => (
+                  <option key={voucher.id} value={voucher.id}>
+                    {voucher.voucherNumber} · {voucher.beneficiary} ·{" "}
+                    {formatMoney(Number(voucher.amount), voucher.currency)}
+                  </option>
+                ))}
+                {cashVoucherId &&
+                  !availableCashVouchers.some(
+                    (item) => item.id === cashVoucherId,
+                  ) && <option value={cashVoucherId}>Bon sélectionné</option>}
+              </select>
+              <span className="block text-xs font-normal text-slate-500">
+                Lier l’écriture de charge au bon évite de déduire le même
+                montant deux fois de la caisse.
+              </span>
+            </label>
+          )}
           <label className="block space-y-1.5 text-sm font-medium text-slate-700">
             Note ou justificatif (facultatif)
             <textarea
@@ -296,8 +403,16 @@ export default function ExpensesPage() {
               placeholder="Ex. Référence du reçu, période concernée…"
             />
           </label>
-          {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
-          {success && <p role="status" className="text-sm text-emerald-700">{success}</p>}
+          {error && (
+            <p role="alert" className="text-sm text-rose-700">
+              {error}
+            </p>
+          )}
+          {success && (
+            <p role="status" className="text-sm text-emerald-700">
+              {success}
+            </p>
+          )}
           <button
             type="submit"
             disabled={saving || !databaseConnected}
@@ -309,7 +424,9 @@ export default function ExpensesPage() {
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-5 py-4">
-            <h2 className="font-semibold text-slate-900">Historique des charges</h2>
+            <h2 className="font-semibold text-slate-900">
+              Historique des charges
+            </h2>
             <p className="mt-1 text-sm text-slate-500">
               {loading ? "Chargement…" : `${expenses.length} écriture(s)`}
             </p>
@@ -321,23 +438,33 @@ export default function ExpensesPage() {
                   <tr>
                     <th className="px-4 py-3 font-medium">Date / rubrique</th>
                     <th className="px-4 py-3 font-medium">Paiement</th>
-                    <th className="px-4 py-3 text-right font-medium">Montant</th>
+                    <th className="px-4 py-3 text-right font-medium">
+                      Montant
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {expenses.map((expense) => (
                     <tr key={expense.id} className="border-t border-slate-100">
                       <td className="px-4 py-3">
-                        <p className="font-medium text-slate-900">{expense.category}</p>
+                        <p className="font-medium text-slate-900">
+                          {expense.category}
+                        </p>
                         <p className="text-xs text-slate-500">
                           {expense.date.slice(0, 10)}
-                          {expense.description ? ` · ${expense.description}` : ""}
+                          {expense.cashVoucher?.voucherNumber
+                            ? ` · ${expense.cashVoucher.voucherNumber}`
+                            : ""}
+                          {expense.description
+                            ? ` · ${expense.description}`
+                            : ""}
                         </p>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                         {methodLabels[expense.method]}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-900">
+                        {expense.status === "CANCELLED" ? "Annulée · " : ""}
                         {formatMoney(Number(expense.amount), expense.currency)}
                       </td>
                     </tr>
@@ -347,7 +474,9 @@ export default function ExpensesPage() {
             </div>
           ) : (
             <p className="px-5 py-10 text-center text-sm text-slate-500">
-              {loading ? "Chargement des données…" : "Aucune charge enregistrée."}
+              {loading
+                ? "Chargement des données…"
+                : "Aucune charge enregistrée."}
             </p>
           )}
         </section>

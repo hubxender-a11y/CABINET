@@ -49,3 +49,13 @@ export class CancelCashVoucherDto {
   @MaxLength(300)
   reason: string;
 }
+
+export class ReconcileCashAccountDto {
+  @IsString()
+  @Matches(/^\d{1,12}(?:\.\d{1,2})?$/)
+  countedBalance: string;
+
+  @IsString()
+  @MaxLength(300)
+  reason: string;
+}

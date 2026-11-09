@@ -24,6 +24,7 @@ import {
   Settings,
   Users,
   Wallet,
+  ScrollText,
   X,
 } from "lucide-react";
 import { setSessionToken } from "@/lib/session";
@@ -43,6 +44,7 @@ const navigationGroups = [
       { href: "/invoices", label: "Factures clients", icon: Receipt },
       { href: "/payments", label: "Règlements clients", icon: Wallet },
       { href: "/cash-vouchers", label: "Bons de sortie caisse", icon: Receipt },
+      { href: "/payment-orders", label: "Ordres de paiement", icon: ScrollText },
       { href: "/recouvrement", label: "Recouvrement", icon: CalendarClock },
       { href: "/expenses", label: "Dépenses", icon: Receipt },
       { href: "/fiscal", label: "Suivi fiscal", icon: Landmark },
@@ -90,7 +92,7 @@ const primaryNavigation = [
     href: "/invoices",
     label: "Gestion",
     icon: Receipt,
-    paths: ["/invoices", "/payments", "/cash-vouchers", "/recouvrement", "/expenses", "/fiscal", "/reports"],
+    paths: ["/invoices", "/payments", "/cash-vouchers", "/payment-orders", "/recouvrement", "/expenses", "/fiscal", "/reports"],
   },
   {
     href: "/patrimoine",

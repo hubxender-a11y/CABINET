@@ -16,6 +16,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import {
   CancelCashVoucherDto,
   CreateCashVoucherDto,
+  ReconcileCashAccountDto,
 } from './cash-vouchers.dto';
 import { CashVouchersService } from './cash-vouchers.service';
 
@@ -37,6 +38,14 @@ export class CashVouchersController {
   @ApiOperation({ summary: 'List cash disbursement vouchers' })
   list(@Req() request: AuthenticatedRequest) {
     return this.vouchers.list(request.user!.companyId);
+  }
+
+  @Get('treasury')
+  @ApiOperation({
+    summary: 'Get cash accounts, balances, and recent movements',
+  })
+  treasury(@Req() request: AuthenticatedRequest) {
+    return this.vouchers.treasury(request.user!.companyId);
   }
 
   @Post()
@@ -64,6 +73,24 @@ export class CashVouchersController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.vouchers.cancel(
+      id,
+      dto,
+      request.user!.companyId,
+      request.user!.sub,
+    );
+  }
+
+  @Post('accounts/:id/reconcile')
+  @Roles(UserRole.COMPANY_ADMIN, UserRole.FINANCE_MANAGER, UserRole.ACCOUNTANT)
+  @ApiOperation({
+    summary: 'Reconcile the book balance with a physical cash count',
+  })
+  reconcile(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ReconcileCashAccountDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.vouchers.reconcile(
       id,
       dto,
       request.user!.companyId,

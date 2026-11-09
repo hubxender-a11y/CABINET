@@ -6403,3 +6403,222 @@ summary:focus-visible {
     height: 2.1rem;
   }
 }
+
+.payment-order-print {
+  display: none;
+}
+
+@page payment-order-document {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
+.payment-order-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  border-bottom: 3px solid #edaa16;
+  padding-bottom: 0.8rem;
+}
+
+.payment-order-overline,
+.payment-order-number span,
+.payment-order-fields span {
+  color: #52647a;
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.payment-order-heading h2 {
+  margin-top: 0.35rem;
+  color: #073c6d;
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.payment-order-number {
+  display: grid;
+  text-align: right;
+}
+
+.payment-order-number strong {
+  color: #073c6d;
+  font-size: 1.15rem;
+}
+
+.payment-order-date {
+  margin: 0.6rem 0 1.2rem;
+  color: #334155;
+  font-size: 0.78rem;
+  text-align: right;
+}
+
+.payment-order-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.95rem 1.3rem;
+}
+
+.payment-order-fields > div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  border-bottom: 1px solid #94a3b8;
+  padding-bottom: 0.45rem;
+}
+
+.payment-order-fields strong {
+  color: #102d4c;
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.payment-order-fields .payment-order-wide {
+  grid-column: 1 / -1;
+}
+
+.payment-order-budget {
+  margin-top: 1.4rem;
+}
+
+.payment-order-budget h3,
+.payment-order-visas h3 {
+  margin-bottom: 0.5rem;
+  color: #073c6d;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.payment-order-budget table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.68rem;
+}
+
+.payment-order-budget th {
+  background: #073c6d;
+  color: white;
+  font-size: 0.62rem;
+  text-align: left;
+}
+
+.payment-order-budget th,
+.payment-order-budget td {
+  border: 1px solid #7892aa;
+  padding: 0.45rem 0.35rem;
+}
+
+.payment-order-budget p,
+.payment-order-status {
+  margin-top: 0.5rem;
+  color: #52647a;
+  font-size: 0.65rem;
+}
+
+.payment-order-visas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1.8rem;
+  break-inside: avoid;
+}
+
+.payment-order-visas > div {
+  min-width: 0;
+}
+
+.payment-order-signature-line {
+  display: flex;
+  min-height: 3.5rem;
+  align-items: flex-end;
+  justify-content: center;
+  flex-direction: column;
+  border-bottom: 1px solid #64748b;
+  padding: 0.4rem;
+  color: #64748b;
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.payment-order-signature-line strong {
+  color: #102d4c;
+  font-size: 0.83rem;
+}
+
+.payment-order-signature-line span {
+  font-size: 0.62rem;
+}
+
+.payment-order-print .document-footer {
+  margin-top: 1.3rem;
+}
+
+@media print {
+  @page payment-order-document {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  body.print-payment-order-mode * {
+    visibility: hidden !important;
+  }
+
+  body.print-payment-order-mode .payment-order-print,
+  body.print-payment-order-mode .payment-order-print * {
+    visibility: visible !important;
+  }
+
+  body.print-payment-order-mode .payment-order-print {
+    page: payment-order-document;
+    display: flex !important;
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+    flex-direction: column !important;
+    padding: 3mm 2mm 0 !important;
+    background: #fff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .payment-order-print .document-letterhead {
+    margin: 0 0 4mm !important;
+    padding: 0 0 3mm !important;
+    border-bottom: 2px solid #0a4577 !important;
+  }
+
+  .payment-order-print .document-letterhead-logo {
+    width: 70mm !important;
+    height: auto !important;
+  }
+
+  .payment-order-print .payment-order-heading {
+    margin-top: 2mm;
+    padding-bottom: 3mm;
+  }
+
+  .payment-order-print .payment-order-fields {
+    gap: 3mm 8mm;
+  }
+
+  .payment-order-print .payment-order-budget {
+    margin-top: 7mm;
+  }
+
+  .payment-order-print .payment-order-visas {
+    gap: 10mm;
+    margin-top: 10mm;
+  }
+
+  .payment-order-print .document-footer {
+    margin-top: auto;
+    padding: 4mm 3mm;
+    font-size: 7pt;
+  }
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   CircleAlert,
@@ -31,11 +31,32 @@ type CashVoucher = {
   amount: string;
   currency: Currency;
   method: CashMethod;
+  cashAccountId: string;
   accountCode?: string | null;
   reference?: string | null;
   status: "ISSUED" | "CANCELLED";
   cancellationReason?: string | null;
 };
+type CashAccount = {
+  id: string;
+  code: string;
+  name: string;
+  currency: Currency;
+  isActive: boolean;
+  balance: string;
+};
+type CashMovement = {
+  id: string;
+  cashAccountId: string;
+  date: string;
+  direction: "IN" | "OUT";
+  amount: string;
+  description: string;
+  reference?: string | null;
+  sourceType: string;
+  cashAccount: { code: string; name: string; currency: Currency };
+};
+type Treasury = { accounts: CashAccount[]; movements: CashMovement[] };
 
 const categories = [
   "Fournitures de bureau",
@@ -145,6 +166,8 @@ export default function CashVouchersPage() {
   const { databaseConnected } = useWorkspaceStore();
   const { profile } = useCompanyProfile();
   const [vouchers, setVouchers] = useState<CashVoucher[]>([]);
+  const [accounts, setAccounts] = useState<CashAccount[]>([]);
+  const [movements, setMovements] = useState<CashMovement[]>([]);
   const [selectedVoucher, setSelectedVoucher] = useState<CashVoucher | null>(
     null,
   );
@@ -154,15 +177,27 @@ export default function CashVouchersPage() {
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>("CDF");
-  const [accountCode, setAccountCode] = useState("");
   const [reference, setReference] = useState("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
   useEffect(() => setDate(kinshasaDate()), []);
+
+  useEffect(() => {
+    void apiRequest<{ role: string }>("/auth/me")
+      .then((user) => setUserRole(user.role))
+      .catch(() => setUserRole(""));
+  }, []);
+
+  const refreshTreasury = useCallback(async () => {
+    const data = await apiRequest<Treasury>("/cash-vouchers/treasury");
+    setAccounts(data.accounts);
+    setMovements(data.movements);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -171,9 +206,16 @@ export default function CashVouchersPage() {
       setLoading(false);
       return;
     }
-    void apiRequest<CashVoucher[]>("/cash-vouchers")
-      .then((rows) => {
-        if (active) setVouchers(rows);
+    void Promise.all([
+      apiRequest<CashVoucher[]>("/cash-vouchers"),
+      apiRequest<Treasury>("/cash-vouchers/treasury"),
+    ])
+      .then(([rows, treasury]) => {
+        if (active) {
+          setVouchers(rows);
+          setAccounts(treasury.accounts);
+          setMovements(treasury.movements);
+        }
       })
       .catch((caught: unknown) => {
         if (active)
@@ -191,18 +233,21 @@ export default function CashVouchersPage() {
     };
   }, [databaseConnected]);
 
-  const totals = useMemo(
-    () =>
-      vouchers.reduce(
-        (sum, voucher) => {
-          if (voucher.status === "ISSUED")
-            sum[voucher.currency] += Number(voucher.amount);
-          return sum;
-        },
-        { CDF: 0, USD: 0 },
-      ),
-    [vouchers],
-  );
+  const cashAccount = accounts.find((account) => account.currency === currency);
+  const movementBalances = useMemo(() => {
+    const remainingByAccount = new Map(
+      accounts.map((account) => [account.id, Number(account.balance)]),
+    );
+    return movements.map((movement) => {
+      const balanceAfter = remainingByAccount.get(movement.cashAccountId) ?? 0;
+      const amount = Number(movement.amount);
+      remainingByAccount.set(
+        movement.cashAccountId,
+        balanceAfter + (movement.direction === "IN" ? -amount : amount),
+      );
+      return { ...movement, balanceAfter };
+    });
+  }, [accounts, movements]);
   const visibleVouchers = useMemo(() => {
     const term = query.trim().toLocaleLowerCase("fr");
     if (!term) return vouchers;
@@ -240,7 +285,6 @@ export default function CashVouchersPage() {
           amount,
           currency,
           method: currency === "USD" ? "CASH_USD" : "CASH_CDF",
-          accountCode: accountCode.trim() || undefined,
           reference: reference.trim() || undefined,
         }),
       });
@@ -249,8 +293,8 @@ export default function CashVouchersPage() {
       setBeneficiary("");
       setReason("");
       setAmount("");
-      setAccountCode("");
       setReference("");
+      void refreshTreasury().catch(() => undefined);
       setSuccess(
         `Bon ${created.voucherNumber} enregistré. Il est prêt à être imprimé.`,
       );
@@ -282,6 +326,12 @@ export default function CashVouchersPage() {
   }
 
   async function cancelVoucher(voucher: CashVoucher) {
+    if (
+      !window.confirm(
+        `Annuler le bon ${voucher.voucherNumber} et enregistrer le retour du montant dans la caisse ? Confirmez uniquement si les fonds sont effectivement revenus.`,
+      )
+    )
+      return;
     const reasonForCancellation = window.prompt(
       `Motif d’annulation du bon ${voucher.voucherNumber} :`,
     );
@@ -298,6 +348,7 @@ export default function CashVouchersPage() {
       setVouchers((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
+      void refreshTreasury().catch(() => undefined);
       if (selectedVoucher?.id === updated.id) setSelectedVoucher(updated);
       setSuccess(
         `Bon ${updated.voucherNumber} annulé sans supprimer sa trace d’audit.`,
@@ -307,6 +358,42 @@ export default function CashVouchersPage() {
         caught instanceof Error
           ? caught.message
           : "Impossible d’annuler ce bon.",
+      );
+    }
+  }
+
+  async function reconcileAccount(account: CashAccount) {
+    const rawCount = window.prompt(
+      `Comptage physique de ${account.name} (${account.currency}) :`,
+      Number(account.balance).toFixed(2),
+    );
+    if (rawCount === null) return;
+    const countedBalance = rawCount.trim().replace(/\s/g, "").replace(",", ".");
+    if (!/^\d{1,12}(?:\.\d{1,2})?$/.test(countedBalance)) {
+      setError("Saisissez un solde positif avec au plus deux décimales.");
+      return;
+    }
+    const reason = window.prompt("Motif du rapprochement (obligatoire) :");
+    if (!reason?.trim()) return;
+    setError("");
+    try {
+      const result = await apiRequest<{ balance: string; difference: string }>(
+        `/cash-vouchers/accounts/${account.id}/reconcile`,
+        {
+          method: "POST",
+          body: JSON.stringify({ countedBalance, reason: reason.trim() }),
+        },
+      );
+      await refreshTreasury();
+      const delta = Number(result.difference);
+      setSuccess(
+        delta === 0
+          ? `La caisse ${account.currency} est rapprochée : aucun écart.`
+          : `Rapprochement enregistré. Écart ${formatMoney(Math.abs(delta), account.currency)} (${delta > 0 ? "entrée" : "sortie"} d’ajustement).`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Rapprochement impossible.",
       );
     }
   }
@@ -336,7 +423,7 @@ export default function CashVouchersPage() {
         )}
         <p>
           {databaseConnected
-            ? "Les bons sont conservés dans la base du cabinet. Leur numéro est attribué automatiquement et une annulation laisse une trace."
+            ? "Les bons, encaissements et dépenses en espèces alimentent le même livre de caisse. Les sorties sont contrôlées par rapport au solde et chaque rapprochement est tracé."
             : "Base indisponible : les bons ne peuvent pas être enregistrés."}
         </p>
       </div>
@@ -352,15 +439,52 @@ export default function CashVouchersPage() {
             </span>
             <div>
               <p className="text-sm text-slate-500">
-                Décaissements actifs · {code}
+                Solde disponible · {code}
               </p>
               <p className="mt-1 text-2xl font-semibold text-slate-900">
-                {formatMoney(totals[code], code)}
+                {formatMoney(
+                  Number(
+                    accounts.find((account) => account.currency === code)
+                      ?.balance ?? 0,
+                  ),
+                  code,
+                )}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {accounts.find((account) => account.currency === code)?.name ??
+                  "Caisse"}
               </p>
             </div>
+            {accounts.find((account) => account.currency === code) &&
+              ["COMPANY_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT"].includes(
+                userRole,
+              ) && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void reconcileAccount(
+                      accounts.find((account) => account.currency === code)!,
+                    )
+                  }
+                  className="ml-auto rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Rapprocher
+                </button>
+              )}
           </article>
         ))}
       </section>
+
+      {!loading &&
+        accounts.length > 0 &&
+        movements.length === 0 &&
+        Number(accounts[0]?.balance ?? 0) === 0 && (
+          <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+            Première mise en service : comptez l’argent réellement présent dans
+            chaque caisse, puis utilisez « Rapprocher ». Cette opération crée le
+            solde de départ et permet ensuite de contrôler les sorties.
+          </p>
+        )}
 
       <section className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <form
@@ -430,7 +554,7 @@ export default function CashVouchersPage() {
                 type="number"
                 min="0.01"
                 max="999999999999.99"
-                step="0.01"
+                step={currency === "CDF" ? "1" : "0.01"}
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
@@ -450,16 +574,11 @@ export default function CashVouchersPage() {
               </select>
             </label>
           </div>
-          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-            Compte / caisse (facultatif)
-            <input
-              maxLength={40}
-              value={accountCode}
-              onChange={(event) => setAccountCode(event.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
-              placeholder="Ex. Caisse principale · 571"
-            />
-          </label>
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            {cashAccount
+              ? `${cashAccount.name} · ${formatMoney(Number(cashAccount.balance), currency)} au livre. La disponibilité à la date du bon sera vérifiée avant l’enregistrement.`
+              : "La caisse correspondant à cette devise sera créée automatiquement."}
+          </p>
           <label className="block space-y-1.5 text-sm font-medium text-slate-700">
             Référence du justificatif (facultatif)
             <input
@@ -574,16 +693,21 @@ export default function CashVouchersPage() {
                           <Printer className="h-3.5 w-3.5" />
                           Imprimer
                         </button>
-                        {voucher.status === "ISSUED" && (
-                          <button
-                            type="button"
-                            onClick={() => void cancelVoucher(voucher)}
-                            className="ml-1.5 inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                            Annuler
-                          </button>
-                        )}
+                        {voucher.status === "ISSUED" &&
+                          [
+                            "COMPANY_ADMIN",
+                            "FINANCE_MANAGER",
+                            "ACCOUNTANT",
+                          ].includes(userRole) && (
+                            <button
+                              type="button"
+                              onClick={() => void cancelVoucher(voucher)}
+                              className="ml-1.5 inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                              Annuler
+                            </button>
+                          )}
                       </td>
                     </tr>
                   ))}
@@ -600,6 +724,82 @@ export default function CashVouchersPage() {
             </p>
           )}
         </section>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="font-semibold text-slate-900">Livre de caisse</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Encaissements sur factures, dépenses, bons de sortie et écarts de
+            comptage.
+          </p>
+        </div>
+        {movements.length ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Date</th>
+                  <th className="px-4 py-3 font-medium">Libellé / pièce</th>
+                  <th className="px-4 py-3 font-medium">Caisse</th>
+                  <th className="px-4 py-3 text-right font-medium">Entrée</th>
+                  <th className="px-4 py-3 text-right font-medium">Sortie</th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    Solde après
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {movementBalances.map((movement) => (
+                  <tr key={movement.id} className="border-t border-slate-100">
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                      {formatDate(movement.date)}
+                    </td>
+                    <td className="max-w-md px-4 py-3">
+                      <p className="font-medium text-slate-800">
+                        {movement.description}
+                      </p>
+                      {movement.reference && (
+                        <p className="text-xs text-slate-500">
+                          {movement.reference}
+                        </p>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                      {movement.cashAccount.name}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-emerald-700">
+                      {movement.direction === "IN"
+                        ? formatMoney(
+                            Number(movement.amount),
+                            movement.cashAccount.currency,
+                          )
+                        : "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-rose-700">
+                      {movement.direction === "OUT"
+                        ? formatMoney(
+                            Number(movement.amount),
+                            movement.cashAccount.currency,
+                          )
+                        : "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-800">
+                      {formatMoney(
+                        movement.balanceAfter,
+                        movement.cashAccount.currency,
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="px-5 py-10 text-center text-sm text-slate-500">
+            Aucun mouvement de caisse enregistré.
+          </p>
+        )}
       </section>
 
       {selectedVoucher && (
@@ -674,7 +874,12 @@ export default function CashVouchersPage() {
               {selectedVoucher.accountCode && (
                 <div>
                   <dt>Caisse / compte</dt>
-                  <dd>{selectedVoucher.accountCode}</dd>
+                  <dd>
+                    {accounts.find(
+                      (account) => account.id === selectedVoucher.cashAccountId,
+                    )?.name ?? selectedVoucher.accountCode}
+                    {` · ${selectedVoucher.accountCode}`}
+                  </dd>
                 </div>
               )}
               {selectedVoucher.reference && (

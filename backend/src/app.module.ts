@@ -8,6 +8,7 @@ import { InvoicesModule } from './invoices/invoices.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { CashVouchersModule } from './cash-vouchers/cash-vouchers.module';
+import { PaymentOrdersModule } from './payment-orders/payment-orders.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { CompanyModule } from './company/company.module';
@@ -34,6 +35,7 @@ import { APP_GUARD } from '@nestjs/core';
     PaymentsModule,
     ExpensesModule,
     CashVouchersModule,
+    PaymentOrdersModule,
     FiscalIntegrationModule,
   ],
   providers: [
