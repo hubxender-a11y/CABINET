@@ -199,6 +199,16 @@ export default function PaymentOrdersPage() {
   const [printVoucherOrder, setPrintVoucherOrder] =
     useState<PaymentOrder | null>(null);
   const [detailOrder, setDetailOrder] = useState<PaymentOrder | null>(null);
+  const [attachmentPreview, setAttachmentPreview] = useState<{
+    orderId: string;
+    fileName: string;
+    mimeType: string;
+    data: string;
+  } | null>(null);
+  const [attachmentLoadingId, setAttachmentLoadingId] = useState<string | null>(
+    null,
+  );
+  const [attachmentPreviewError, setAttachmentPreviewError] = useState("");
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [date, setDate] = useState("");
   const [requestingService, setRequestingService] = useState("");
@@ -213,6 +223,43 @@ export default function PaymentOrdersPage() {
   useEffect(() => {
     setDate(kinshasaToday());
   }, []);
+  useEffect(() => {
+    const order = detailOrder;
+    if (!order?.attachment) {
+      setAttachmentPreview(null);
+      setAttachmentLoadingId(null);
+      setAttachmentPreviewError("");
+      return;
+    }
+    if (attachmentPreview?.orderId === order.id) return;
+
+    let active = true;
+    setAttachmentLoadingId(order.id);
+    setAttachmentPreviewError("");
+    void apiRequest<{
+      fileName: string;
+      mimeType: string;
+      data: string;
+    }>(`/payment-orders/${order.id}/attachment`)
+      .then((file) => {
+        if (active)
+          setAttachmentPreview({ orderId: order.id, ...file });
+      })
+      .catch((caught: unknown) => {
+        if (active)
+          setAttachmentPreviewError(
+            caught instanceof Error
+              ? caught.message
+              : "Aperçu de la pièce justificative impossible.",
+          );
+      })
+      .finally(() => {
+        if (active) setAttachmentLoadingId(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [attachmentPreview?.orderId, detailOrder]);
   useEffect(() => {
     if (!databaseConnected) {
       setLoading(false);
@@ -546,7 +593,7 @@ export default function PaymentOrdersPage() {
                 Le numéro OP est attribué automatiquement à l’enregistrement.
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3">
               <Field label="Date de la demande">
                 <input
                   required
@@ -624,10 +671,12 @@ export default function PaymentOrdersPage() {
                   maxLength={120}
                   value={accountingAllocation}
                   onChange={(e) => setAccountingAllocation(e.target.value)}
-                  placeholder="Ex. Contrôle budgétaire"
+                  placeholder="Ex. Honoraires d’audit"
                   className={inputClass}
                 />
               </Field>
+            </div>
+            <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:grid-cols-2">
               <Field label="Compte budgétaire">
                 <input
                   required
@@ -638,50 +687,23 @@ export default function PaymentOrdersPage() {
                   className={inputClass}
                 />
               </Field>
-            </div>
-            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-              <h3 className="text-sm font-semibold text-slate-800">
-                Contrôle budgétaire · {targetYear || "exercice"}
-              </h3>
-              <p className="mt-1 text-xs text-slate-500">
-                Disponible et encours sont calculés automatiquement depuis les
-                OP payées et les demandes non rejetées de ce compte.
+              <Field label="Enveloppe budgétaire annuelle">
+                <input
+                  required
+                  inputMode="decimal"
+                  value={initialForecast}
+                  onChange={(e) =>
+                    setInitialForecast(e.target.value.replace(",", "."))
+                  }
+                  placeholder={currency === "CDF" ? "5000000" : "2500"}
+                  className={inputClass}
+                />
+              </Field>
+              <p className="text-xs leading-5 text-slate-500 sm:col-span-2">
+                Le plafond et les engagements sont contrôlés automatiquement à
+                l’enregistrement, sans encombrer le formulaire ni l’OP
+                imprimée avec des soldes à zéro.
               </p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <Field label="Prévision budgétaire initiale">
-                  <input
-                    required
-                    inputMode="decimal"
-                    value={initialForecast}
-                    onChange={(e) =>
-                      setInitialForecast(e.target.value.replace(",", "."))
-                    }
-                    placeholder={currency === "CDF" ? "5000000" : "2500"}
-                    className={inputClass}
-                  />
-                </Field>
-                <BudgetValue
-                  label="Déjà payé"
-                  value={formatMoney(paidBudget, currency)}
-                />
-                <BudgetValue
-                  label="Disponible avant cette demande"
-                  value={formatMoney(Math.max(0, availableBefore), currency)}
-                />
-                <BudgetValue
-                  label="Engagements en attente"
-                  value={formatMoney(outstandingBudget, currency)}
-                />
-                <div className="space-y-1.5 text-sm font-medium text-slate-700">
-                  <span className="block">Disponible après l’OP</span>
-                  <output
-                    className={`flex min-h-[42px] items-center rounded-xl border px-3 py-2.5 font-semibold ${budgetLeft < 0 ? "border-rose-300 bg-rose-50 text-rose-700" : "border-emerald-200 bg-white text-emerald-800"}`}
-                  >
-                    {formatMoney(Math.max(0, budgetLeft), currency)}
-                    {budgetLeft < 0 ? " · insuffisant" : ""}
-                  </output>
-                </div>
-              </div>
             </div>
             <Field label="Pièce justificative (PDF, JPG, PNG, DOCX ou XLSX · 8 Mo max)">
               <input
@@ -811,18 +833,6 @@ export default function PaymentOrdersPage() {
                       </span>
                     </div>
                     <div className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
-                      <span>
-                        Compte :{" "}
-                        <strong className="font-medium text-slate-700">
-                          {order.budgetAccount}
-                        </strong>
-                      </span>
-                      <span>
-                        Disponible après :{" "}
-                        <strong className="font-medium text-slate-700">
-                          {formatMoney(order.availableAfter, order.currency)}
-                        </strong>
-                      </span>
                       {order.financeVisaName && (
                         <span>Visa Finances : {order.financeVisaName}</span>
                       )}
@@ -904,11 +914,11 @@ export default function PaymentOrdersPage() {
                         order.status === "APPROVED" && (
                           <button
                             type="button"
-                            onClick={() => void act(order, "pay")}
+                            onClick={() => setDetailOrder(order)}
                             className="inline-flex items-center gap-1.5 rounded-lg bg-[#0b4778] px-3 py-2 text-xs font-semibold text-white"
                           >
                             <Wallet className="h-3.5 w-3.5" />
-                            Payer et émettre le bon
+                            Vérifier la pièce et payer
                           </button>
                         )}
                       {canReject && (
@@ -994,52 +1004,6 @@ export default function PaymentOrdersPage() {
               <strong>{printOrder.accountingAllocation}</strong>
             </div>
           </div>
-          <section className="payment-order-budget">
-            <h3>Contrôle budgétaire · {printOrder.currency}</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Compte</th>
-                  <th>Prévision initiale</th>
-                  <th>Solde disponible (1)</th>
-                  <th>Encours</th>
-                  <th>Montant OP</th>
-                  <th>Solde disponible (2)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>{printOrder.budgetAccount}</td>
-                  <td>
-                    {formatMoney(
-                      printOrder.initialForecast,
-                      printOrder.currency,
-                    )}
-                  </td>
-                  <td>
-                    {formatMoney(
-                      printOrder.availableBefore,
-                      printOrder.currency,
-                    )}
-                  </td>
-                  <td>
-                    {formatMoney(printOrder.outstanding, printOrder.currency)}
-                  </td>
-                  <td>{formatMoney(printOrder.amount, printOrder.currency)}</td>
-                  <td>
-                    {formatMoney(
-                      printOrder.availableAfter,
-                      printOrder.currency,
-                    )}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <p>
-              Solde disponible (2) = disponible (1) − encours − montant
-              sollicité.
-            </p>
-          </section>
           <section className="payment-order-visas">
             <div>
               <h3>Visa de la chargée des Finances</h3>
@@ -1180,7 +1144,7 @@ export default function PaymentOrdersPage() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="payment-order-detail-title"
-            className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl"
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1213,24 +1177,6 @@ export default function PaymentOrdersPage() {
                 value={statusLabel[detailOrder.status]}
               />
               <BudgetValue
-                label="Compte budgétaire"
-                value={detailOrder.budgetAccount}
-              />
-              <BudgetValue
-                label="Prévision initiale"
-                value={formatMoney(
-                  detailOrder.initialForecast,
-                  detailOrder.currency,
-                )}
-              />
-              <BudgetValue
-                label="Disponible après engagement"
-                value={formatMoney(
-                  detailOrder.availableAfter,
-                  detailOrder.currency,
-                )}
-              />
-              <BudgetValue
                 label="Imputation comptable"
                 value={detailOrder.accountingAllocation}
               />
@@ -1247,17 +1193,71 @@ export default function PaymentOrdersPage() {
                 {detailOrder.reason}
               </p>
             </div>
+            {detailOrder.attachment && (
+              <section
+                aria-label="Pièce justificative à vérifier avant paiement"
+                className="mt-4 rounded-xl border border-amber-300 bg-amber-50/70 p-4 shadow-sm"
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                      <Paperclip className="h-4 w-4 text-amber-700" />
+                      Justificatif lié à cette OP
+                    </p>
+                    <p className="mt-1 break-all text-xs text-slate-600">
+                      {detailOrder.attachment.fileName}
+                    </p>
+                  </div>
+                  {attachmentPreview?.orderId === detailOrder.id && (
+                    <span className="shrink-0 rounded-full bg-amber-200 px-2.5 py-1 text-[11px] font-semibold text-amber-900">
+                      À vérifier avant paiement
+                    </span>
+                  )}
+                </div>
+                {attachmentLoadingId === detailOrder.id ? (
+                  <p className="rounded-lg bg-white px-3 py-4 text-sm text-slate-600">
+                    Chargement de la pièce justificative…
+                  </p>
+                ) : attachmentPreview?.orderId === detailOrder.id ? (
+                  attachmentPreview.mimeType.startsWith("image/") ? (
+                    // The data URL is fetched from the authenticated attachment endpoint.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`data:${attachmentPreview.mimeType};base64,${attachmentPreview.data}`}
+                      alt={`Justificatif ${attachmentPreview.fileName}`}
+                      className="max-h-[50vh] w-full rounded-lg border border-amber-200 bg-white object-contain"
+                    />
+                  ) : attachmentPreview.mimeType === "application/pdf" ? (
+                    <iframe
+                      title={`Justificatif ${attachmentPreview.fileName}`}
+                      src={`data:application/pdf;base64,${attachmentPreview.data}`}
+                      className="h-[50vh] w-full rounded-lg border border-amber-200 bg-white"
+                    />
+                  ) : (
+                    <p className="rounded-lg bg-white px-3 py-4 text-sm text-slate-600">
+                      Aperçu direct indisponible pour ce format. Téléchargez le
+                      document pour le consulter avant paiement.
+                    </p>
+                  )
+                ) : (
+                  <p className="rounded-lg bg-white px-3 py-4 text-sm text-rose-700">
+                    {attachmentPreviewError ||
+                      "La pièce justificative n’a pas pu être chargée."}
+                  </p>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void openAttachment(detailOrder)}
+                    className={actionClass}
+                  >
+                    <Paperclip className="h-3.5 w-3.5" />
+                    Télécharger la pièce
+                  </button>
+                </div>
+              </section>
+            )}
             <div className="mt-4 flex flex-wrap gap-2">
-              {detailOrder.attachment && (
-                <button
-                  type="button"
-                  onClick={() => void openAttachment(detailOrder)}
-                  className={actionClass}
-                >
-                  <Paperclip className="h-3.5 w-3.5" />
-                  Télécharger {detailOrder.attachment.fileName}
-                </button>
-              )}
               {detailOrder.cashVoucher && (
                 <button
                   type="button"
@@ -1273,6 +1273,11 @@ export default function PaymentOrdersPage() {
                   <button
                     type="button"
                     onClick={() => void act(detailOrder, "pay")}
+                    disabled={
+                      Boolean(detailOrder.attachment) &&
+                      (attachmentLoadingId === detailOrder.id ||
+                        attachmentPreview?.orderId !== detailOrder.id)
+                    }
                     className="inline-flex items-center gap-1.5 rounded-lg bg-[#0b4778] px-3 py-2 text-xs font-semibold text-white"
                   >
                     <Wallet className="h-3.5 w-3.5" />
