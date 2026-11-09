@@ -71,7 +71,10 @@ export class PaymentOrdersService {
 
     return this.prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`
-        SELECT pg_advisory_xact_lock(hashtext(${`payment-order:${companyId}`}), CAST(${year} AS INTEGER))
+        WITH advisory_lock AS MATERIALIZED (
+          SELECT pg_advisory_xact_lock(hashtext(${`payment-order:${companyId}`}), CAST(${year} AS INTEGER))
+        )
+        SELECT 1 FROM advisory_lock
       `;
       const budgetOrders = await transaction.paymentOrder.findMany({
         where: {
@@ -294,7 +297,10 @@ export class PaymentOrdersService {
         endOfDay(date),
       );
       await transaction.$queryRaw`
-        SELECT pg_advisory_xact_lock(hashtext(${`cash-voucher:${companyId}`}), CAST(${year} AS INTEGER))
+        WITH advisory_lock AS MATERIALIZED (
+          SELECT pg_advisory_xact_lock(hashtext(${`cash-voucher:${companyId}`}), CAST(${year} AS INTEGER))
+        )
+        SELECT 1 FROM advisory_lock
       `;
       const vouchers = await transaction.cashVoucher.findMany({
         where: { companyId, voucherNumber: { startsWith: `BSC/${year}/` } },

@@ -23,7 +23,10 @@ export async function lockCashAccount(
   cashAccountId: string,
 ) {
   await transaction.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtext(${`cash-account:${cashAccountId}`}), 0)
+    WITH advisory_lock AS MATERIALIZED (
+      SELECT pg_advisory_xact_lock(hashtext(${`cash-account:${cashAccountId}`}), 0)
+    )
+    SELECT 1 FROM advisory_lock
   `;
 }
 
