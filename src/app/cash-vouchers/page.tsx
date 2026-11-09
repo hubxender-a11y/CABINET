@@ -58,16 +58,6 @@ type CashMovement = {
 };
 type Treasury = { accounts: CashAccount[]; movements: CashMovement[] };
 
-const categories = [
-  "Fournitures de bureau",
-  "Transport et déplacement",
-  "Entretien et maintenance",
-  "Télécommunications",
-  "Petite caisse",
-  "Avance de frais",
-  "Autre",
-];
-
 function amountInWords(value: string, currency: Currency) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "";
@@ -173,7 +163,7 @@ export default function CashVouchersPage() {
   );
   const [date, setDate] = useState("");
   const [beneficiary, setBeneficiary] = useState("");
-  const [category, setCategory] = useState(categories[0]);
+  const [category, setCategory] = useState("");
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>("CDF");
@@ -273,6 +263,11 @@ export default function CashVouchersPage() {
       setError("Saisissez un montant supérieur à zéro.");
       return;
     }
+    const categoryValue = category.trim();
+    if (!categoryValue || categoryValue.length > 100) {
+      setError("Saisissez une rubrique (100 caractères maximum).");
+      return;
+    }
     setSaving(true);
     try {
       const created = await apiRequest<CashVoucher>("/cash-vouchers", {
@@ -280,7 +275,7 @@ export default function CashVouchersPage() {
         body: JSON.stringify({
           date,
           beneficiary: beneficiary.trim(),
-          category,
+          category: categoryValue,
           reason: reason.trim(),
           amount,
           currency,
@@ -399,7 +394,7 @@ export default function CashVouchersPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="cash-vouchers-page space-y-6">
       <header className="workspace-page-heading border-b border-slate-200 pb-5">
         <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">
           Trésorerie du cabinet
@@ -432,7 +427,7 @@ export default function CashVouchersPage() {
         {(["CDF", "USD"] as const).map((code) => (
           <article
             key={code}
-            className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+            className="cash-voucher-stat flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
           >
             <span className="rounded-xl bg-blue-50 p-3 text-blue-700">
               <Wallet className="h-5 w-5" />
@@ -489,7 +484,7 @@ export default function CashVouchersPage() {
       <section className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <form
           onSubmit={submitVoucher}
-          className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          className="cash-voucher-form space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
         >
           <div className="border-b border-slate-100 pb-3">
             <h2 className="text-lg font-semibold text-slate-900">
@@ -512,15 +507,14 @@ export default function CashVouchersPage() {
             </label>
             <label className="block space-y-1.5 text-sm font-medium text-slate-700">
               Rubrique
-              <select
+              <input
+                required
+                maxLength={100}
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
                 className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-              >
-                {categories.map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
+                placeholder="Ex. Fournitures, transport, honoraires…"
+              />
             </label>
           </div>
           <label className="block space-y-1.5 text-sm font-medium text-slate-700">
