@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal, flushSync } from "react-dom";
 import Link from "next/link";
 import {
-  ArrowLeft,
   ArrowRight,
   Check,
   CircleAlert,
@@ -272,7 +271,6 @@ export default function PaymentOrdersPage() {
   );
   const [attachmentPreviewError, setAttachmentPreviewError] = useState("");
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
-  const [step, setStep] = useState(1);
   const [budgetLines, setBudgetLines] = useState<BudgetLine[]>([]);
   const [accountingRules, setAccountingRules] = useState<AccountingRule[]>([]);
   const [cashAccounts, setCashAccounts] = useState<CashAccountSummary[]>([]);
@@ -488,17 +486,14 @@ export default function PaymentOrdersPage() {
     }
     if (!budgetConfigured) {
       setError("Configurez d’abord la prévision approuvée de cette ligne budgétaire.");
-      setStep(2);
       return;
     }
     if (!requestingService.trim() || !beneficiary.trim() || !reason.trim()) {
       setError("Complétez le service, le bénéficiaire et le motif de la demande.");
-      setStep(1);
       return;
     }
     if (!accountingAllocation.trim()) {
       setError("Confirmez ou renseignez l’imputation comptable.");
-      setStep(2);
       return;
     }
     if (budgetLeft < 0) {
@@ -544,7 +539,6 @@ export default function PaymentOrdersPage() {
       setExpenseCategory("");
       setAccountingAllocation("");
       setAttachmentFile(null);
-      setStep(1);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -556,9 +550,12 @@ export default function PaymentOrdersPage() {
     }
   }
 
-  async function saveBudgetConfiguration(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function saveBudgetConfiguration() {
     setError("");
+    if (!setupBudgetAccount.trim() || !setupForecast.trim()) {
+      setError("Renseignez la ligne budgétaire et sa prévision initiale.");
+      return;
+    }
     setConfigurationSaving(true);
     try {
       const budget = await apiRequest<BudgetLine>("/payment-orders/budgets", {
@@ -585,9 +582,16 @@ export default function PaymentOrdersPage() {
     }
   }
 
-  async function saveAccountingConfiguration(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function saveAccountingConfiguration() {
     setError("");
+    if (
+      !setupCategory.trim() ||
+      !setupAccountCode.trim() ||
+      !setupAccountName.trim()
+    ) {
+      setError("Renseignez la nature de dépense, le code et l’intitulé du compte.");
+      return;
+    }
     setConfigurationSaving(true);
     try {
       const rule = await apiRequest<AccountingRule>("/payment-orders/accounting-rules", {
@@ -625,17 +629,6 @@ export default function PaymentOrdersPage() {
     );
     if (rule?.budgetAccount)
       setBudgetAccount(rule.budgetAccount);
-  }
-
-  function moveToNextStep(nextStep: number) {
-    setError("");
-    if (step === 1 && nextStep > 1) {
-      if (!date || !requestingService.trim() || !beneficiary.trim() || !amount || !reason.trim()) {
-        setError("Complétez la date, le service, le bénéficiaire, le montant et le motif avant de continuer.");
-        return;
-      }
-    }
-    setStep(nextStep);
   }
 
   async function act(
@@ -865,24 +858,10 @@ export default function PaymentOrdersPage() {
                 Préparer un ordre de paiement
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Le numéro définitif est attribué à l’enregistrement. Les deux visas restent manuels.
+                Une seule page pour la demande et ses contrôles. Le numéro est attribué à l’enregistrement ; les deux visas restent manuels.
               </p>
             </div>
 
-            <ol className="payment-order-steps" aria-label="Étapes de création de l’OP">
-              {[
-                { number: 1, title: "Demande", detail: "Bénéficiaire et motif" },
-                { number: 2, title: "Contrôles", detail: "Compte et budget" },
-                { number: 3, title: "Pièce et aperçu", detail: "Vérifier et transmettre" },
-              ].map((item) => (
-                <li key={item.number} className={step === item.number ? "is-current" : step > item.number ? "is-complete" : ""}>
-                  <span>{step > item.number ? <Check className="h-4 w-4" /> : item.number}</span>
-                  <div><strong>{item.title}</strong><small>{item.detail}</small></div>
-                </li>
-              ))}
-            </ol>
-
-            {step === 1 && (
               <section className="space-y-4" aria-label="Détails de la demande">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Date de la demande">
@@ -912,14 +891,12 @@ export default function PaymentOrdersPage() {
                 <Field label="Motif détaillé de la demande">
                   <textarea required maxLength={500} rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex. Achat de 5 revues EC pour le cabinet" className={inputClass} />
                 </Field>
-                <button type="button" onClick={() => moveToNextStep(2)} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800">
+                <button type="button" onClick={() => document.getElementById("payment-order-controls")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800">
                   Continuer vers les contrôles <ArrowRight className="h-4 w-4" />
                 </button>
               </section>
-            )}
 
-            {step === 2 && (
-              <section className="space-y-4" aria-label="Imputation et contrôle budgétaire">
+              <section id="payment-order-controls" className="scroll-mt-6 space-y-4 border-t border-slate-200 pt-5" aria-label="Imputation et contrôle budgétaire">
                 <Field label="Nature de la dépense">
                   <input list="payment-order-categories" maxLength={100} value={expenseCategory} onChange={(e) => updateExpenseCategory(e.target.value)} placeholder="Choisir ou saisir une catégorie" className={inputClass} />
                   <datalist id="payment-order-categories">
@@ -967,19 +944,19 @@ export default function PaymentOrdersPage() {
                   {selectedBudget && budgetLeft < 0 && <p role="alert" className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">Dépassement de {formatMoney(Math.abs(budgetLeft), currency)}. L’OP ne peut pas être transmise.</p>}
                   {configurationOpen && user && financeRoles.includes(user.role) && (
                     <div className="mt-4 grid gap-4 border-t border-slate-200 pt-4 lg:grid-cols-2">
-                      <form onSubmit={saveBudgetConfiguration} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
                         <div><h4 className="font-semibold text-slate-900">Budget approuvé</h4><p className="text-xs text-slate-500">Saisir chaque ligne et sa prévision annuelle validée par les Finances.</p></div>
-                        <Field label="Ligne budgétaire"><input required maxLength={120} value={setupBudgetAccount} onChange={(e) => setSetupBudgetAccount(e.target.value)} placeholder="Ex. Fournitures et documentation" className={inputClass} /></Field>
-                        <Field label={`Prévision initiale · ${currency}`}><input required min="0" step={currency === "CDF" ? "1" : "0.01"} type="number" value={setupForecast} onChange={(e) => setSetupForecast(e.target.value)} placeholder={currency === "USD" ? "200.00" : "200000"} className={inputClass} /></Field>
-                        <button disabled={configurationSaving} className={actionClass}><Check className="h-4 w-4" /> Enregistrer la prévision</button>
-                      </form>
-                      <form onSubmit={saveAccountingConfiguration} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                        <Field label="Ligne budgétaire"><input maxLength={120} value={setupBudgetAccount} onChange={(e) => setSetupBudgetAccount(e.target.value)} placeholder="Ex. Fournitures et documentation" className={inputClass} /></Field>
+                        <Field label={`Prévision initiale · ${currency}`}><input min="0" step={currency === "CDF" ? "1" : "0.01"} type="number" value={setupForecast} onChange={(e) => setSetupForecast(e.target.value)} placeholder={currency === "USD" ? "200.00" : "200000"} className={inputClass} /></Field>
+                        <button type="button" onClick={() => void saveBudgetConfiguration()} disabled={configurationSaving} className={actionClass}><Check className="h-4 w-4" /> Enregistrer la prévision</button>
+                      </div>
+                      <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
                         <div><h4 className="font-semibold text-slate-900">Règle d’imputation</h4><p className="text-xs text-slate-500">Le logiciel proposera ce compte. Le comptable le confirme ou le corrige.</p></div>
-                        <Field label="Nature de dépense"><input required maxLength={100} value={setupCategory} onChange={(e) => setSetupCategory(e.target.value)} placeholder="Ex. Revues et documentation" className={inputClass} /></Field>
-                        <div className="grid gap-3 sm:grid-cols-2"><Field label="Code du compte"><input required maxLength={40} value={setupAccountCode} onChange={(e) => setSetupAccountCode(e.target.value)} placeholder="6041" className={inputClass} /></Field><Field label="Intitulé du compte"><input required maxLength={100} value={setupAccountName} onChange={(e) => setSetupAccountName(e.target.value)} placeholder="Fournitures de bureau" className={inputClass} /></Field></div>
+                        <Field label="Nature de dépense"><input maxLength={100} value={setupCategory} onChange={(e) => setSetupCategory(e.target.value)} placeholder="Ex. Revues et documentation" className={inputClass} /></Field>
+                        <div className="grid gap-3 sm:grid-cols-2"><Field label="Code du compte"><input maxLength={40} value={setupAccountCode} onChange={(e) => setSetupAccountCode(e.target.value)} placeholder="6041" className={inputClass} /></Field><Field label="Intitulé du compte"><input maxLength={100} value={setupAccountName} onChange={(e) => setSetupAccountName(e.target.value)} placeholder="Fournitures de bureau" className={inputClass} /></Field></div>
                         <Field label="Ligne budgétaire proposée (facultatif)"><select value={setupDefaultBudget} onChange={(e) => setSetupDefaultBudget(e.target.value)} className={inputClass}><option value="">Aucune</option>{budgetLines.map((line) => <option key={line.id} value={line.budgetAccount}>{line.budgetAccount}</option>)}</select></Field>
-                        <button disabled={configurationSaving} className={actionClass}><Check className="h-4 w-4" /> Enregistrer la règle</button>
-                      </form>
+                        <button type="button" onClick={() => void saveAccountingConfiguration()} disabled={configurationSaving} className={actionClass}><Check className="h-4 w-4" /> Enregistrer la règle</button>
+                      </div>
                       {accountingRules.length > 0 && <div className="lg:col-span-2"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Règles configurées</p><ul className="grid gap-2 sm:grid-cols-2">{accountingRules.map((rule) => <li key={rule.id} className="rounded-lg bg-slate-100 px-3 py-2 text-sm"><strong>{rule.category}</strong><span className="block text-xs text-slate-600">{rule.accountCode} · {rule.accountName}{rule.budgetAccount ? ` · ${rule.budgetAccount}` : ""}</span></li>)}</ul></div>}
                     </div>
                   )}
@@ -993,15 +970,9 @@ export default function PaymentOrdersPage() {
                   </div>
                   <Link href="/cash-vouchers" className="shrink-0 text-xs font-bold text-blue-800 underline">Gérer la caisse</Link>
                 </div>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => moveToNextStep(1)} className={`${actionClass} flex-1 justify-center`}><ArrowLeft className="h-4 w-4" /> Retour</button>
-                  <button type="button" onClick={() => moveToNextStep(3)} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800">Continuer <ArrowRight className="h-4 w-4" /></button>
-                </div>
               </section>
-            )}
 
-            {step === 3 && (
-              <section className="space-y-4" aria-label="Pièce justificative et aperçu">
+              <section className="space-y-4 border-t border-slate-200 pt-5" aria-label="Pièce justificative et aperçu">
                 {(!budgetConfigured || !accountingAllocation.trim()) && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
                     <strong>Aperçu imprimable · dossier non transmissible</strong>
@@ -1024,15 +995,13 @@ export default function PaymentOrdersPage() {
                 <button type="button" onClick={previewDraft} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-100">
                   <Printer className="h-4 w-4" /> Prévisualiser et imprimer le modèle
                 </button>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => moveToNextStep(2)} className={`${actionClass} flex-1 justify-center`}><ArrowLeft className="h-4 w-4" /> Retour</button>
-                  <button type="submit" disabled={saving || !databaseConnected || !budgetConfigured || !accountingAllocation.trim() || budgetLeft < 0} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                <div className="flex flex-col gap-2">
+                  <button type="submit" disabled={saving || !databaseConnected || !budgetConfigured || !accountingAllocation.trim() || budgetLeft < 0} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
                     <Send className="h-4 w-4" />{saving ? "Enregistrement…" : "Transmettre aux Finances"}
                   </button>
                 </div>
                 <p className="text-xs leading-5 text-slate-500">Après le visa des Finances puis celui de l’Associé-Gérant, l’OP pourra être payée. Le paiement crée le bon de caisse et diminue le solde en espèces.</p>
               </section>
-            )}
           </form>
         )}
 
