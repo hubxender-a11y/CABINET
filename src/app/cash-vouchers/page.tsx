@@ -334,17 +334,6 @@ export default function CashVouchersPage() {
     () => vouchers.filter((voucher) => voucher.status === "PENDING_APPROVAL"),
     [vouchers],
   );
-  const pendingByCurrency = useMemo(
-    () =>
-      pendingVouchers.reduce(
-        (totals, voucher) => {
-          totals[voucher.currency] += Number(voucher.amount);
-          return totals;
-        },
-        { CDF: 0, USD: 0 },
-      ),
-    [pendingVouchers],
-  );
   const selectedPeriodValid = Boolean(
     periodStart && periodEnd && periodStart <= periodEnd,
   );
@@ -644,14 +633,11 @@ export default function CashVouchersPage() {
     <div className="cash-vouchers-page space-y-6">
       <header className="workspace-page-heading flex flex-col justify-between gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-end">
         <div>
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">
-            Gestion financière · Caisse
-          </p>
           <h1 className="mt-2 text-3xl font-semibold text-slate-900">
-            Trésorerie du cabinet
+            Bons de sortie de caisse
           </h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-500">
-            Livre de caisse, apports de l’Associé-Gérant et bons à approuver.
+            Un bon est établi à partir d’une OP validée et reste à approuver avant le décaissement.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -684,7 +670,7 @@ export default function CashVouchersPage() {
         )}
         <p>
           {databaseConnected
-            ? "Le livre suit les mouvements physiques. Le fonds OP inclut uniquement les apports de l’Associé-Gérant; les règlements clients en restent exclus. Les bons en attente sont affichés séparément et ne sont pas débités."
+            ? "Caisse connectée. Un bon en attente n’est pas débité avant son approbation."
             : "Base indisponible : les bons ne peuvent pas être enregistrés."}
         </p>
       </div>
@@ -700,7 +686,7 @@ export default function CashVouchersPage() {
             </span>
             <div>
               <p className="text-sm text-slate-500">
-                Solde du livre de caisse · {code}
+                Solde caisse · {code}
               </p>
               <p className="mt-1 text-2xl font-semibold text-slate-900">
                 {formatMoney(
@@ -716,10 +702,7 @@ export default function CashVouchersPage() {
                   "Caisse"}
               </p>
               <p className="mt-2 text-xs font-semibold text-blue-800">
-                Fonds d’approvisionnement disponibles : {formatMoney(Number(accounts.find((account) => account.currency === code)?.paymentOrderAvailable ?? 0), code)}
-              </p>
-              <p className="mt-1 text-xs text-amber-800">
-                Bons en attente · non débités : {formatMoney(pendingByCurrency[code], code)}
+                Fonds disponibles pour les OP : {formatMoney(Number(accounts.find((account) => account.currency === code)?.paymentOrderAvailable ?? 0), code)}
               </p>
             </div>
             {accounts.find((account) => account.currency === code) &&

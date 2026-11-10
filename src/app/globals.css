@@ -7287,6 +7287,18 @@ summary:focus-visible {
   text-align: right;
 }
 
+.payment-order-annex {
+  margin: 0.55rem 0 0;
+  border: 1px solid #b8d7ee;
+  border-radius: 0.35rem;
+  background: #f1f8fc;
+  padding: 0.45rem 0.6rem;
+  color: #0b4778;
+  font-family: "Book Antiqua", Georgia, serif;
+  font-size: 8pt;
+  font-weight: 700;
+}
+
 @media print {
   .payment-order-print .payment-order-budget table {
     font-size: 7pt;

@@ -16,6 +16,7 @@ import {
   X,
   Wallet,
   Paperclip,
+  Pin,
   ExternalLink,
   Settings2,
 } from "lucide-react";
@@ -1043,7 +1044,7 @@ export default function PaymentOrdersPage() {
                     setAttachmentFile(selected);
                   }} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-blue-800`} />
                   <small className="block text-xs font-normal text-slate-500">Les Finances et l’Associé-Gérant examinent cette pièce avant leurs visas.</small>
-                  {attachmentFile && <span className="block text-xs text-slate-500">{attachmentFile.name} · {(attachmentFile.size / 1024 / 1024).toFixed(2)} Mo</span>}
+                  {attachmentFile && <span className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-800"><Pin className="h-3.5 w-3.5" />État de besoin joint à l’OP · {attachmentFile.name} · {(attachmentFile.size / 1024 / 1024).toFixed(2)} Mo</span>}
                 </Field>
                 <button type="button" onClick={previewDraft} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-100">
                   <Printer className="h-4 w-4" /> Prévisualiser et imprimer le modèle
@@ -1207,8 +1208,8 @@ export default function PaymentOrdersPage() {
                           onClick={() => void openAttachment(order)}
                           className={actionClass}
                         >
-                          <Paperclip className="h-3.5 w-3.5" />
-                          Pièce jointe
+                          <Pin className="h-3.5 w-3.5" />
+                          État de besoin
                         </button>
                       )}
                       {canFinance && (
@@ -1317,6 +1318,11 @@ export default function PaymentOrdersPage() {
               </tbody>
             </table>
           </section>
+          {printOrder.attachment && (
+            <p className="payment-order-annex">
+              ÉTAT DE BESOIN ANNEXÉ : {printOrder.attachment.fileName}. À joindre à la présente ordonnance.
+            </p>
+          )}
           <section className="payment-order-visas">
             <div>
               <h3>VISA</h3>
@@ -1509,7 +1515,7 @@ export default function PaymentOrdersPage() {
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div>
                   <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                      <Paperclip className="h-4 w-4 text-amber-700" />
+                      <Pin className="h-4 w-4 text-amber-700" />
                       État de besoin lié à cette OP
                     </p>
                     <p className="mt-1 break-all text-xs text-slate-600">
