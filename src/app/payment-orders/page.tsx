@@ -604,16 +604,6 @@ export default function PaymentOrdersPage() {
         return;
       }
     }
-    if (nextStep === 3 && (!budgetConfigured || !accountingAllocation.trim() || budgetLeft < 0)) {
-      setError(
-        !budgetConfigured
-          ? "Ajoutez d’abord le budget approuvé de cette ligne."
-          : budgetLeft < 0
-            ? "Cette demande dépasse le disponible après engagement."
-            : "Confirmez l’imputation comptable.",
-      );
-      return;
-    }
     setStep(nextStep);
   }
 
@@ -715,11 +705,6 @@ export default function PaymentOrdersPage() {
   }
 
   function previewDraft() {
-    if (!budgetConfigured || !accountingAllocation.trim()) {
-      setError("Configurez le budget et confirmez l’imputation avant l’aperçu.");
-      setStep(2);
-      return;
-    }
     const preview: PaymentOrder = {
       id: "preview",
       orderNumber: `OP/${targetYear}/BROUILLON`,
@@ -731,12 +716,12 @@ export default function PaymentOrdersPage() {
       reason,
       beneficiary,
       expenseCategory,
-      accountingAllocation,
-      budgetAccount,
-      initialForecast: String(initialForecast),
-      availableBefore: String(availableBefore),
-      outstanding: String(outstandingBudget),
-      availableAfter: String(budgetLeft),
+      accountingAllocation: accountingAllocation || "À confirmer par le comptable",
+      budgetAccount: budgetAccount || "À définir par les Finances",
+      initialForecast: selectedBudget ? String(initialForecast) : "",
+      availableBefore: selectedBudget ? String(availableBefore) : "",
+      outstanding: selectedBudget ? String(outstandingBudget) : "",
+      availableAfter: selectedBudget ? String(budgetLeft) : "",
       status: "SUBMITTED",
       createdBy: user?.id ?? "preview",
       attachment: attachmentFile
@@ -978,6 +963,12 @@ export default function PaymentOrdersPage() {
 
             {step === 3 && (
               <section className="space-y-4" aria-label="Pièce justificative et aperçu">
+                {(!budgetConfigured || !accountingAllocation.trim()) && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                    <strong>Aperçu imprimable · dossier non transmissible</strong>
+                    <p className="mt-1">{!budgetConfigured ? "La ligne budgétaire et ses calculs apparaîtront dès que les Finances auront chargé le budget approuvé." : "L’imputation comptable reste à confirmer."} Vous pouvez imprimer le modèle maintenant; la transmission restera bloquée tant que les contrôles requis ne seront pas complétés.</p>
+                  </div>
+                )}
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <h3 className="font-semibold text-slate-900">Résumé avant transmission</h3>
                   <dl className="payment-order-preview-summary mt-3">
@@ -996,7 +987,7 @@ export default function PaymentOrdersPage() {
                 </button>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => moveToNextStep(2)} className={`${actionClass} flex-1 justify-center`}><ArrowLeft className="h-4 w-4" /> Retour</button>
-                  <button type="submit" disabled={saving || !databaseConnected || !budgetConfigured || budgetLeft < 0} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                  <button type="submit" disabled={saving || !databaseConnected || !budgetConfigured || !accountingAllocation.trim() || budgetLeft < 0} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
                     <Send className="h-4 w-4" />{saving ? "Enregistrement…" : "Transmettre aux Finances"}
                   </button>
                 </div>
@@ -1277,7 +1268,7 @@ export default function PaymentOrdersPage() {
           <section className="payment-order-budget">
             <h3>Contrôle budgétaire · {new Date(printOrder.date).getUTCFullYear()}</h3>
             <table><thead><tr><th>COMPTE / LIGNE</th><th>PRÉVISION INITIALE</th><th>SOLDE DISPO (1)</th><th>ENCOURS</th><th>SOLDE DISPO (2)</th></tr></thead>
-              <tbody><tr><td>{printOrder.budgetAccount}</td><td>{formatMoney(printOrder.initialForecast, printOrder.currency)}</td><td>{formatMoney(printOrder.availableBefore, printOrder.currency)}</td><td>{formatMoney(Number(printOrder.outstanding) + (printDraft ? Number(printOrder.amount) : 0), printOrder.currency)}</td><td>{formatMoney(printOrder.availableAfter, printOrder.currency)}</td></tr></tbody>
+              <tbody><tr><td>{printOrder.budgetAccount || "À définir"}</td><td>{printOrder.initialForecast ? formatMoney(printOrder.initialForecast, printOrder.currency) : "À renseigner"}</td><td>{printOrder.availableBefore ? formatMoney(printOrder.availableBefore, printOrder.currency) : "À calculer"}</td><td>{printOrder.outstanding ? formatMoney(Number(printOrder.outstanding) + (printDraft ? Number(printOrder.amount) : 0), printOrder.currency) : "À calculer"}</td><td>{printOrder.availableAfter ? formatMoney(printOrder.availableAfter, printOrder.currency) : "À calculer"}</td></tr></tbody>
             </table>
             <p>Solde dispo (1) = prévision initiale − paiements effectués. Solde dispo (2) = solde dispo (1) − encours, y compris la présente demande.</p>
           </section>
