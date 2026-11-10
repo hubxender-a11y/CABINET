@@ -118,6 +118,8 @@ model Company {
   cashMovements         CashMovement[]
   paymentOrders         PaymentOrder[]
   paymentOrderAttachments PaymentOrderAttachment[]
+  paymentOrderBudgets    PaymentOrderBudget[]
+  paymentOrderAccountingRules PaymentOrderAccountingRule[]
   purchases             Purchase[]
   currencies            Currency[]
   exchangeRates         ExchangeRate[]
@@ -661,6 +663,7 @@ model PaymentOrder {
   currency             String             @default("CDF")
   reason               String
   beneficiary          String
+  expenseCategory      String?
   accountingAllocation String
   budgetAccount        String
   initialForecast      Decimal            @db.Decimal(18, 2)
@@ -706,6 +709,39 @@ model PaymentOrderAttachment {
   paymentOrder   PaymentOrder @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
 
   @@index([companyId, createdAt])
+}
+
+model PaymentOrderBudget {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @db.Uuid
+  year            Int
+  currency        String
+  budgetAccount   String
+  initialForecast Decimal  @db.Decimal(18, 2)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, year, currency, budgetAccount])
+  @@index([companyId, year, currency, isActive])
+}
+
+model PaymentOrderAccountingRule {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @db.Uuid
+  category      String
+  categoryKey   String
+  accountCode   String
+  accountName   String
+  budgetAccount String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, categoryKey])
+  @@index([companyId, isActive])
 }
 
 model Purchase {

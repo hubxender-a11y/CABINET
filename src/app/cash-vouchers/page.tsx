@@ -174,8 +174,18 @@ export default function CashVouchersPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fundCurrency, setFundCurrency] = useState<Currency>("USD");
+  const [fundDate, setFundDate] = useState("");
+  const [fundAmount, setFundAmount] = useState("");
+  const [fundSource, setFundSource] = useState("");
+  const [fundReference, setFundReference] = useState("");
+  const [fundSaving, setFundSaving] = useState(false);
 
-  useEffect(() => setDate(kinshasaDate()), []);
+  useEffect(() => {
+    const today = kinshasaDate();
+    setDate(today);
+    setFundDate(today);
+  }, []);
 
   useEffect(() => {
     void apiRequest<{ role: string }>("/auth/me")
@@ -304,6 +314,52 @@ export default function CashVouchersPage() {
     }
   }
 
+  async function submitFunding(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+    if (!databaseConnected) {
+      setError("Le serveur est indisponible : l’approvisionnement n’a pas été enregistré.");
+      return;
+    }
+    if (!Number.isFinite(Number(fundAmount)) || Number(fundAmount) <= 0) {
+      setError("Saisissez un montant positif pour l’entrée en caisse.");
+      return;
+    }
+    if (!fundSource.trim()) {
+      setError("Précisez l’origine des fonds pour la trace comptable.");
+      return;
+    }
+    setFundSaving(true);
+    try {
+      const result = await apiRequest<{ balance: string }>("/cash-vouchers/funding", {
+        method: "POST",
+        body: JSON.stringify({
+          date: fundDate,
+          amount: fundAmount,
+          currency: fundCurrency,
+          source: fundSource.trim(),
+          reference: fundReference.trim() || undefined,
+        }),
+      });
+      await refreshTreasury();
+      setSuccess(
+        `Entrée enregistrée. Nouveau solde ${formatMoney(Number(result.balance), fundCurrency)}.`,
+      );
+      setFundAmount("");
+      setFundSource("");
+      setFundReference("");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Impossible d’enregistrer cet approvisionnement.",
+      );
+    } finally {
+      setFundSaving(false);
+    }
+  }
+
   function printVoucher(voucher: CashVoucher) {
     setSelectedVoucher(voucher);
     const printAfterRender = () => {
@@ -400,11 +456,11 @@ export default function CashVouchersPage() {
           Trésorerie du cabinet
         </p>
         <h1 className="mt-2 text-3xl font-semibold text-slate-900">
-          Bons de sortie de caisse
+          Gestion de la caisse
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-500">
-          Justifiez chaque décaissement en espèces avec une pièce numérotée,
-          suivie et imprimable.
+          Suivez les fonds disponibles, enregistrez les entrées et les sorties,
+          puis contrôlez chaque mouvement dans le livre de caisse.
         </p>
       </header>
 
@@ -470,14 +526,129 @@ export default function CashVouchersPage() {
         ))}
       </section>
 
+      {[
+        "COMPANY_ADMIN",
+        "FINANCE_MANAGER",
+        "ACCOUNTANT",
+        "CASHIER",
+      ].includes(userRole) && (
+        <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+          <form
+            onSubmit={submitFunding}
+            className="cash-voucher-form space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-600">
+                Entrée de trésorerie
+              </p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-900">
+                {Number(accounts.find((account) => account.currency === fundCurrency)?.balance ?? 0) === 0
+                  ? "Enregistrer le fonds de départ"
+                  : "Approvisionner la caisse"}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                À utiliser uniquement quand l’argent a réellement été remis à la caisse.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                Date de réception
+                <input
+                  required
+                  type="date"
+                  value={fundDate}
+                  onChange={(event) => setFundDate(event.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
+                />
+              </label>
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                Devise
+                <select
+                  value={fundCurrency}
+                  onChange={(event) => setFundCurrency(event.target.value as Currency)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                >
+                  <option value="USD">USD · Dollar américain</option>
+                  <option value="CDF">CDF · Franc congolais</option>
+                </select>
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                Montant réellement reçu
+                <input
+                  required
+                  type="number"
+                  min="0.01"
+                  max="999999999999.99"
+                  step={fundCurrency === "CDF" ? "1" : "0.01"}
+                  value={fundAmount}
+                  onChange={(event) => setFundAmount(event.target.value)}
+                  placeholder={fundCurrency === "USD" ? "200.00" : "200000"}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
+                />
+              </label>
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                Origine des fonds
+                <input
+                  required
+                  maxLength={120}
+                  value={fundSource}
+                  onChange={(event) => setFundSource(event.target.value)}
+                  placeholder="Ex. Fonds de démarrage remis à la caisse"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
+                />
+              </label>
+            </div>
+            <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+              Référence (facultative)
+              <input
+                maxLength={120}
+                value={fundReference}
+                onChange={(event) => setFundReference(event.target.value)}
+                placeholder="Reçu, bordereau ou référence interne"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={fundSaving || !databaseConnected}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Wallet className="h-4 w-4" />
+              {fundSaving ? "Enregistrement…" : "Enregistrer l’entrée en caisse"}
+            </button>
+          </form>
+
+          <aside className="cash-treasury-guide rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-800">
+              Fonctionnement des fonds
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-900">
+              Le solde suit les mouvements réels
+            </h2>
+            <ol className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
+              <li><strong>1. Départ :</strong> saisissez les espèces réellement remises, par exemple 200 USD, avec leur origine.</li>
+              <li><strong>2. Paiement :</strong> une OP payée ou un bon de sortie validé diminue automatiquement la caisse.</li>
+              <li><strong>3. Réapprovisionnement :</strong> lorsque de nouveaux fonds arrivent, enregistrez une nouvelle entrée ici; le solde augmente et la trace reste au livre.</li>
+              <li><strong>4. Caisse épuisée :</strong> le paiement est bloqué si le solde ne suffit pas. Enregistrez d’abord l’argent réellement reçu.</li>
+            </ol>
+            <p className="mt-4 rounded-xl border border-amber-200 bg-white/80 p-3 text-xs leading-5 text-amber-950">
+              Exemple : 200 USD de départ − une OP de 75 USD = 125 USD en caisse. Ce calcul de trésorerie est distinct du budget annuel de l’OP.
+            </p>
+          </aside>
+        </section>
+      )}
+
       {!loading &&
         accounts.length > 0 &&
         movements.length === 0 &&
         Number(accounts[0]?.balance ?? 0) === 0 && (
           <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-            Première mise en service : comptez l’argent réellement présent dans
-            chaque caisse, puis utilisez « Rapprocher ». Cette opération crée le
-            solde de départ et permet ensuite de contrôler les sorties.
+            Première mise en service : comptez l’argent réellement présent,
+            puis enregistrez-le comme entrée initiale avec son origine. Utilisez
+            « Rapprocher » uniquement pour comparer le livre avec le comptage
+            physique et tracer un éventuel écart.
           </p>
         )}
 

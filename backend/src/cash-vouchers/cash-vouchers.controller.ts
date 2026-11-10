@@ -16,6 +16,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import {
   CancelCashVoucherDto,
   CreateCashVoucherDto,
+  FundCashAccountDto,
   ReconcileCashAccountDto,
 } from './cash-vouchers.dto';
 import { CashVouchersService } from './cash-vouchers.service';
@@ -92,6 +93,20 @@ export class CashVouchersController {
   ) {
     return this.vouchers.reconcile(
       id,
+      dto,
+      request.user!.companyId,
+      request.user!.sub,
+    );
+  }
+
+  @Post('funding')
+  @Roles(...cashVoucherIssuers)
+  @ApiOperation({ summary: 'Record a cash opening balance or replenishment' })
+  fund(
+    @Body() dto: FundCashAccountDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.vouchers.fund(
       dto,
       request.user!.companyId,
       request.user!.sub,

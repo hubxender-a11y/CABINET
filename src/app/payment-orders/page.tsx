@@ -1,9 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import {
+  ArrowLeft,
+  ArrowRight,
   Check,
   CircleAlert,
+  CircleDollarSign,
   FileText,
   Printer,
   Search,
@@ -13,6 +17,7 @@ import {
   Wallet,
   Paperclip,
   ExternalLink,
+  Settings2,
 } from "lucide-react";
 import {
   DocumentFooter,
@@ -35,6 +40,7 @@ type PaymentOrder = {
   currency: Currency;
   reason: string;
   beneficiary: string;
+  expenseCategory?: string | null;
   accountingAllocation: string;
   budgetAccount: string;
   initialForecast: string;
@@ -63,6 +69,21 @@ type PaymentOrder = {
     status: string;
   } | null;
 };
+type BudgetLine = {
+  id: string;
+  year: number;
+  currency: Currency;
+  budgetAccount: string;
+  initialForecast: string;
+};
+type AccountingRule = {
+  id: string;
+  category: string;
+  accountCode: string;
+  accountName: string;
+  budgetAccount?: string | null;
+};
+type CashAccountSummary = { currency: Currency; balance: string; name: string };
 type CurrentUser = { id: string; role: string; name: string };
 
 const financeRoles = ["COMPANY_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT"];
@@ -185,6 +206,15 @@ function statusClass(status: Status) {
   return "border-amber-200 bg-amber-50 text-amber-800";
 }
 
+function normalizeCategory(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase("fr")
+    .replace(/\s+/g, " ");
+}
+
 export default function PaymentOrdersPage() {
   const { databaseConnected } = useWorkspaceStore();
   const [orders, setOrders] = useState<PaymentOrder[]>([]);
@@ -196,6 +226,7 @@ export default function PaymentOrdersPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("ALL");
   const [printOrder, setPrintOrder] = useState<PaymentOrder | null>(null);
+  const [printDraft, setPrintDraft] = useState(false);
   const [printVoucherOrder, setPrintVoucherOrder] =
     useState<PaymentOrder | null>(null);
   const [detailOrder, setDetailOrder] = useState<PaymentOrder | null>(null);
@@ -210,15 +241,28 @@ export default function PaymentOrdersPage() {
   );
   const [attachmentPreviewError, setAttachmentPreviewError] = useState("");
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [step, setStep] = useState(1);
+  const [budgetLines, setBudgetLines] = useState<BudgetLine[]>([]);
+  const [accountingRules, setAccountingRules] = useState<AccountingRule[]>([]);
+  const [cashAccounts, setCashAccounts] = useState<CashAccountSummary[]>([]);
+  const [configurationLoading, setConfigurationLoading] = useState(false);
+  const [configurationOpen, setConfigurationOpen] = useState(false);
+  const [configurationSaving, setConfigurationSaving] = useState(false);
+  const [setupBudgetAccount, setSetupBudgetAccount] = useState("");
+  const [setupForecast, setSetupForecast] = useState("");
+  const [setupCategory, setSetupCategory] = useState("");
+  const [setupAccountCode, setSetupAccountCode] = useState("");
+  const [setupAccountName, setSetupAccountName] = useState("");
+  const [setupDefaultBudget, setSetupDefaultBudget] = useState("");
   const [date, setDate] = useState("");
   const [requestingService, setRequestingService] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>("CDF");
   const [reason, setReason] = useState("");
   const [beneficiary, setBeneficiary] = useState("");
+  const [expenseCategory, setExpenseCategory] = useState("");
   const [accountingAllocation, setAccountingAllocation] = useState("");
   const [budgetAccount, setBudgetAccount] = useState("");
-  const [initialForecast, setInitialForecast] = useState("");
 
   useEffect(() => {
     setDate(kinshasaToday());
@@ -291,6 +335,47 @@ export default function PaymentOrdersPage() {
     };
   }, [databaseConnected]);
 
+  useEffect(() => {
+    if (!databaseConnected || !date) return;
+    let active = true;
+    setConfigurationLoading(true);
+    const query = new URLSearchParams({
+      year: date.slice(0, 4),
+      currency,
+    });
+    void Promise.all([
+      apiRequest<{ budgets: BudgetLine[]; accountingRules: AccountingRule[] }>(
+        `/payment-orders/configuration?${query.toString()}`,
+      ),
+      apiRequest<{ accounts: CashAccountSummary[] }>("/cash-vouchers/treasury"),
+    ])
+      .then(([configuration, treasury]) => {
+        if (!active) return;
+        setBudgetLines(configuration.budgets);
+        setAccountingRules(configuration.accountingRules);
+        setBudgetAccount((current) =>
+          configuration.budgets.some((line) => line.budgetAccount === current)
+            ? current
+            : configuration.budgets[0]?.budgetAccount ?? "",
+        );
+        setCashAccounts(treasury.accounts);
+      })
+      .catch((caught: unknown) => {
+        if (active)
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Chargement du budget ou de la caisse impossible.",
+          );
+      })
+      .finally(() => {
+        if (active) setConfigurationLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [currency, databaseConnected, date]);
+
   const filteredOrders = useMemo(
     () =>
       orders.filter((order) => {
@@ -327,6 +412,12 @@ export default function PaymentOrdersPage() {
       ),
     [budgetAccount, currency, orders, targetYear],
   );
+  const selectedBudget = budgetLines.find(
+    (line) => line.budgetAccount === budgetAccount,
+  );
+  const initialForecast = Number(
+    selectedBudget?.initialForecast ?? budgetOrders[0]?.initialForecast ?? 0,
+  );
   const paidBudget = budgetOrders
     .filter((item) => item.status === "PAID")
     .reduce((sum, item) => sum + Number(item.amount), 0);
@@ -335,8 +426,15 @@ export default function PaymentOrdersPage() {
       ["SUBMITTED", "FINANCE_APPROVED", "APPROVED"].includes(item.status),
     )
     .reduce((sum, item) => sum + Number(item.amount), 0);
-  const availableBefore = Number(initialForecast || 0) - paidBudget;
+  const availableBefore = initialForecast - paidBudget;
   const budgetLeft = availableBefore - outstandingBudget - Number(amount || 0);
+  const currentCash = Number(
+    cashAccounts.find((account) => account.currency === currency)?.balance ?? 0,
+  );
+  const selectedRule = accountingRules.find(
+    (rule) => normalizeCategory(rule.category) === normalizeCategory(expenseCategory),
+  );
+  const budgetConfigured = Boolean(selectedBudget);
   const counts = useMemo(
     () => ({
       pending: orders.filter((item) =>
@@ -355,6 +453,21 @@ export default function PaymentOrdersPage() {
     setSuccess("");
     if (!user || !requestRoles.includes(user.role)) {
       setError("Votre rôle ne permet pas de créer une OP.");
+      return;
+    }
+    if (!budgetConfigured) {
+      setError("Configurez d’abord la prévision approuvée de cette ligne budgétaire.");
+      setStep(2);
+      return;
+    }
+    if (!requestingService.trim() || !beneficiary.trim() || !reason.trim()) {
+      setError("Complétez le service, le bénéficiaire et le motif de la demande.");
+      setStep(1);
+      return;
+    }
+    if (!accountingAllocation.trim()) {
+      setError("Confirmez ou renseignez l’imputation comptable.");
+      setStep(2);
       return;
     }
     if (budgetLeft < 0) {
@@ -377,9 +490,9 @@ export default function PaymentOrdersPage() {
           currency,
           reason,
           beneficiary,
+          expenseCategory,
           accountingAllocation,
           budgetAccount,
-          initialForecast,
           ...(attachmentFile
             ? {
                 attachmentName: attachmentFile.name,
@@ -397,10 +510,10 @@ export default function PaymentOrdersPage() {
       setAmount("");
       setReason("");
       setBeneficiary("");
+      setExpenseCategory("");
       setAccountingAllocation("");
-      setBudgetAccount("");
-      setInitialForecast("");
       setAttachmentFile(null);
+      setStep(1);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -410,6 +523,98 @@ export default function PaymentOrdersPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function saveBudgetConfiguration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setConfigurationSaving(true);
+    try {
+      const budget = await apiRequest<BudgetLine>("/payment-orders/budgets", {
+        method: "POST",
+        body: JSON.stringify({
+          year: targetYear,
+          currency,
+          budgetAccount: setupBudgetAccount.trim(),
+          initialForecast: setupForecast,
+        }),
+      });
+      setBudgetLines((current) => [
+        ...current.filter((line) => line.budgetAccount !== budget.budgetAccount),
+        budget,
+      ].sort((left, right) => left.budgetAccount.localeCompare(right.budgetAccount, "fr")));
+      setBudgetAccount(budget.budgetAccount);
+      setSetupBudgetAccount("");
+      setSetupForecast("");
+      setSuccess(`Budget approuvé enregistré pour ${budget.budgetAccount} · ${currency} · ${targetYear}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Enregistrement du budget impossible.");
+    } finally {
+      setConfigurationSaving(false);
+    }
+  }
+
+  async function saveAccountingConfiguration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setConfigurationSaving(true);
+    try {
+      const rule = await apiRequest<AccountingRule>("/payment-orders/accounting-rules", {
+        method: "POST",
+        body: JSON.stringify({
+          category: setupCategory.trim(),
+          accountCode: setupAccountCode.trim(),
+          accountName: setupAccountName.trim(),
+          budgetAccount: setupDefaultBudget || undefined,
+        }),
+      });
+      setAccountingRules((current) => [
+        ...current.filter((item) => normalizeCategory(item.category) !== normalizeCategory(rule.category)),
+        rule,
+      ].sort((left, right) => left.category.localeCompare(right.category, "fr")));
+      setSetupCategory("");
+      setSetupAccountCode("");
+      setSetupAccountName("");
+      setSetupDefaultBudget("");
+      setSuccess(`Imputation proposée enregistrée pour « ${rule.category} ».`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Enregistrement de l’imputation impossible.");
+    } finally {
+      setConfigurationSaving(false);
+    }
+  }
+
+  function updateExpenseCategory(value: string) {
+    setExpenseCategory(value);
+    const rule = accountingRules.find(
+      (item) => normalizeCategory(item.category) === normalizeCategory(value),
+    );
+    setAccountingAllocation(
+      rule ? `${rule.accountCode} · ${rule.accountName}` : "",
+    );
+    if (rule?.budgetAccount)
+      setBudgetAccount(rule.budgetAccount);
+  }
+
+  function moveToNextStep(nextStep: number) {
+    setError("");
+    if (step === 1 && nextStep > 1) {
+      if (!date || !requestingService.trim() || !beneficiary.trim() || !amount || !reason.trim()) {
+        setError("Complétez la date, le service, le bénéficiaire, le montant et le motif avant de continuer.");
+        return;
+      }
+    }
+    if (nextStep === 3 && (!budgetConfigured || !accountingAllocation.trim() || budgetLeft < 0)) {
+      setError(
+        !budgetConfigured
+          ? "Ajoutez d’abord le budget approuvé de cette ligne."
+          : budgetLeft < 0
+            ? "Cette demande dépasse le disponible après engagement."
+            : "Confirmez l’imputation comptable.",
+      );
+      return;
+    }
+    setStep(nextStep);
   }
 
   async function act(
@@ -444,6 +649,10 @@ export default function PaymentOrdersPage() {
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
       setSuccess(`${updated.orderNumber} : ${statusLabel[updated.status]}.`);
+      if (action === "pay") {
+        const treasury = await apiRequest<{ accounts: CashAccountSummary[] }>("/cash-vouchers/treasury");
+        setCashAccounts(treasury.accounts);
+      }
       if (printOrder?.id === updated.id) setPrintOrder(updated);
       if (detailOrder?.id === updated.id) setDetailOrder(updated);
     } catch (caught) {
@@ -471,8 +680,9 @@ export default function PaymentOrdersPage() {
     }
   }
 
-  function print(order: PaymentOrder) {
+  function print(order: PaymentOrder, draft = false) {
     setPrintOrder(order);
+    setPrintDraft(draft);
     setPrintVoucherOrder(null);
     window.requestAnimationFrame(() =>
       window.requestAnimationFrame(() => {
@@ -490,6 +700,7 @@ export default function PaymentOrdersPage() {
   function printVoucher(order: PaymentOrder) {
     setPrintVoucherOrder(order);
     setPrintOrder(null);
+    setPrintDraft(false);
     window.requestAnimationFrame(() =>
       window.requestAnimationFrame(() => {
         document.body.classList.add("print-payment-order-mode");
@@ -501,6 +712,43 @@ export default function PaymentOrdersPage() {
         window.print();
       }),
     );
+  }
+
+  function previewDraft() {
+    if (!budgetConfigured || !accountingAllocation.trim()) {
+      setError("Configurez le budget et confirmez l’imputation avant l’aperçu.");
+      setStep(2);
+      return;
+    }
+    const preview: PaymentOrder = {
+      id: "preview",
+      orderNumber: `OP/${targetYear}/BROUILLON`,
+      date,
+      requestingService,
+      amount,
+      amountInWords: amountToWords(amount, currency),
+      currency,
+      reason,
+      beneficiary,
+      expenseCategory,
+      accountingAllocation,
+      budgetAccount,
+      initialForecast: String(initialForecast),
+      availableBefore: String(availableBefore),
+      outstanding: String(outstandingBudget),
+      availableAfter: String(budgetLeft),
+      status: "SUBMITTED",
+      createdBy: user?.id ?? "preview",
+      attachment: attachmentFile
+        ? {
+            id: "preview-attachment",
+            fileName: attachmentFile.name,
+            mimeType: attachmentFile.type,
+            size: attachmentFile.size,
+          }
+        : null,
+    };
+    print(preview, true);
   }
 
   return (
@@ -583,157 +831,178 @@ export default function PaymentOrdersPage() {
         {user && requestRoles.includes(user.role) && (
           <form
             onSubmit={submit}
-            className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+            className="payment-order-wizard space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
           >
-            <div className="border-b border-slate-100 pb-3">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Nouvel ordre de paiement
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-600">
+                Nouveau dossier · OP {targetYear || "—"}
+              </p>
+              <h2 className="mt-1 text-xl font-semibold text-slate-900">
+                Préparer un ordre de paiement
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Le numéro OP est attribué automatiquement à l’enregistrement.
+                Le numéro définitif est attribué à l’enregistrement. Les deux visas restent manuels.
               </p>
             </div>
-            <div className="grid gap-3">
-              <Field label="Date de la demande">
-                <input
-                  required
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Service demandeur">
-                <input
-                  required
-                  maxLength={100}
-                  value={requestingService}
-                  onChange={(e) => setRequestingService(e.target.value)}
-                  placeholder="Ex. Secrétariat"
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Bénéficiaire">
-                <input
-                  required
-                  maxLength={160}
-                  value={beneficiary}
-                  onChange={(e) => setBeneficiary(e.target.value)}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Devise">
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value as Currency)}
-                  className={inputClass}
-                >
-                  <option value="CDF">CDF · Franc congolais</option>
-                  <option value="USD">USD · Dollar américain</option>
-                </select>
-              </Field>
-              <Field label="Montant sollicité">
-                <input
-                  required
-                  inputMode="decimal"
-                  pattern="[0-9]+([.,][0-9]{1,2})?"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value.replace(",", "."))}
-                  placeholder={currency === "CDF" ? "16000" : "75.00"}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Montant en lettres">
-                <div
-                  aria-live="polite"
-                  className={`${inputClass} min-h-[42px] bg-slate-50 text-xs leading-5`}
-                >
-                  {amountToWords(amount, currency) ||
-                    "Sera généré depuis le montant."}
+
+            <ol className="payment-order-steps" aria-label="Étapes de création de l’OP">
+              {[
+                { number: 1, title: "Demande", detail: "Bénéficiaire et motif" },
+                { number: 2, title: "Contrôles", detail: "Compte et budget" },
+                { number: 3, title: "Pièce et aperçu", detail: "Vérifier et transmettre" },
+              ].map((item) => (
+                <li key={item.number} className={step === item.number ? "is-current" : step > item.number ? "is-complete" : ""}>
+                  <span>{step > item.number ? <Check className="h-4 w-4" /> : item.number}</span>
+                  <div><strong>{item.title}</strong><small>{item.detail}</small></div>
+                </li>
+              ))}
+            </ol>
+
+            {step === 1 && (
+              <section className="space-y-4" aria-label="Détails de la demande">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Date de la demande">
+                    <input required type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
+                  </Field>
+                  <Field label="Service demandeur">
+                    <input required maxLength={100} value={requestingService} onChange={(e) => setRequestingService(e.target.value)} placeholder="Ex. Secrétariat" className={inputClass} />
+                  </Field>
+                  <Field label="Bénéficiaire">
+                    <input required maxLength={160} value={beneficiary} onChange={(e) => setBeneficiary(e.target.value)} placeholder="Nom de la personne ou du fournisseur" className={inputClass} />
+                  </Field>
+                  <Field label="Devise de la demande">
+                    <select value={currency} onChange={(e) => setCurrency(e.target.value as Currency)} className={inputClass}>
+                      <option value="CDF">CDF · Franc congolais</option>
+                      <option value="USD">USD · Dollar américain</option>
+                    </select>
+                  </Field>
+                  <Field label="Montant sollicité">
+                    <input required inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,2})?" value={amount} onChange={(e) => setAmount(e.target.value.replace(",", "."))} placeholder={currency === "CDF" ? "16000" : "75.00"} className={inputClass} />
+                  </Field>
+                  <Field label="Montant en lettres">
+                    <output aria-live="polite" className={`${inputClass} flex min-h-[42px] items-center bg-slate-50 text-xs leading-5`}>
+                      {amountToWords(amount, currency) || "Généré automatiquement depuis le montant."}
+                    </output>
+                  </Field>
                 </div>
-              </Field>
-            </div>
-            <Field label="Motif de la demande">
-              <textarea
-                required
-                maxLength={500}
-                rows={2}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Décrivez l’objet précis du paiement"
-                className={inputClass}
-              />
-            </Field>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Imputation comptable">
-                <input
-                  required
-                  maxLength={120}
-                  value={accountingAllocation}
-                  onChange={(e) => setAccountingAllocation(e.target.value)}
-                  placeholder="Ex. Honoraires d’audit"
-                  className={inputClass}
-                />
-              </Field>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:grid-cols-2">
-              <Field label="Compte budgétaire">
-                <input
-                  required
-                  maxLength={80}
-                  value={budgetAccount}
-                  onChange={(e) => setBudgetAccount(e.target.value)}
-                  placeholder="Ex. 6041 · Fournitures"
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Enveloppe budgétaire annuelle">
-                <input
-                  required
-                  inputMode="decimal"
-                  value={initialForecast}
-                  onChange={(e) =>
-                    setInitialForecast(e.target.value.replace(",", "."))
-                  }
-                  placeholder={currency === "CDF" ? "5000000" : "2500"}
-                  className={inputClass}
-                />
-              </Field>
-              <p className="text-xs leading-5 text-slate-500 sm:col-span-2">
-                Le plafond et les engagements sont contrôlés automatiquement à
-                l’enregistrement, sans encombrer le formulaire ni l’OP
-                imprimée avec des soldes à zéro.
-              </p>
-            </div>
-            <Field label="Pièce justificative (PDF, JPG, PNG, DOCX ou XLSX · 8 Mo max)">
-              <input
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.docx,.xlsx"
-                onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)}
-                className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-blue-800`}
-              />
-              {attachmentFile && (
-                <span className="block text-xs text-slate-500">
-                  {attachmentFile.name} ·{" "}
-                  {(attachmentFile.size / 1024 / 1024).toFixed(2)} Mo
-                </span>
-              )}
-            </Field>
-            <button
-              type="submit"
-              disabled={saving || !databaseConnected || budgetLeft < 0}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0b4778] px-4 py-3 text-sm font-semibold text-white hover:bg-[#08385f] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Send className="h-4 w-4" />
-              {saving
-                ? "Enregistrement…"
-                : "Enregistrer et transmettre aux Finances"}
-            </button>
-            <p className="text-xs leading-5 text-slate-500">
-              Après les deux visas, l’administrateur peut payer l’OP : le
-              système émet alors un bon de sortie numéroté et inscrit le
-              décaissement en caisse.
-            </p>
+                <Field label="Motif détaillé de la demande">
+                  <textarea required maxLength={500} rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex. Achat de 5 revues EC pour le cabinet" className={inputClass} />
+                </Field>
+                <button type="button" onClick={() => moveToNextStep(2)} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800">
+                  Continuer vers les contrôles <ArrowRight className="h-4 w-4" />
+                </button>
+              </section>
+            )}
+
+            {step === 2 && (
+              <section className="space-y-4" aria-label="Imputation et contrôle budgétaire">
+                <Field label="Nature de la dépense">
+                  <input list="payment-order-categories" maxLength={100} value={expenseCategory} onChange={(e) => updateExpenseCategory(e.target.value)} placeholder="Choisir ou saisir une catégorie" className={inputClass} />
+                  <datalist id="payment-order-categories">
+                    {accountingRules.map((rule) => <option key={rule.id} value={rule.category} />)}
+                  </datalist>
+                  {selectedRule && <small className="text-emerald-700">Règle comptable trouvée : {selectedRule.accountCode} · {selectedRule.accountName}</small>}
+                  {expenseCategory && !selectedRule && <small className="text-amber-800">Aucune règle configurée pour cette nature. Le comptable doit choisir l’imputation.</small>}
+                </Field>
+                <Field label="Imputation comptable · à confirmer par le comptable">
+                  <input required maxLength={120} value={accountingAllocation} onChange={(e) => setAccountingAllocation(e.target.value)} placeholder="Ex. 6041 · Fournitures de bureau" className={inputClass} />
+                </Field>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="font-semibold text-slate-900">Contrôle budgétaire · {targetYear || "—"}</h3>
+                      <p className="mt-1 text-xs text-slate-500">Prévision approuvée et engagements calculés depuis les OP de la même ligne.</p>
+                    </div>
+                    {user && financeRoles.includes(user.role) && (
+                      <button type="button" onClick={() => setConfigurationOpen((open) => !open)} className={actionClass}>
+                        <Settings2 className="h-4 w-4" /> {configurationOpen ? "Fermer la configuration" : "Configurer budget et comptes"}
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-3">
+                    <Field label="Ligne budgétaire approuvée · devise">
+                      <select required value={budgetAccount} onChange={(e) => setBudgetAccount(e.target.value)} className={inputClass}>
+                        <option value="">{configurationLoading ? "Chargement…" : "Sélectionner une ligne budgétaire"}</option>
+                        {budgetLines.map((line) => <option key={line.id} value={line.budgetAccount}>{line.budgetAccount}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                  {selectedBudget ? (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <BudgetValue label="Prévision initiale" value={formatMoney(initialForecast, currency)} />
+                      <BudgetValue label="Déjà payé" value={formatMoney(paidBudget, currency)} />
+                      <BudgetValue label="Solde disponible (1)" value={formatMoney(availableBefore, currency)} />
+                      <BudgetValue label="Encours avant cette OP" value={formatMoney(outstandingBudget, currency)} />
+                      <BudgetValue label="Solde disponible (2) · après cette OP" value={formatMoney(budgetLeft, currency)} />
+                    </div>
+                  ) : (
+                    <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      {configurationLoading ? "Chargement du budget approuvé…" : "Aucune prévision n’est chargée pour cette ligne. Les Finances doivent configurer le budget approuvé avant la demande."}
+                    </p>
+                  )}
+                  {selectedBudget && budgetLeft < 0 && <p role="alert" className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">Dépassement de {formatMoney(Math.abs(budgetLeft), currency)}. L’OP ne peut pas être transmise.</p>}
+                  {configurationOpen && user && financeRoles.includes(user.role) && (
+                    <div className="mt-4 grid gap-4 border-t border-slate-200 pt-4 lg:grid-cols-2">
+                      <form onSubmit={saveBudgetConfiguration} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                        <div><h4 className="font-semibold text-slate-900">Budget approuvé</h4><p className="text-xs text-slate-500">Saisir chaque ligne et sa prévision annuelle validée par les Finances.</p></div>
+                        <Field label="Ligne budgétaire"><input required maxLength={120} value={setupBudgetAccount} onChange={(e) => setSetupBudgetAccount(e.target.value)} placeholder="Ex. Fournitures et documentation" className={inputClass} /></Field>
+                        <Field label={`Prévision initiale · ${currency}`}><input required min="0" step={currency === "CDF" ? "1" : "0.01"} type="number" value={setupForecast} onChange={(e) => setSetupForecast(e.target.value)} placeholder={currency === "USD" ? "200.00" : "200000"} className={inputClass} /></Field>
+                        <button disabled={configurationSaving} className={actionClass}><Check className="h-4 w-4" /> Enregistrer la prévision</button>
+                      </form>
+                      <form onSubmit={saveAccountingConfiguration} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                        <div><h4 className="font-semibold text-slate-900">Règle d’imputation</h4><p className="text-xs text-slate-500">Le logiciel proposera ce compte. Le comptable le confirme ou le corrige.</p></div>
+                        <Field label="Nature de dépense"><input required maxLength={100} value={setupCategory} onChange={(e) => setSetupCategory(e.target.value)} placeholder="Ex. Revues et documentation" className={inputClass} /></Field>
+                        <div className="grid gap-3 sm:grid-cols-2"><Field label="Code du compte"><input required maxLength={40} value={setupAccountCode} onChange={(e) => setSetupAccountCode(e.target.value)} placeholder="6041" className={inputClass} /></Field><Field label="Intitulé du compte"><input required maxLength={100} value={setupAccountName} onChange={(e) => setSetupAccountName(e.target.value)} placeholder="Fournitures de bureau" className={inputClass} /></Field></div>
+                        <Field label="Ligne budgétaire proposée (facultatif)"><select value={setupDefaultBudget} onChange={(e) => setSetupDefaultBudget(e.target.value)} className={inputClass}><option value="">Aucune</option>{budgetLines.map((line) => <option key={line.id} value={line.budgetAccount}>{line.budgetAccount}</option>)}</select></Field>
+                        <button disabled={configurationSaving} className={actionClass}><Check className="h-4 w-4" /> Enregistrer la règle</button>
+                      </form>
+                      {accountingRules.length > 0 && <div className="lg:col-span-2"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Règles configurées</p><ul className="grid gap-2 sm:grid-cols-2">{accountingRules.map((rule) => <li key={rule.id} className="rounded-lg bg-slate-100 px-3 py-2 text-sm"><strong>{rule.category}</strong><span className="block text-xs text-slate-600">{rule.accountCode} · {rule.accountName}{rule.budgetAccount ? ` · ${rule.budgetAccount}` : ""}</span></li>)}</ul></div>}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4">
+                  <CircleDollarSign className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
+                  <div className="min-w-0 flex-1">
+                    <strong className="text-sm text-slate-900">Trésorerie réelle · {currency}</strong>
+                    <p className="mt-1 text-sm text-slate-700">{formatMoney(currentCash, currency)} en caisse. Le visa approuve le budget; le paiement final vérifie séparément que les espèces sont disponibles.</p>
+                    {Number(amount) > currentCash && <p className="mt-2 text-xs font-semibold text-amber-800">La caisse est inférieure au montant demandé. L’OP peut suivre son circuit de visa, mais il faudra alimenter la caisse avant le paiement.</p>}
+                  </div>
+                  <Link href="/cash-vouchers" className="shrink-0 text-xs font-bold text-blue-800 underline">Gérer la caisse</Link>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => moveToNextStep(1)} className={`${actionClass} flex-1 justify-center`}><ArrowLeft className="h-4 w-4" /> Retour</button>
+                  <button type="button" onClick={() => moveToNextStep(3)} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800">Continuer <ArrowRight className="h-4 w-4" /></button>
+                </div>
+              </section>
+            )}
+
+            {step === 3 && (
+              <section className="space-y-4" aria-label="Pièce justificative et aperçu">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <h3 className="font-semibold text-slate-900">Résumé avant transmission</h3>
+                  <dl className="payment-order-preview-summary mt-3">
+                    <div><dt>Demande</dt><dd>{requestingService || "—"} · {beneficiary || "—"}</dd></div>
+                    <div><dt>Motif</dt><dd>{reason || "—"}</dd></div>
+                    <div><dt>Imputation</dt><dd>{accountingAllocation || "À compléter"}</dd></div>
+                    <div><dt>Budget restant après la demande</dt><dd>{budgetConfigured ? formatMoney(budgetLeft, currency) : "Budget à configurer"}</dd></div>
+                  </dl>
+                </div>
+                <Field label="Pièce justificative (PDF, JPG, PNG, DOCX ou XLSX · 8 Mo max)">
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png,.docx,.xlsx" onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-blue-800`} />
+                  {attachmentFile && <span className="block text-xs text-slate-500">{attachmentFile.name} · {(attachmentFile.size / 1024 / 1024).toFixed(2)} Mo</span>}
+                </Field>
+                <button type="button" onClick={previewDraft} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-100">
+                  <Printer className="h-4 w-4" /> Prévisualiser et imprimer le modèle
+                </button>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => moveToNextStep(2)} className={`${actionClass} flex-1 justify-center`}><ArrowLeft className="h-4 w-4" /> Retour</button>
+                  <button type="submit" disabled={saving || !databaseConnected || !budgetConfigured || budgetLeft < 0} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                    <Send className="h-4 w-4" />{saving ? "Enregistrement…" : "Transmettre aux Finances"}
+                  </button>
+                </div>
+                <p className="text-xs leading-5 text-slate-500">Après le visa des Finances puis celui de l’Associé-Gérant, l’OP pourra être payée. Le paiement crée le bon de caisse et diminue le solde en espèces.</p>
+              </section>
+            )}
           </form>
         )}
 
@@ -959,7 +1228,7 @@ export default function PaymentOrdersPage() {
           <div className="payment-order-heading">
             <div>
               <p className="payment-order-overline">
-                Pièce de trésorerie · Autorisation préalable
+                {printDraft ? "APERÇU NON VALIDÉ · BROUILLON" : "Pièce de trésorerie · Autorisation préalable"}
               </p>
               <h2>ORDONNANCE DE PAIEMENT</h2>
             </div>
@@ -1003,7 +1272,15 @@ export default function PaymentOrdersPage() {
               <span>Imputation comptable</span>
               <strong>{printOrder.accountingAllocation}</strong>
             </div>
+            {printOrder.expenseCategory && <div><span>Nature de dépense</span><strong>{printOrder.expenseCategory}</strong></div>}
           </div>
+          <section className="payment-order-budget">
+            <h3>Contrôle budgétaire · {new Date(printOrder.date).getUTCFullYear()}</h3>
+            <table><thead><tr><th>COMPTE / LIGNE</th><th>PRÉVISION INITIALE</th><th>SOLDE DISPO (1)</th><th>ENCOURS</th><th>SOLDE DISPO (2)</th></tr></thead>
+              <tbody><tr><td>{printOrder.budgetAccount}</td><td>{formatMoney(printOrder.initialForecast, printOrder.currency)}</td><td>{formatMoney(printOrder.availableBefore, printOrder.currency)}</td><td>{formatMoney(Number(printOrder.outstanding) + (printDraft ? Number(printOrder.amount) : 0), printOrder.currency)}</td><td>{formatMoney(printOrder.availableAfter, printOrder.currency)}</td></tr></tbody>
+            </table>
+            <p>Solde dispo (1) = prévision initiale − paiements effectués. Solde dispo (2) = solde dispo (1) − encours, y compris la présente demande.</p>
+          </section>
           <section className="payment-order-visas">
             <div>
               <h3>Visa de la chargée des Finances</h3>

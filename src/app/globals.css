@@ -6873,6 +6873,121 @@ summary:focus-visible {
   background: #fff8f8;
 }
 
+.payment-order-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 1.25rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.payment-order-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  background: #f8fafc;
+}
+
+.payment-order-steps li > span {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.payment-order-steps li.is-current {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.payment-order-steps li.is-current > span,
+.payment-order-steps li.is-complete > span {
+  background: #07599a;
+  color: white;
+}
+
+.payment-order-steps li > div {
+  display: grid;
+  min-width: 0;
+}
+
+.payment-order-steps strong {
+  overflow: hidden;
+  color: #102d4c;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.payment-order-steps small {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.payment-order-preview-summary {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.payment-order-preview-summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.8rem;
+}
+
+.payment-order-preview-summary dt {
+  color: #64748b;
+}
+
+.payment-order-preview-summary dd {
+  color: #102d4c;
+  font-weight: 600;
+  text-align: right;
+}
+
+@media (max-width: 560px) {
+  .payment-order-steps {
+    gap: 0.35rem;
+  }
+
+  .payment-order-steps li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.5rem;
+  }
+
+  .payment-order-steps small {
+    display: none;
+  }
+}
+
+@media print {
+  .payment-order-print .payment-order-budget table {
+    font-size: 7pt;
+  }
+
+  .payment-order-print .payment-order-budget th,
+  .payment-order-print .payment-order-budget td {
+    padding: 2.2mm 1.5mm;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

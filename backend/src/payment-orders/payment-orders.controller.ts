@@ -1,10 +1,13 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Get,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -16,6 +19,8 @@ import { RolesGuard } from '../auth/roles.guard';
 import {
   CreatePaymentOrderDto,
   RejectPaymentOrderDto,
+  SavePaymentOrderAccountingRuleDto,
+  SavePaymentOrderBudgetDto,
 } from './payment-orders.dto';
 import { PaymentOrdersService } from './payment-orders.service';
 
@@ -41,6 +46,47 @@ export class PaymentOrdersController {
   @Get()
   list(@Req() request: AuthenticatedRequest) {
     return this.paymentOrders.list(request.user!.companyId);
+  }
+
+  @Get('configuration')
+  configuration(
+    @Query('year', ParseIntPipe) year: number,
+    @Query('currency') currency: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    if (currency !== 'CDF' && currency !== 'USD')
+      throw new BadRequestException('Devise budgétaire invalide.');
+    return this.paymentOrders.configuration(
+      request.user!.companyId,
+      year,
+      currency,
+    );
+  }
+
+  @Post('budgets')
+  @Roles(...financeRoles)
+  saveBudget(
+    @Body() dto: SavePaymentOrderBudgetDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.paymentOrders.saveBudget(
+      dto,
+      request.user!.companyId,
+      request.user!.sub,
+    );
+  }
+
+  @Post('accounting-rules')
+  @Roles(...financeRoles)
+  saveAccountingRule(
+    @Body() dto: SavePaymentOrderAccountingRuleDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.paymentOrders.saveAccountingRule(
+      dto,
+      request.user!.companyId,
+      request.user!.sub,
+    );
   }
 
   @Post()

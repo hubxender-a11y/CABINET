@@ -2,7 +2,10 @@ import {
   IsDateString,
   IsIn,
   IsOptional,
+  IsInt,
   IsString,
+  Max,
+  Min,
   Matches,
   MaxLength,
 } from 'class-validator';
@@ -30,17 +33,24 @@ export class CreatePaymentOrderDto {
   @MaxLength(160)
   beneficiary: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  expenseCategory?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(120)
-  accountingAllocation: string;
+  accountingAllocation?: string;
 
   @IsString()
   @MaxLength(80)
   budgetAccount: string;
 
+  @IsOptional()
   @IsString()
   @Matches(/^\d{1,12}(?:\.\d{1,2})?$/)
-  initialForecast: string;
+  initialForecast?: string;
 
   @IsOptional()
   @IsString()
@@ -62,4 +72,41 @@ export class RejectPaymentOrderDto {
   @IsString()
   @MaxLength(300)
   reason: string;
+}
+
+export class SavePaymentOrderBudgetDto {
+  @IsInt()
+  @Min(2000)
+  @Max(2100)
+  year: number;
+
+  @IsIn(['CDF', 'USD'])
+  currency: 'CDF' | 'USD';
+
+  @IsString()
+  @MaxLength(80)
+  budgetAccount: string;
+
+  @IsString()
+  @Matches(/^\d{1,12}(?:\.\d{1,2})?$/)
+  initialForecast: string;
+}
+
+export class SavePaymentOrderAccountingRuleDto {
+  @IsString()
+  @MaxLength(100)
+  category: string;
+
+  @IsString()
+  @MaxLength(40)
+  accountCode: string;
+
+  @IsString()
+  @MaxLength(120)
+  accountName: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  budgetAccount?: string;
 }

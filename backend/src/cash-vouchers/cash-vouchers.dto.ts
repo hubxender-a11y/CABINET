@@ -59,3 +59,24 @@ export class ReconcileCashAccountDto {
   @MaxLength(300)
   reason: string;
 }
+
+export class FundCashAccountDto {
+  @IsDateString()
+  date: string;
+
+  @IsString()
+  @Matches(/^\d{1,12}(?:\.\d{1,2})?$/)
+  amount: string;
+
+  @IsIn(['CDF', 'USD'])
+  currency: 'CDF' | 'USD';
+
+  @IsString()
+  @MaxLength(120)
+  source: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  reference?: string;
+}

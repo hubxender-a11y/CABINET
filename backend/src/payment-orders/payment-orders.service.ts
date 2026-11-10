@@ -17,6 +17,8 @@ import { amountInWords } from './amount-in-words';
 import type {
   CreatePaymentOrderDto,
   RejectPaymentOrderDto,
+  SavePaymentOrderAccountingRuleDto,
+  SavePaymentOrderBudgetDto,
 } from './payment-orders.dto';
 
 @Injectable()
@@ -39,24 +41,114 @@ export class PaymentOrdersService {
     });
   }
 
+  async configuration(companyId: string, year: number, currency: 'CDF' | 'USD') {
+    const [budgets, accountingRules] = await Promise.all([
+      this.prisma.paymentOrderBudget.findMany({
+        where: { companyId, year, currency, isActive: true },
+        orderBy: { budgetAccount: 'asc' },
+      }),
+      this.prisma.paymentOrderAccountingRule.findMany({
+        where: { companyId, isActive: true },
+        orderBy: { category: 'asc' },
+      }),
+    ]);
+    return { budgets, accountingRules };
+  }
+
+  async saveBudget(
+    dto: SavePaymentOrderBudgetDto,
+    companyId: string,
+    userId: string,
+  ) {
+    const budgetAccount = dto.budgetAccount.trim();
+    const initialForecast = new Prisma.Decimal(dto.initialForecast);
+    if (!budgetAccount || initialForecast.lt(0))
+      throw new BadRequestException('La ligne et la prévision doivent être valides.');
+    if (dto.currency === 'CDF' && !initialForecast.isInteger())
+      throw new BadRequestException('La prévision en CDF doit être un nombre entier.');
+
+    return this.prisma.$transaction(async (transaction) => {
+      const from = new Date(Date.UTC(dto.year, 0, 1));
+      const until = new Date(Date.UTC(dto.year + 1, 0, 1));
+      const orders = await transaction.paymentOrder.findMany({
+        where: {
+          companyId,
+          budgetAccount,
+          currency: dto.currency,
+          date: { gte: from, lt: until },
+          status: { not: PaymentOrderStatus.REJECTED },
+        },
+        select: { amount: true, status: true },
+      });
+      const used = orders.reduce((sum, order) => sum.add(order.amount), new Prisma.Decimal(0));
+      if (initialForecast.lt(used))
+        throw new BadRequestException(
+          `La prévision ne peut pas être inférieure aux dépenses déjà payées et aux engagements (${used.toFixed(2)} ${dto.currency}).`,
+        );
+      const budget = await transaction.paymentOrderBudget.upsert({
+        where: {
+          companyId_year_currency_budgetAccount: {
+            companyId,
+            year: dto.year,
+            currency: dto.currency,
+            budgetAccount,
+          },
+        },
+        create: { companyId, year: dto.year, currency: dto.currency, budgetAccount, initialForecast },
+        update: { initialForecast, isActive: true },
+      });
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'PAYMENT_ORDER_BUDGET_SAVED',
+          details: { budgetAccount, year: dto.year, currency: dto.currency, initialForecast: initialForecast.toString() },
+        },
+      });
+      return budget;
+    });
+  }
+
+  async saveAccountingRule(
+    dto: SavePaymentOrderAccountingRuleDto,
+    companyId: string,
+    userId: string,
+  ) {
+    const category = dto.category.trim();
+    const categoryKey = normalizeCategory(category);
+    const accountCode = dto.accountCode.trim();
+    const accountName = dto.accountName.trim();
+    const budgetAccount = dto.budgetAccount?.trim() || null;
+    if (!categoryKey || !accountCode || !accountName)
+      throw new BadRequestException('La catégorie, le code et le libellé du compte sont obligatoires.');
+
+    return this.prisma.$transaction(async (transaction) => {
+      const rule = await transaction.paymentOrderAccountingRule.upsert({
+        where: { companyId_categoryKey: { companyId, categoryKey } },
+        create: { companyId, category, categoryKey, accountCode, accountName, budgetAccount },
+        update: { category, accountCode, accountName, budgetAccount, isActive: true },
+      });
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'PAYMENT_ORDER_ACCOUNTING_RULE_SAVED',
+          details: { category, accountCode, accountName, budgetAccount },
+        },
+      });
+      return rule;
+    });
+  }
+
   async create(dto: CreatePaymentOrderDto, companyId: string, userId: string) {
     const amount = new Prisma.Decimal(dto.amount);
-    const initialForecast = new Prisma.Decimal(dto.initialForecast);
     if (amount.lte(0))
       throw new BadRequestException(
         'Le montant demandé doit être supérieur à zéro.',
       );
-    if (
-      dto.currency === 'CDF' &&
-      [amount, initialForecast].some((value) => !value.isInteger())
-    ) {
+    if (dto.currency === 'CDF' && !amount.isInteger()) {
       throw new BadRequestException(
-        'Les montants en CDF doivent être des nombres entiers.',
-      );
-    }
-    if (initialForecast.lt(0)) {
-      throw new BadRequestException(
-        'La prévision initiale ne peut pas être négative.',
+        'Le montant en CDF doit être un nombre entier.',
       );
     }
     const parsedDate = new Date(dto.date);
@@ -76,10 +168,11 @@ export class PaymentOrdersService {
         )
         SELECT 1 FROM advisory_lock
       `;
+      const budgetAccount = dto.budgetAccount.trim();
       const budgetOrders = await transaction.paymentOrder.findMany({
         where: {
           companyId,
-          budgetAccount: dto.budgetAccount.trim(),
+          budgetAccount,
           currency: dto.currency,
           date: {
             gte: new Date(Date.UTC(year, 0, 1)),
@@ -89,13 +182,56 @@ export class PaymentOrdersService {
         },
         select: { initialForecast: true, amount: true, status: true },
       });
+      const configuredBudget = await transaction.paymentOrderBudget.findUnique({
+        where: {
+          companyId_year_currency_budgetAccount: {
+            companyId,
+            year,
+            currency: dto.currency,
+            budgetAccount,
+          },
+        },
+      });
+      const initialForecast =
+        configuredBudget?.initialForecast ?? budgetOrders[0]?.initialForecast;
+      if (!initialForecast) {
+        throw new BadRequestException(
+          'Aucun budget approuvé n’est configuré pour cette ligne, cette devise et cet exercice. Ajoutez-le dans Configuration du budget.',
+        );
+      }
       if (
+        !configuredBudget &&
         budgetOrders.some(
           (order) => !order.initialForecast.equals(initialForecast),
         )
       ) {
         throw new ConflictException(
           'La prévision initiale doit rester identique pour un même compte budgétaire, une même devise et un même exercice.',
+        );
+      }
+      if (dto.currency === 'CDF' && !initialForecast.isInteger())
+        throw new BadRequestException(
+          'La prévision budgétaire en CDF doit être un nombre entier.',
+        );
+      const expenseCategory = dto.expenseCategory?.trim() ?? '';
+      const accountingRule = expenseCategory
+        ? await transaction.paymentOrderAccountingRule.findUnique({
+            where: {
+              companyId_categoryKey: {
+                companyId,
+                categoryKey: normalizeCategory(expenseCategory),
+              },
+            },
+          })
+        : null;
+      const accountingAllocation =
+        dto.accountingAllocation?.trim() ||
+        (accountingRule
+          ? `${accountingRule.accountCode} · ${accountingRule.accountName}`
+          : '');
+      if (!accountingAllocation) {
+        throw new BadRequestException(
+          'Confirmez ou saisissez l’imputation comptable avant de transmettre l’OP.',
         );
       }
       const paid = budgetOrders
@@ -137,8 +273,9 @@ export class PaymentOrdersService {
           currency: dto.currency,
           reason: dto.reason.trim(),
           beneficiary: dto.beneficiary.trim(),
-          accountingAllocation: dto.accountingAllocation.trim(),
-          budgetAccount: dto.budgetAccount.trim(),
+          expenseCategory: expenseCategory || null,
+          accountingAllocation,
+          budgetAccount,
           initialForecast,
           availableBefore,
           outstanding,
@@ -511,4 +648,12 @@ export class PaymentOrdersService {
       return updated;
     });
   }
+}
+
+function normalizeCategory(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLocaleLowerCase('fr');
 }

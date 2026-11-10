@@ -18,6 +18,7 @@ import {
 import {
   CancelCashVoucherDto,
   CreateCashVoucherDto,
+  FundCashAccountDto,
   ReconcileCashAccountDto,
 } from './cash-vouchers.dto';
 
@@ -138,6 +139,76 @@ export class CashVouchersService {
         accountId: account.id,
         balance: countedBalance.toString(),
         difference: difference.toString(),
+      };
+    });
+  }
+
+  async fund(
+    dto: FundCashAccountDto,
+    companyId: string,
+    userId: string,
+  ) {
+    const amount = new Prisma.Decimal(dto.amount);
+    const source = dto.source.trim();
+    if (amount.lte(0) || !source)
+      throw new BadRequestException(
+        'Indiquez un montant positif et l’origine des fonds.',
+      );
+    if (dto.currency === 'CDF' && !amount.isInteger())
+      throw new BadRequestException(
+        'Un approvisionnement en CDF doit être un nombre entier.',
+      );
+    const date = new Date(`${dto.date.slice(0, 10)}T12:00:00.000Z`);
+    if (
+      Number.isNaN(date.getTime()) ||
+      date.toISOString().slice(0, 10) !== dto.date.slice(0, 10) ||
+      date.getTime() > endOfDay(new Date()).getTime()
+    )
+      throw new BadRequestException(
+        'La date d’approvisionnement doit être valide et ne peut pas être future.',
+      );
+
+    return this.prisma.$transaction(async (transaction) => {
+      const account = await ensureCashAccount(
+        transaction,
+        companyId,
+        dto.currency,
+      );
+      await lockCashAccount(transaction, account.id);
+      const movement = await createCashMovement(transaction, {
+        companyId,
+        cashAccountId: account.id,
+        date,
+        direction: 'IN',
+        amount,
+        sourceType: 'CASH_FUNDING',
+        sourceId: randomUUID(),
+        description: `Approvisionnement caisse · ${source}`,
+        reference: dto.reference?.trim() || null,
+      });
+      const balance = await getCashBalance(
+        transaction,
+        companyId,
+        account.id,
+      );
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'CASH_ACCOUNT_FUNDED',
+          details: {
+            cashAccountId: account.id,
+            currency: dto.currency,
+            amount: amount.toString(),
+            balanceAfter: balance.toString(),
+            source,
+            reference: dto.reference?.trim() || null,
+          },
+        },
+      });
+      return {
+        movement: { ...movement, amount: movement.amount.toString() },
+        balance: balance.toString(),
       };
     });
   }
