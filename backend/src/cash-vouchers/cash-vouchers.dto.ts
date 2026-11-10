@@ -50,6 +50,12 @@ export class CancelCashVoucherDto {
   reason: string;
 }
 
+export class RejectCashVoucherDto {
+  @IsString()
+  @MaxLength(300)
+  reason: string;
+}
+
 export class ReconcileCashAccountDto {
   @IsString()
   @Matches(/^\d{1,12}(?:\.\d{1,2})?$/)

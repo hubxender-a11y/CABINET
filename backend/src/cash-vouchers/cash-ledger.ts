@@ -111,7 +111,7 @@ export async function assertPaymentOrderFundingAvailable(
   );
   if (balance.lt(amount)) {
     throw new BadRequestException(
-      `Approvisionnement de l’Associé-Gérant insuffisant (${balance.toFixed(2)} disponibles). Enregistrez un nouvel approvisionnement dans le module Caisse avant le paiement.`,
+      `Approvisionnement de l’Associé-Gérant insuffisant (${balance.toFixed(2)} disponibles). Enregistrez les fonds réellement remis avant de valider ce décaissement.`,
     );
   }
   return balance;

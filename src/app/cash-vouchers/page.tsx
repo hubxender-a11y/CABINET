@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal, flushSync } from "react-dom";
 import {
   Check,
   CircleAlert,
@@ -34,8 +35,11 @@ type CashVoucher = {
   cashAccountId: string;
   accountCode?: string | null;
   reference?: string | null;
-  status: "ISSUED" | "CANCELLED";
+  status: "PENDING_APPROVAL" | "ISSUED" | "REJECTED" | "CANCELLED";
   cancellationReason?: string | null;
+  rejectionReason?: string | null;
+  managerApprovalName?: string | null;
+  managerApprovedAt?: string | null;
 };
 type CashAccount = {
   id: string;
@@ -294,15 +298,13 @@ export default function CashVouchersPage() {
         }),
       });
       setVouchers((current) => [created, ...current]);
-      setSelectedVoucher(created);
+      setSelectedVoucher(null);
       setBeneficiary("");
       setReason("");
       setAmount("");
       setReference("");
       void refreshTreasury().catch(() => undefined);
-      setSuccess(
-        `Bon ${created.voucherNumber} enregistré. Il est prêt à être imprimé.`,
-      );
+      setSuccess(`Bon ${created.voucherNumber} créé. Il est en attente du visa de l’Associé-Gérant; aucun fonds n’a été retiré. L’impression sera disponible après approbation.`);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -356,8 +358,17 @@ export default function CashVouchersPage() {
   }
 
   function printVoucher(voucher: CashVoucher) {
-    setSelectedVoucher(voucher);
-    const printAfterRender = () => {
+    if (voucher.status === "PENDING_APPROVAL" || voucher.status === "REJECTED") {
+      setError("Seul un bon approuvé peut être imprimé.");
+      return;
+    }
+    flushSync(() => setSelectedVoucher(voucher));
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      const printable = document.querySelector(".cash-voucher-print");
+      if (!printable) {
+        setError("Le modèle du bon n’a pas pu être préparé pour l’impression. Réessayez.");
+        return;
+      }
       document.body.classList.add("print-cash-voucher-mode");
       window.addEventListener(
         "afterprint",
@@ -365,10 +376,38 @@ export default function CashVouchersPage() {
         { once: true },
       );
       window.print();
-    };
-    window.requestAnimationFrame(() =>
-      window.requestAnimationFrame(printAfterRender),
-    );
+    }));
+  }
+
+  async function approveVoucher(voucher: CashVoucher) {
+    setError("");
+    setSuccess("");
+    try {
+      const approved = await apiRequest<CashVoucher>(`/cash-vouchers/${voucher.id}/approve`, { method: "POST" });
+      setVouchers((current) => current.map((item) => item.id === approved.id ? approved : item));
+      await refreshTreasury();
+      setSelectedVoucher(approved);
+      setSuccess(`Bon ${approved.voucherNumber} approuvé et autorisé à la sortie. Les fonds ont été débités; vous pouvez maintenant l’imprimer.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Impossible d’approuver ce bon.");
+    }
+  }
+
+  async function rejectVoucher(voucher: CashVoucher) {
+    const rejectionReason = window.prompt(`Motif du rejet du bon ${voucher.voucherNumber} :`);
+    if (!rejectionReason?.trim()) return;
+    setError("");
+    setSuccess("");
+    try {
+      const rejected = await apiRequest<CashVoucher>(`/cash-vouchers/${voucher.id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason: rejectionReason.trim() }),
+      });
+      setVouchers((current) => current.map((item) => item.id === rejected.id ? rejected : item));
+      setSuccess(`Bon ${rejected.voucherNumber} rejeté. Aucun fonds n’a été retiré.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Impossible de rejeter ce bon.");
+    }
   }
 
   async function cancelVoucher(voucher: CashVoucher) {
@@ -454,8 +493,7 @@ export default function CashVouchersPage() {
           Gestion de la caisse
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-500">
-          Suivez les fonds disponibles, enregistrez les entrées et les sorties,
-          puis contrôlez chaque mouvement dans le livre de caisse.
+          Le solde physique, les fonds remis par l’Associé-Gérant et les bons en attente sont suivis séparément.
         </p>
       </header>
 
@@ -485,7 +523,7 @@ export default function CashVouchersPage() {
             </span>
             <div>
               <p className="text-sm text-slate-500">
-                Solde disponible · {code}
+                Solde du livre de caisse · {code}
               </p>
               <p className="mt-1 text-2xl font-semibold text-slate-900">
                 {formatMoney(
@@ -501,7 +539,7 @@ export default function CashVouchersPage() {
                   "Caisse"}
               </p>
               <p className="mt-2 text-xs font-semibold text-blue-800">
-                Disponible pour les OP : {formatMoney(Number(accounts.find((account) => account.currency === code)?.paymentOrderAvailable ?? 0), code)}
+                Fonds d’approvisionnement disponibles : {formatMoney(Number(accounts.find((account) => account.currency === code)?.paymentOrderAvailable ?? 0), code)}
               </p>
             </div>
             {accounts.find((account) => account.currency === code) &&
@@ -541,8 +579,8 @@ export default function CashVouchersPage() {
               </p>
               <h2 className="mt-1 text-lg font-semibold text-slate-900">
                 {Number(accounts.find((account) => account.currency === fundCurrency)?.paymentOrderAvailable ?? 0) === 0
-                  ? "Enregistrer le fonds de départ des OP"
-                  : "Réapprovisionner les fonds des OP"}
+                  ? "Enregistrer le fonds de départ"
+                  : "Réapprovisionner les fonds"}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 Enregistrez uniquement les fonds réellement remis par l’Associé-Gérant. Ils sont suivis séparément des règlements clients et n’engendrent pas d’écriture comptable automatique.
@@ -620,12 +658,13 @@ export default function CashVouchersPage() {
             </h2>
             <ol className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
               <li><strong>1. Départ :</strong> saisissez les espèces réellement remises, par exemple 200 USD, avec leur origine.</li>
-              <li><strong>2. Paiement :</strong> une OP payée ou un bon de sortie validé diminue automatiquement la caisse.</li>
-              <li><strong>3. Réapprovisionnement :</strong> lorsque de nouveaux fonds arrivent, enregistrez une nouvelle entrée ici; le solde augmente et la trace reste au livre.</li>
-              <li><strong>4. Caisse épuisée :</strong> le paiement est bloqué si le solde ne suffit pas. Enregistrez d’abord l’argent réellement reçu.</li>
+              <li><strong>2. Bon de sortie :</strong> la création met le bon en attente. Elle ne retire encore aucun argent du livre ni de l’approvisionnement.</li>
+              <li><strong>3. Visa de l’Associé-Gérant :</strong> son approbation autorise la sortie et débite alors les deux soldes concernés. En cas de rejet, aucun montant n’est retiré.</li>
+              <li><strong>4. Réapprovisionnement :</strong> à la réception de nouveaux fonds, enregistrez leur montant ici; seuls ces apports augmentent le solde d’approvisionnement.</li>
+              <li><strong>5. Solde insuffisant :</strong> l’approbation est bloquée si l’approvisionnement affecté ou la caisse physique ne couvre pas le bon.</li>
             </ol>
             <p className="mt-4 rounded-xl border border-amber-200 bg-white/80 p-3 text-xs leading-5 text-amber-950">
-              Exemple : 200 USD de départ − une OP de 75 USD = 125 USD en caisse. Ce calcul de trésorerie est distinct du budget annuel de l’OP.
+              Exemple : 200 USD remis par l’Associé-Gérant − 75 USD de bons approuvés = 125 USD de fonds d’approvisionnement. Les règlements clients et les autres entrées ne sont pas ajoutés à ce montant.
             </p>
           </aside>
         </section>
@@ -835,20 +874,38 @@ export default function CashVouchersPage() {
                       </td>
                       <td className="px-4 py-3">
                         <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${voucher.status === "CANCELLED" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}
+                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${voucher.status === "PENDING_APPROVAL" ? "bg-amber-50 text-amber-800" : voucher.status === "REJECTED" || voucher.status === "CANCELLED" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}
                         >
-                          {voucher.status === "CANCELLED" ? "Annulé" : "Émis"}
+                          {voucher.status === "PENDING_APPROVAL" ? "En attente du visa" : voucher.status === "REJECTED" ? "Rejeté" : voucher.status === "CANCELLED" ? "Annulé" : "Approuvé · sortie autorisée"}
                         </span>
+                        {voucher.managerApprovalName && voucher.status !== "PENDING_APPROVAL" && (
+                          <p className="mt-1 text-xs text-slate-500">Visa : {voucher.managerApprovalName}</p>
+                        )}
+                        {voucher.rejectionReason && (
+                          <p className="mt-1 max-w-48 text-xs text-rose-700">Motif : {voucher.rejectionReason}</p>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => printVoucher(voucher)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                          <Printer className="h-3.5 w-3.5" />
-                          Imprimer
-                        </button>
+                        {voucher.status === "PENDING_APPROVAL" && userRole === "COMPANY_ADMIN" && (
+                          <>
+                            <button type="button" onClick={() => void approveVoucher(voucher)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800">
+                              <Check className="h-3.5 w-3.5" /> Approuver & libérer
+                            </button>
+                            <button type="button" onClick={() => void rejectVoucher(voucher)} className="ml-1.5 inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50">
+                              <X className="h-3.5 w-3.5" /> Rejeter
+                            </button>
+                          </>
+                        )}
+                        {(voucher.status === "ISSUED" || voucher.status === "CANCELLED") && (
+                          <button
+                            type="button"
+                            onClick={() => printVoucher(voucher)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                            Imprimer
+                          </button>
+                        )}
                         {voucher.status === "ISSUED" &&
                           [
                             "COMPANY_ADMIN",
@@ -958,7 +1015,7 @@ export default function CashVouchersPage() {
         )}
       </section>
 
-      {selectedVoucher && (
+      {selectedVoucher && (selectedVoucher.status === "ISSUED" || selectedVoucher.status === "CANCELLED") && createPortal(
         <article
           className="cash-voucher-print hidden"
           aria-label="Bon de sortie de caisse à imprimer"
@@ -1060,8 +1117,9 @@ export default function CashVouchersPage() {
               <div>
                 <strong>Approuvé par</strong>
                 <span>
-                  {profile?.signatureTitle?.trim() || "Responsable habilité"}
+                  {selectedVoucher.managerApprovalName || profile?.signatureTitle?.trim() || "Associé-Gérant"}
                 </span>
+                {selectedVoucher.managerApprovedAt && <span className="cash-voucher-approval-date">Le {formatDate(selectedVoucher.managerApprovedAt)}</span>}
                 <i />
               </div>
               <div>
@@ -1076,7 +1134,8 @@ export default function CashVouchersPage() {
             </p>
           </div>
           <DocumentFooter />
-        </article>
+        </article>,
+        document.body,
       )}
     </div>
   );

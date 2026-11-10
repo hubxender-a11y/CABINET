@@ -6787,7 +6787,12 @@ summary:focus-visible {
 @media print {
   @page payment-order-document {
     size: A4 portrait;
-    margin: 12mm;
+    margin: 0;
+  }
+
+  @page payment-voucher-document {
+    size: A4 portrait;
+    margin: 0;
   }
 
   body.print-payment-order-mode * {
@@ -6803,11 +6808,14 @@ summary:focus-visible {
     page: payment-voucher-document;
     display: flex !important;
     position: fixed !important;
-    inset: 0 !important;
-    width: 100% !important;
-    min-height: 100vh !important;
+    inset: 12mm !important;
+    z-index: 2147483647 !important;
+    box-sizing: border-box !important;
+    width: auto !important;
+    min-height: auto !important;
     flex-direction: column !important;
-    padding: 3mm 2mm 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
     background: #fff !important;
     color: #0f172a !important;
     -webkit-print-color-adjust: exact;
@@ -6855,9 +6863,15 @@ summary:focus-visible {
 
   body.print-payment-order-mode .payment-order-document {
     page: payment-order-document;
-    inset: 5mm 25mm 25mm !important;
+    position: fixed !important;
+    top: 5mm !important;
+    right: 25mm !important;
+    bottom: 25mm !important;
+    left: 25mm !important;
+    z-index: 2147483647 !important;
     width: auto !important;
     min-height: auto !important;
+    overflow: visible !important;
     padding: 0 !important;
   }
 

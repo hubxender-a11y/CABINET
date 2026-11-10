@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal, flushSync } from "react-dom";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -701,11 +702,16 @@ export default function PaymentOrdersPage() {
   }
 
   function print(order: PaymentOrder, draft = false) {
-    setPrintOrder(order);
-    setPrintDraft(draft);
-    setPrintVoucherOrder(null);
-    window.requestAnimationFrame(() =>
-      window.requestAnimationFrame(() => {
+    flushSync(() => {
+      setPrintOrder(order);
+      setPrintDraft(draft);
+      setPrintVoucherOrder(null);
+    });
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        if (!document.querySelector(".payment-order-document")) {
+          setError("Le modèle de l’OP n’a pas pu être préparé pour l’impression. Réessayez.");
+          return;
+        }
         document.body.classList.add("print-payment-order-mode");
         window.addEventListener(
           "afterprint",
@@ -713,16 +719,20 @@ export default function PaymentOrdersPage() {
           { once: true },
         );
         window.print();
-      }),
-    );
+      }));
   }
 
   function printVoucher(order: PaymentOrder) {
-    setPrintVoucherOrder(order);
-    setPrintOrder(null);
-    setPrintDraft(false);
-    window.requestAnimationFrame(() =>
-      window.requestAnimationFrame(() => {
+    flushSync(() => {
+      setPrintVoucherOrder(order);
+      setPrintOrder(null);
+      setPrintDraft(false);
+    });
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        if (!document.querySelector(".cash-voucher-print")) {
+          setError("Le modèle du bon de sortie n’a pas pu être préparé pour l’impression. Réessayez.");
+          return;
+        }
         document.body.classList.add("print-payment-order-mode");
         window.addEventListener(
           "afterprint",
@@ -730,8 +740,7 @@ export default function PaymentOrdersPage() {
           { once: true },
         );
         window.print();
-      }),
-    );
+      }));
   }
 
   function previewDraft() {
@@ -1240,7 +1249,7 @@ export default function PaymentOrdersPage() {
         </section>
       </section>
 
-      {printOrder && (
+      {printOrder && createPortal(
         <article
           className="payment-order-print payment-order-document"
           aria-label="Ordre de paiement à imprimer"
@@ -1324,9 +1333,10 @@ export default function PaymentOrdersPage() {
               <p>Visa de l’Associé-Gérant</p>
             </div>
           </section>
-        </article>
+        </article>,
+        document.body,
       )}
-      {printVoucherOrder?.cashVoucher && (
+      {printVoucherOrder?.cashVoucher && createPortal(
         <article
           className="payment-order-print cash-voucher-print"
           aria-label="Bon de sortie de caisse à imprimer"
@@ -1405,7 +1415,8 @@ export default function PaymentOrdersPage() {
             Paiement enregistré · Référence OP {printVoucherOrder.orderNumber}
           </p>
           <DocumentFooter />
-        </article>
+        </article>,
+        document.body,
       )}
       {detailOrder && (
         <div

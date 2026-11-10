@@ -17,6 +17,7 @@ import {
   CancelCashVoucherDto,
   CreateCashVoucherDto,
   FundCashAccountDto,
+  RejectCashVoucherDto,
   ReconcileCashAccountDto,
 } from './cash-vouchers.dto';
 import { CashVouchersService } from './cash-vouchers.service';
@@ -60,6 +61,40 @@ export class CashVouchersController {
       dto,
       request.user!.companyId,
       request.user!.sub,
+    );
+  }
+
+  @Post(':id/approve')
+  @Roles(UserRole.COMPANY_ADMIN)
+  @ApiOperation({
+    summary: 'Approve and release a pending cash disbursement voucher',
+  })
+  approve(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.vouchers.approve(
+      id,
+      request.user!.companyId,
+      request.user!.sub,
+      request.user!.name,
+    );
+  }
+
+  @Post(':id/reject')
+  @Roles(UserRole.COMPANY_ADMIN)
+  @ApiOperation({ summary: 'Reject a pending cash disbursement voucher' })
+  reject(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: RejectCashVoucherDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.vouchers.reject(
+      id,
+      dto,
+      request.user!.companyId,
+      request.user!.sub,
+      request.user!.name,
     );
   }
 

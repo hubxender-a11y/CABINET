@@ -20,6 +20,7 @@ import {
   CancelCashVoucherDto,
   CreateCashVoucherDto,
   FundCashAccountDto,
+  RejectCashVoucherDto,
   ReconcileCashAccountDto,
 } from './cash-vouchers.dto';
 
@@ -55,9 +56,7 @@ export class CashVouchersService {
             getCashBalance(transaction, companyId, account.id),
             getPaymentOrderFundingBalance(transaction, companyId, account.id),
           ]);
-          const paymentOrderAvailable = provisionedFunds.lt(balance)
-            ? provisionedFunds
-            : balance;
+          const paymentOrderAvailable = provisionedFunds;
           return { account, balance, paymentOrderAvailable };
         }),
       );
@@ -204,9 +203,7 @@ export class CashVouchersService {
         companyId,
         account.id,
       );
-      const paymentOrderAvailable = provisionedFunds.lt(balance)
-        ? provisionedFunds
-        : balance;
+      const paymentOrderAvailable = provisionedFunds;
       await transaction.auditLog.create({
         data: {
           companyId,
@@ -275,13 +272,6 @@ export class CashVouchersService {
         dto.currency,
       );
       await lockCashAccount(transaction, cashAccount.id);
-      await assertCashAvailable(
-        transaction,
-        companyId,
-        cashAccount.id,
-        amount,
-        endOfDay(date),
-      );
       await transaction.$queryRaw`
         WITH advisory_lock AS MATERIALIZED (
           SELECT pg_advisory_xact_lock(hashtext(${`cash-voucher:${companyId}`}), CAST(${year} AS INTEGER))
@@ -315,26 +305,15 @@ export class CashVouchersService {
           cashAccountId: cashAccount.id,
           accountCode: cashAccount.code,
           reference: dto.reference?.trim() || null,
+          status: 'PENDING_APPROVAL',
         },
-      });
-
-      await createCashMovement(transaction, {
-        companyId,
-        cashAccountId: cashAccount.id,
-        date,
-        direction: 'OUT',
-        amount,
-        sourceType: 'CASH_VOUCHER',
-        sourceId: voucher.id,
-        description: `${voucher.category} · ${voucher.beneficiary} · ${voucher.reason}`,
-        reference: voucher.voucherNumber,
       });
 
       await transaction.auditLog.create({
         data: {
           companyId,
           userId,
-          action: 'CASH_VOUCHER_ISSUED',
+          action: 'CASH_VOUCHER_SUBMITTED_FOR_APPROVAL',
           details: {
             voucherId: voucher.id,
             voucherNumber,
@@ -346,6 +325,145 @@ export class CashVouchersService {
       });
 
       return voucher;
+    });
+  }
+
+  async approve(
+    id: string,
+    companyId: string,
+    userId: string,
+    managerName: string,
+  ) {
+    return this.prisma.$transaction(async (transaction) => {
+      const header = await transaction.cashVoucher.findFirst({
+        where: { id, companyId },
+        select: { id: true, cashAccountId: true, status: true },
+      });
+      if (!header) throw new NotFoundException('Bon de sortie introuvable.');
+      if (!header.cashAccountId) {
+        throw new ConflictException('Ce bon n’est lié à aucune caisse.');
+      }
+      await lockCashAccount(transaction, header.cashAccountId);
+      const voucher = await transaction.cashVoucher.findFirst({
+        where: { id, companyId },
+      });
+      if (!voucher) throw new NotFoundException('Bon de sortie introuvable.');
+      if (voucher.status !== 'PENDING_APPROVAL') {
+        throw new ConflictException(
+          'Seul un bon en attente peut être approuvé.',
+        );
+      }
+
+      const approvalDate = new Date();
+      const cashAccount = await ensureCashAccount(
+        transaction,
+        companyId,
+        voucher.currency as 'CDF' | 'USD',
+      );
+      if (cashAccount.id !== voucher.cashAccountId) {
+        throw new ConflictException('La caisse liée au bon a été modifiée.');
+      }
+      await assertPaymentOrderFundingAvailable(
+        transaction,
+        companyId,
+        cashAccount.id,
+        voucher.amount,
+        endOfDay(approvalDate),
+      );
+      await assertCashAvailable(
+        transaction,
+        companyId,
+        cashAccount.id,
+        voucher.amount,
+        endOfDay(approvalDate),
+      );
+
+      const approved = await transaction.cashVoucher.updateMany({
+        where: { id, companyId, status: 'PENDING_APPROVAL' },
+        data: {
+          status: 'ISSUED',
+          date: approvalDate,
+          managerApprovalName: managerName,
+          managerApprovalBy: userId,
+          managerApprovedAt: approvalDate,
+        },
+      });
+      if (approved.count !== 1) {
+        throw new ConflictException(
+          'Ce bon a été traité entre-temps. Actualisez le registre.',
+        );
+      }
+
+      await createCashMovement(transaction, {
+        companyId,
+        cashAccountId: cashAccount.id,
+        date: approvalDate,
+        direction: 'OUT',
+        amount: voucher.amount,
+        sourceType: 'CASH_VOUCHER',
+        sourceId: voucher.id,
+        description: `${voucher.category} · ${voucher.beneficiary} · ${voucher.reason}`,
+        reference: voucher.voucherNumber,
+      });
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'CASH_VOUCHER_APPROVED_AND_RELEASED',
+          details: {
+            voucherId: voucher.id,
+            voucherNumber: voucher.voucherNumber,
+            amount: voucher.amount.toString(),
+            currency: voucher.currency,
+          },
+        },
+      });
+      return transaction.cashVoucher.findUniqueOrThrow({ where: { id } });
+    });
+  }
+
+  async reject(
+    id: string,
+    dto: RejectCashVoucherDto,
+    companyId: string,
+    userId: string,
+    managerName: string,
+  ) {
+    const reason = dto.reason.trim();
+    if (reason.length < 4) {
+      throw new BadRequestException('Indiquez le motif du rejet.');
+    }
+    return this.prisma.$transaction(async (transaction) => {
+      const rejected = await transaction.cashVoucher.updateMany({
+        where: { id, companyId, status: 'PENDING_APPROVAL' },
+        data: {
+          status: 'REJECTED',
+          rejectionReason: reason,
+          managerApprovalName: managerName,
+          managerApprovalBy: userId,
+          managerRejectedAt: new Date(),
+        },
+      });
+      if (!rejected.count) {
+        const existing = await transaction.cashVoucher.findFirst({
+          where: { id, companyId },
+          select: { id: true },
+        });
+        if (!existing)
+          throw new NotFoundException('Bon de sortie introuvable.');
+        throw new ConflictException(
+          'Seul un bon en attente peut être rejeté.',
+        );
+      }
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'CASH_VOUCHER_REJECTED',
+          details: { voucherId: id, reason },
+        },
+      });
+      return transaction.cashVoucher.findUniqueOrThrow({ where: { id } });
     });
   }
 
@@ -390,6 +508,11 @@ export class CashVouchersService {
       }
       if (voucher.status === 'CANCELLED') {
         throw new ConflictException('Ce bon a déjà été annulé.');
+      }
+      if (voucher.status !== 'ISSUED') {
+        throw new ConflictException(
+          'Seul un bon approuvé peut être annulé. Rejetez un bon en attente.',
+        );
       }
 
       const cancellation = await transaction.cashVoucher.updateMany({

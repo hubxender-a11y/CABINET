@@ -599,9 +599,14 @@ model CashVoucher {
   cashAccountId      String?       @db.Uuid
   accountCode        String?
   reference          String?
-  status             String        @default("ISSUED")
+  status             String        @default("PENDING_APPROVAL")
   cancellationReason String?
   cancelledAt        DateTime?
+  rejectionReason    String?
+  managerApprovalName String?
+  managerApprovalBy  String?       @db.Uuid
+  managerApprovedAt  DateTime?
+  managerRejectedAt  DateTime?
   createdAt          DateTime      @default(now())
   company            Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   cashAccount        CashAccount?  @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)

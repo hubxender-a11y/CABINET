@@ -472,6 +472,10 @@ export class PaymentOrdersService {
           cashAccountId: cashAccount.id,
           accountCode: cashAccount.code,
           reference: header.orderNumber,
+          status: 'ISSUED',
+          managerApprovalName: header.managerVisaName,
+          managerApprovalBy: header.managerVisaBy,
+          managerApprovedAt: header.managerVisaAt,
         },
       });
       const updated = await transaction.paymentOrder.updateMany({
