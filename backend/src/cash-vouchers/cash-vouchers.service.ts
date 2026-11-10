@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import {
   assertCashAvailable,
+  assertPaymentOrderFundingAvailable,
   createCashMovement,
   endOfDay,
   ensureCashAccount,
