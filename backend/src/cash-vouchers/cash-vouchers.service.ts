@@ -12,6 +12,7 @@ import {
   createCashMovement,
   endOfDay,
   ensureCashAccount,
+  getPaymentOrderFundingBalance,
   getCashBalance,
   lockCashAccount,
 } from './cash-ledger';
@@ -49,10 +50,16 @@ export class CashVouchersService {
         orderBy: { currency: 'asc' },
       });
       const balances = await Promise.all(
-        accounts.map(async (account) => ({
-          account,
-          balance: await getCashBalance(transaction, companyId, account.id),
-        })),
+        accounts.map(async (account) => {
+          const [balance, provisionedFunds] = await Promise.all([
+            getCashBalance(transaction, companyId, account.id),
+            getPaymentOrderFundingBalance(transaction, companyId, account.id),
+          ]);
+          const paymentOrderAvailable = provisionedFunds.lt(balance)
+            ? provisionedFunds
+            : balance;
+          return { account, balance, paymentOrderAvailable };
+        }),
       );
       const movements = await transaction.cashMovement.findMany({
         where: { companyId },
@@ -63,9 +70,10 @@ export class CashVouchersService {
         take: 150,
       });
       return {
-        accounts: balances.map(({ account, balance }) => ({
+        accounts: balances.map(({ account, balance, paymentOrderAvailable }) => ({
           ...account,
           balance: balance.toString(),
+          paymentOrderAvailable: paymentOrderAvailable.toString(),
         })),
         movements: movements.map((movement) => ({
           ...movement,
@@ -149,10 +157,10 @@ export class CashVouchersService {
     userId: string,
   ) {
     const amount = new Prisma.Decimal(dto.amount);
-    const source = dto.source.trim();
-    if (amount.lte(0) || !source)
+    const source = 'Associé-Gérant';
+    if (amount.lte(0) || dto.source !== 'ASSOCIE_GERANT')
       throw new BadRequestException(
-        'Indiquez un montant positif et l’origine des fonds.',
+        'L’approvisionnement réservé aux OP doit provenir de l’Associé-Gérant.',
       );
     if (dto.currency === 'CDF' && !amount.isInteger())
       throw new BadRequestException(
@@ -191,6 +199,14 @@ export class CashVouchersService {
         companyId,
         account.id,
       );
+      const provisionedFunds = await getPaymentOrderFundingBalance(
+        transaction,
+        companyId,
+        account.id,
+      );
+      const paymentOrderAvailable = provisionedFunds.lt(balance)
+        ? provisionedFunds
+        : balance;
       await transaction.auditLog.create({
         data: {
           companyId,
@@ -209,6 +225,7 @@ export class CashVouchersService {
       return {
         movement: { ...movement, amount: movement.amount.toString() },
         balance: balance.toString(),
+        paymentOrderAvailable: paymentOrderAvailable.toString(),
       };
     });
   }

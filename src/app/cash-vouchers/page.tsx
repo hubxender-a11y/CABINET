@@ -44,6 +44,7 @@ type CashAccount = {
   currency: Currency;
   isActive: boolean;
   balance: string;
+  paymentOrderAvailable: string;
 };
 type CashMovement = {
   id: string;
@@ -177,7 +178,6 @@ export default function CashVouchersPage() {
   const [fundCurrency, setFundCurrency] = useState<Currency>("USD");
   const [fundDate, setFundDate] = useState("");
   const [fundAmount, setFundAmount] = useState("");
-  const [fundSource, setFundSource] = useState("");
   const [fundReference, setFundReference] = useState("");
   const [fundSaving, setFundSaving] = useState(false);
 
@@ -326,28 +326,23 @@ export default function CashVouchersPage() {
       setError("Saisissez un montant positif pour l’entrée en caisse.");
       return;
     }
-    if (!fundSource.trim()) {
-      setError("Précisez l’origine des fonds pour la trace comptable.");
-      return;
-    }
     setFundSaving(true);
     try {
-      const result = await apiRequest<{ balance: string }>("/cash-vouchers/funding", {
+      const result = await apiRequest<{ paymentOrderAvailable: string }>("/cash-vouchers/funding", {
         method: "POST",
         body: JSON.stringify({
           date: fundDate,
           amount: fundAmount,
           currency: fundCurrency,
-          source: fundSource.trim(),
+          source: "ASSOCIE_GERANT",
           reference: fundReference.trim() || undefined,
         }),
       });
       await refreshTreasury();
       setSuccess(
-        `Entrée enregistrée. Nouveau solde ${formatMoney(Number(result.balance), fundCurrency)}.`,
+        `Approvisionnement enregistré. Fonds disponibles pour les OP : ${formatMoney(Number(result.paymentOrderAvailable), fundCurrency)}.`,
       );
       setFundAmount("");
-      setFundSource("");
       setFundReference("");
     } catch (caught) {
       setError(
@@ -474,7 +469,7 @@ export default function CashVouchersPage() {
         )}
         <p>
           {databaseConnected
-            ? "Les bons, encaissements et dépenses en espèces alimentent le même livre de caisse. Les sorties sont contrôlées par rapport au solde et chaque rapprochement est tracé."
+            ? "Le livre suit tous les mouvements physiques. Pour payer une OP, seul le fonds alimenté par l’Associé-Gérant est retenu; les paiements clients restent exclus de ce disponible. Aucun journal comptable n’est généré automatiquement par l’OP."
             : "Base indisponible : les bons ne peuvent pas être enregistrés."}
         </p>
       </div>
@@ -504,6 +499,9 @@ export default function CashVouchersPage() {
               <p className="mt-1 text-xs text-slate-500">
                 {accounts.find((account) => account.currency === code)?.name ??
                   "Caisse"}
+              </p>
+              <p className="mt-2 text-xs font-semibold text-blue-800">
+                Disponible pour les OP : {formatMoney(Number(accounts.find((account) => account.currency === code)?.paymentOrderAvailable ?? 0), code)}
               </p>
             </div>
             {accounts.find((account) => account.currency === code) &&
@@ -539,15 +537,15 @@ export default function CashVouchersPage() {
           >
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-600">
-                Entrée de trésorerie
+                Approvisionnement · Associé-Gérant
               </p>
               <h2 className="mt-1 text-lg font-semibold text-slate-900">
-                {Number(accounts.find((account) => account.currency === fundCurrency)?.balance ?? 0) === 0
-                  ? "Enregistrer le fonds de départ"
-                  : "Approvisionner la caisse"}
+                {Number(accounts.find((account) => account.currency === fundCurrency)?.paymentOrderAvailable ?? 0) === 0
+                  ? "Enregistrer le fonds de départ des OP"
+                  : "Réapprovisionner les fonds des OP"}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                À utiliser uniquement quand l’argent a réellement été remis à la caisse.
+                Enregistrez uniquement les fonds réellement remis par l’Associé-Gérant. Ils sont suivis séparément des règlements clients et n’engendrent pas d’écriture comptable automatique.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -588,17 +586,10 @@ export default function CashVouchersPage() {
                   className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
                 />
               </label>
-              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-                Origine des fonds
-                <input
-                  required
-                  maxLength={120}
-                  value={fundSource}
-                  onChange={(event) => setFundSource(event.target.value)}
-                  placeholder="Ex. Fonds de démarrage remis à la caisse"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
-                />
-              </label>
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm text-slate-700">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-blue-800">Origine affectée</span>
+                <span className="mt-1 block">Approvisionnement remis par l’Associé-Gérant</span>
+              </div>
             </div>
             <label className="block space-y-1.5 text-sm font-medium text-slate-700">
               Référence (facultative)
@@ -616,7 +607,7 @@ export default function CashVouchersPage() {
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Wallet className="h-4 w-4" />
-              {fundSaving ? "Enregistrement…" : "Enregistrer l’entrée en caisse"}
+              {fundSaving ? "Enregistrement…" : "Enregistrer l’approvisionnement"}
             </button>
           </form>
 

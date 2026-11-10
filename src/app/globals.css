@@ -6410,22 +6410,26 @@ summary:focus-visible {
 
 @page payment-order-document {
   size: A4 portrait;
+  margin: 0;
+}
+
+@page payment-voucher-document {
+  size: A4 portrait;
   margin: 12mm;
 }
 
 .payment-order-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-top: 1.5rem;
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+  margin: 0.15rem 0 1rem;
   border-bottom: 3px solid #edaa16;
-  padding-bottom: 0.8rem;
+  padding: 0 0 0.65rem;
+  text-align: center;
 }
 
 .payment-order-overline,
-.payment-order-number span,
-.payment-order-fields span {
+.payment-order-fields th {
   color: #52647a;
   font-size: 0.67rem;
   font-weight: 700;
@@ -6434,96 +6438,124 @@ summary:focus-visible {
 }
 
 .payment-order-heading h2 {
-  margin-top: 0.35rem;
+  margin: 0.15rem 0 0;
   color: #073c6d;
-  font-size: 1.3rem;
+  font-size: 1.2rem;
   font-weight: 800;
+  letter-spacing: 0.035em;
 }
 
 .payment-order-number {
-  display: grid;
-  text-align: right;
-}
-
-.payment-order-number strong {
+  margin: 0;
   color: #073c6d;
-  font-size: 1.15rem;
+  font-size: 0.95rem;
+  font-weight: 800;
 }
 
 .payment-order-date {
-  margin: 0.6rem 0 1.2rem;
+  margin: 0.35rem 0 0.6rem;
   color: #334155;
   font-size: 0.78rem;
   text-align: right;
 }
 
 .payment-order-fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.95rem 1.3rem;
+  margin-top: 0.75rem;
+  break-inside: avoid;
 }
 
-.payment-order-fields > div {
-  display: grid;
-  gap: 0.25rem;
-  min-width: 0;
-  border-bottom: 1px solid #94a3b8;
-  padding-bottom: 0.45rem;
+.payment-order-fields table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
 }
 
-.payment-order-fields strong {
+.payment-order-fields th,
+.payment-order-fields td {
+  border: 1px solid #8aa0b5;
+  padding: 0.48rem 0.6rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.payment-order-fields th {
+  width: 37%;
+  background: #eef4f9;
+  color: #173d60;
+  font-size: 0.64rem;
+}
+
+.payment-order-fields td {
   color: #102d4c;
-  font-size: 0.88rem;
+  font-size: 0.8rem;
+  font-weight: 650;
   overflow-wrap: anywhere;
 }
 
-.payment-order-fields .payment-order-wide {
-  grid-column: 1 / -1;
-}
-
 .payment-order-budget {
-  margin-top: 1.4rem;
-}
-
-.payment-order-budget h3,
-.payment-order-visas h3 {
-  margin-bottom: 0.5rem;
-  color: #073c6d;
-  font-size: 0.85rem;
-  font-weight: 800;
+  margin-top: 1rem;
+  break-inside: avoid;
 }
 
 .payment-order-budget table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.68rem;
-}
-
-.payment-order-budget th {
-  background: #073c6d;
-  color: white;
-  font-size: 0.62rem;
-  text-align: left;
+  table-layout: fixed;
+  font-size: 0.61rem;
 }
 
 .payment-order-budget th,
 .payment-order-budget td {
   border: 1px solid #7892aa;
-  padding: 0.45rem 0.35rem;
+  padding: 0.42rem 0.27rem;
+  text-align: center;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
 }
 
-.payment-order-budget p,
-.payment-order-status {
-  margin-top: 0.5rem;
-  color: #52647a;
-  font-size: 0.65rem;
+.payment-order-budget thead th {
+  background: #073c6d;
+  color: white;
+  font-size: 0.68rem;
+  letter-spacing: 0.035em;
+}
+
+.payment-order-budget tbody th {
+  background: #eef4f9;
+  color: #173d60;
+  font-size: 0.58rem;
+  line-height: 1.25;
+}
+
+.payment-order-budget tbody td {
+  color: #102d4c;
+  font-size: 0.62rem;
+  font-weight: 650;
+}
+
+.payment-order-budget .payment-order-account-value,
+.payment-order-budget .payment-order-budget-account {
+  text-align: left;
+  padding-left: 0.4rem;
+}
+
+.payment-order-visas h3 {
+  margin: 0;
+  background: #073c6d;
+  padding: 0.35rem 0.5rem;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: center;
 }
 
 .payment-order-visas {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-top: 1.8rem;
+  gap: 0;
+  margin-top: 1rem;
+  border: 1px solid #7892aa;
   break-inside: avoid;
 }
 
@@ -6531,14 +6563,19 @@ summary:focus-visible {
   min-width: 0;
 }
 
+.payment-order-visas > div + div {
+  border-left: 1px solid #7892aa;
+}
+
 .payment-order-signature-line {
   display: flex;
-  min-height: 3.5rem;
+  min-height: 3.15rem;
   align-items: flex-end;
-  justify-content: center;
+  justify-content: flex-end;
   flex-direction: column;
+  margin: 0 0.65rem;
   border-bottom: 1px solid #64748b;
-  padding: 0.4rem;
+  padding: 0.35rem 0.2rem;
   color: #64748b;
   font-size: 0.68rem;
   text-align: center;
@@ -6553,7 +6590,197 @@ summary:focus-visible {
   font-size: 0.62rem;
 }
 
+.payment-order-visas > div > p {
+  margin: 0.35rem 0.5rem 0.45rem;
+  color: #334155;
+  font-size: 0.68rem;
+  font-weight: 650;
+  text-align: center;
+}
+
 .payment-order-print .document-footer {
+  margin-top: auto;
+  padding-top: 0.6rem;
+}
+
+.payment-order-document {
+  font-family: "Book Antiqua", Georgia, serif;
+}
+
+.payment-order-document .payment-order-date {
+  margin: 0 0 0.55rem;
+  color: #111827;
+  font-size: 12pt;
+  font-weight: 700;
+  text-align: left;
+}
+
+.payment-order-document .payment-order-heading {
+  display: block;
+  margin: 0 0 0.8rem;
+  border: 0;
+  padding: 0;
+  text-align: center;
+}
+
+.payment-order-document .payment-order-heading h2 {
+  margin: 0;
+  color: #111827;
+  font-family: "Book Antiqua", Georgia, serif;
+  font-size: 12pt;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.payment-order-document .payment-order-draft-mark {
+  margin: 0.25rem 0 0;
+  color: #9a3412;
+  font-size: 8pt;
+  font-weight: 700;
+  text-align: center;
+}
+
+.payment-order-document .payment-order-fields th,
+.payment-order-document .payment-order-fields td {
+  border-color: #596579;
+  padding: 0.42rem 0.55rem;
+  font-family: "Book Antiqua", Georgia, serif;
+  font-size: 9pt;
+}
+
+.payment-order-document .payment-order-fields th {
+  width: 38%;
+  background: #f7f8fa;
+  color: #111827;
+  font-size: 8.5pt;
+  font-weight: 700;
+}
+
+.payment-order-document .payment-order-fields td {
+  color: #111827;
+  font-weight: 400;
+}
+
+.payment-order-document .payment-order-budget th,
+.payment-order-document .payment-order-budget td {
+  border-color: #596579;
+  font-family: "Book Antiqua", Georgia, serif;
+  font-size: 7.5pt;
+}
+
+.payment-order-document .payment-order-budget thead th,
+.payment-order-document .payment-order-budget tbody th {
+  background: #f7f8fa;
+  color: #111827;
+  font-weight: 700;
+}
+
+.payment-order-document .payment-order-budget tbody td {
+  color: #111827;
+  font-weight: 400;
+}
+
+.payment-order-document .payment-order-visas h3 {
+  background: #f7f8fa;
+  color: #111827;
+}
+
+.payment-order-document .payment-order-visas > div > p {
+  font-family: "Book Antiqua", Georgia, serif;
+  font-size: 9pt;
+}
+
+.cash-voucher-print .payment-order-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-bottom: 0.8rem;
+  text-align: left;
+}
+
+.cash-voucher-print .payment-order-overline,
+.cash-voucher-print .payment-order-number span,
+.cash-voucher-print .payment-order-fields span {
+  color: #52647a;
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cash-voucher-print .payment-order-heading h2 {
+  margin-top: 0.35rem;
+  color: #073c6d;
+  font-size: 1.3rem;
+}
+
+.cash-voucher-print .payment-order-number {
+  display: grid;
+  text-align: right;
+}
+
+.cash-voucher-print .payment-order-number strong {
+  color: #073c6d;
+  font-size: 1.15rem;
+}
+
+.cash-voucher-print .payment-order-date {
+  margin: 0.6rem 0 1.2rem;
+}
+
+.cash-voucher-print .payment-order-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.95rem 1.3rem;
+}
+
+.cash-voucher-print .payment-order-fields > div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  border-bottom: 1px solid #94a3b8;
+  padding-bottom: 0.45rem;
+}
+
+.cash-voucher-print .payment-order-fields strong {
+  color: #102d4c;
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.cash-voucher-print .payment-order-fields .payment-order-wide {
+  grid-column: 1 / -1;
+}
+
+.cash-voucher-print .payment-order-visas h3 {
+  margin-bottom: 0.5rem;
+  background: transparent;
+  padding: 0;
+  color: #073c6d;
+  font-size: 0.85rem;
+  letter-spacing: normal;
+}
+
+.cash-voucher-print .payment-order-visas {
+  gap: 1rem;
+  margin-top: 1.8rem;
+  border: 0;
+}
+
+.cash-voucher-print .payment-order-visas > div + div {
+  border-left: 0;
+}
+
+.cash-voucher-print .payment-order-signature-line {
+  min-height: 3.5rem;
+  justify-content: center;
+  margin: 0;
+  padding: 0.4rem;
+}
+
+.cash-voucher-print .document-footer {
   margin-top: 1.3rem;
 }
 
@@ -6573,7 +6800,7 @@ summary:focus-visible {
   }
 
   body.print-payment-order-mode .payment-order-print {
-    page: payment-order-document;
+    page: payment-voucher-document;
     display: flex !important;
     position: fixed !important;
     inset: 0 !important;
@@ -6599,27 +6826,58 @@ summary:focus-visible {
   }
 
   .payment-order-print .payment-order-heading {
-    margin-top: 2mm;
-    padding-bottom: 3mm;
+    margin: 0 0 3mm;
+    padding-bottom: 2.5mm;
   }
 
   .payment-order-print .payment-order-fields {
-    gap: 3mm 8mm;
+    margin-top: 3mm;
+  }
+
+  .payment-order-print .payment-order-fields th,
+  .payment-order-print .payment-order-fields td {
+    padding: 2.2mm 2.8mm;
   }
 
   .payment-order-print .payment-order-budget {
-    margin-top: 7mm;
+    margin-top: 4mm;
   }
 
   .payment-order-print .payment-order-visas {
-    gap: 10mm;
-    margin-top: 10mm;
+    margin-top: 4mm;
   }
 
   .payment-order-print .document-footer {
     margin-top: auto;
-    padding: 4mm 3mm;
+    padding: 3mm 2mm;
     font-size: 7pt;
+  }
+
+  body.print-payment-order-mode .payment-order-document {
+    page: payment-order-document;
+    inset: 5mm 25mm 25mm !important;
+    width: auto !important;
+    min-height: auto !important;
+    padding: 0 !important;
+  }
+
+  .cash-voucher-print .payment-order-heading {
+    margin-top: 2mm;
+    padding-bottom: 3mm;
+  }
+
+  .cash-voucher-print .payment-order-fields {
+    gap: 3mm 8mm;
+  }
+
+  .cash-voucher-print .payment-order-visas {
+    gap: 10mm;
+    margin-top: 10mm;
+  }
+
+  .cash-voucher-print .document-footer {
+    margin-top: auto;
+    padding: 4mm 3mm;
   }
 }
 

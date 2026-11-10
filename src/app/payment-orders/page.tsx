@@ -83,7 +83,12 @@ type AccountingRule = {
   accountName: string;
   budgetAccount?: string | null;
 };
-type CashAccountSummary = { currency: Currency; balance: string; name: string };
+type CashAccountSummary = {
+  currency: Currency;
+  balance: string;
+  paymentOrderAvailable: string;
+  name: string;
+};
 type CurrentUser = { id: string; role: string; name: string };
 
 const financeRoles = ["COMPANY_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT"];
@@ -195,6 +200,31 @@ function amountToWords(value: string, currency: Currency) {
   return `${numberWords(amount)} ${unit}${Math.floor(amount) > 1 ? "s" : ""}${minor ? ` et ${numberWords(minor)} centime${minor > 1 ? "s" : ""}` : ""}`.toLocaleUpperCase(
     "fr-CD",
   );
+}
+
+function printableOrderNumber(value: string) {
+  if (/\/BROUILLON$/i.test(value)) return "BROUILLON";
+  const match = /^OP\/(\d{4})\/(\d+)$/.exec(value);
+  return match ? `${match[2]}/${match[1]}` : value.replace(/^OP\//, "");
+}
+
+function printableOrderDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : formatDate(value);
+}
+
+function printableMoney(value: string, currency: Currency) {
+  const maximumFractionDigits = currency === "USD" ? 2 : 0;
+  return `${currency} ${new Intl.NumberFormat("fr-CD", {
+    maximumFractionDigits,
+  }).format(Number(value))}`;
+}
+
+function printableAmountInWords(value: string, currency: Currency) {
+  const words = value
+    .replace(/\s+(?:DOLLARS?\s+AMÉRICAINS?|FRANCS?\s+CONGOLAIS)(?=\s|$)/i, "")
+    .trim();
+  return words ? `${currency} ${words}` : "À compléter";
 }
 
 function statusClass(status: Status) {
@@ -428,8 +458,8 @@ export default function PaymentOrdersPage() {
     .reduce((sum, item) => sum + Number(item.amount), 0);
   const availableBefore = initialForecast - paidBudget;
   const budgetLeft = availableBefore - outstandingBudget - Number(amount || 0);
-  const currentCash = Number(
-    cashAccounts.find((account) => account.currency === currency)?.balance ?? 0,
+  const paymentOrderFunding = Number(
+    cashAccounts.find((account) => account.currency === currency)?.paymentOrderAvailable ?? 0,
   );
   const selectedRule = accountingRules.find(
     (rule) => normalizeCategory(rule.category) === normalizeCategory(expenseCategory),
@@ -948,9 +978,9 @@ export default function PaymentOrdersPage() {
                 <div className="flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4">
                   <CircleDollarSign className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
                   <div className="min-w-0 flex-1">
-                    <strong className="text-sm text-slate-900">Trésorerie réelle · {currency}</strong>
-                    <p className="mt-1 text-sm text-slate-700">{formatMoney(currentCash, currency)} en caisse. Le visa approuve le budget; le paiement final vérifie séparément que les espèces sont disponibles.</p>
-                    {Number(amount) > currentCash && <p className="mt-2 text-xs font-semibold text-amber-800">La caisse est inférieure au montant demandé. L’OP peut suivre son circuit de visa, mais il faudra alimenter la caisse avant le paiement.</p>}
+                    <strong className="text-sm text-slate-900">Approvisionnement disponible pour les OP · {currency}</strong>
+                    <p className="mt-1 text-sm text-slate-700">{formatMoney(paymentOrderFunding, currency)} provenant des versements de l’Associé-Gérant. Les règlements des factures clients ne sont pas inclus dans ce fonds.</p>
+                    {Number(amount) > paymentOrderFunding && <p className="mt-2 text-xs font-semibold text-amber-800">Approvisionnement insuffisant pour ce paiement. L’OP peut suivre son circuit de visa, mais l’Associé-Gérant devra réapprovisionner la caisse avant le règlement.</p>}
                   </div>
                   <Link href="/cash-vouchers" className="shrink-0 text-xs font-bold text-blue-800 underline">Gérer la caisse</Link>
                 </div>
@@ -1212,69 +1242,53 @@ export default function PaymentOrdersPage() {
 
       {printOrder && (
         <article
-          className="payment-order-print"
+          className="payment-order-print payment-order-document"
           aria-label="Ordre de paiement à imprimer"
         >
-          <DocumentLetterhead />
-          <div className="payment-order-heading">
-            <div>
-              <p className="payment-order-overline">
-                {printDraft ? "APERÇU NON VALIDÉ · BROUILLON" : "Pièce de trésorerie · Autorisation préalable"}
-              </p>
-              <h2>ORDONNANCE DE PAIEMENT</h2>
-            </div>
-            <div className="payment-order-number">
-              <span>N° d’ordre</span>
-              <strong>{printOrder.orderNumber.replace(/^OP\//, "")}</strong>
-            </div>
-          </div>
-          <p className="payment-order-date">
-            Kinshasa, le{" "}
-            {formatDate(printOrder.date, {
-              day: "2-digit",
-              month: "long",
-              year: "numeric",
-            })}
-          </p>
+          <p className="payment-order-date">Kinshasa le {printableOrderDate(printOrder.date)}</p>
+          <header className="payment-order-heading">
+            <h2>ORDONNANCE DE PAYEMENT N° {printableOrderNumber(printOrder.orderNumber)}</h2>
+            {printDraft && <p className="payment-order-draft-mark">BROUILLON · NON ENREGISTRÉ</p>}
+          </header>
           <div className="payment-order-fields">
-            <div>
-              <span>Service demandeur</span>
-              <strong>{printOrder.requestingService}</strong>
-            </div>
-            <div>
-              <span>Bénéficiaire</span>
-              <strong>{printOrder.beneficiary}</strong>
-            </div>
-            <div className="payment-order-wide">
-              <span>Motif de la demande</span>
-              <strong>{printOrder.reason}</strong>
-            </div>
-            <div>
-              <span>Montant sollicité (en chiffres)</span>
-              <strong>
-                {formatMoney(printOrder.amount, printOrder.currency)}
-              </strong>
-            </div>
-            <div className="payment-order-wide">
-              <span>Montant sollicité (en lettres)</span>
-              <strong>{printOrder.amountInWords}</strong>
-            </div>
-            <div>
-              <span>Imputation comptable</span>
-              <strong>{printOrder.accountingAllocation}</strong>
-            </div>
-            {printOrder.expenseCategory && <div><span>Nature de dépense</span><strong>{printOrder.expenseCategory}</strong></div>}
+            <table>
+              <tbody>
+                <tr><th>SERVICE DEMANDEUR</th><td>{printOrder.requestingService}</td></tr>
+                <tr><th>MONTANT SOLLICITÉ (EN CHIFFRE)</th><td>{printableMoney(printOrder.amount, printOrder.currency)}</td></tr>
+                <tr><th>MONTANT SOLLICITÉ (EN LETTRE)</th><td>{printableAmountInWords(printOrder.amountInWords, printOrder.currency)}</td></tr>
+                <tr><th>MOTIF DE LA DEMANDE</th><td>{printOrder.reason}</td></tr>
+                <tr><th>BENEFICIAIRE</th><td>{printOrder.beneficiary}</td></tr>
+              </tbody>
+            </table>
           </div>
           <section className="payment-order-budget">
-            <h3>Contrôle budgétaire · {new Date(printOrder.date).getUTCFullYear()}</h3>
-            <table><thead><tr><th>COMPTE / LIGNE</th><th>PRÉVISION INITIALE</th><th>SOLDE DISPO (1)</th><th>ENCOURS</th><th>SOLDE DISPO (2)</th></tr></thead>
-              <tbody><tr><td>{printOrder.budgetAccount || "À définir"}</td><td>{printOrder.initialForecast ? formatMoney(printOrder.initialForecast, printOrder.currency) : "À renseigner"}</td><td>{printOrder.availableBefore ? formatMoney(printOrder.availableBefore, printOrder.currency) : "À calculer"}</td><td>{printOrder.outstanding ? formatMoney(Number(printOrder.outstanding) + (printDraft ? Number(printOrder.amount) : 0), printOrder.currency) : "À calculer"}</td><td>{printOrder.availableAfter ? formatMoney(printOrder.availableAfter, printOrder.currency) : "À calculer"}</td></tr></tbody>
+            <table>
+              <colgroup>
+                <col style={{ width: "18%" }} /><col style={{ width: "25.4%" }} />
+                <col style={{ width: "13.9%" }} /><col style={{ width: "14.3%" }} />
+                <col style={{ width: "12.6%" }} /><col style={{ width: "15.8%" }} />
+              </colgroup>
+              <thead><tr><th colSpan={2}>IMPUTATION COMPTABLE</th><th colSpan={4}>CONTROLE BUDGETAIRE</th></tr></thead>
+              <tbody>
+                <tr>
+                  <th rowSpan={3}>COMPTE</th>
+                  <td className="payment-order-account-value" rowSpan={3}>{printOrder.accountingAllocation || "À confirmer par le comptable"}</td>
+                  <th>COMPTE</th>
+                  <td className="payment-order-budget-account" colSpan={3}>{printOrder.budgetAccount || "À définir par les Finances"}</td>
+                </tr>
+                <tr><th>PREVISION INITIALE</th><th>SOLDE DISPO (1)</th><th>ENCOURS</th><th>SOLDE DISPO (2)</th></tr>
+                <tr>
+                  <td>{printOrder.initialForecast.trim() ? printableMoney(printOrder.initialForecast, printOrder.currency) : "À définir"}</td>
+                  <td>{printOrder.availableBefore.trim() ? printableMoney(printOrder.availableBefore, printOrder.currency) : "À calculer"}</td>
+                  <td>{printOrder.outstanding.trim() ? printableMoney(String(Number(printOrder.outstanding) + Number(printOrder.amount)), printOrder.currency) : "À calculer"}</td>
+                  <td>{printOrder.availableAfter.trim() ? printableMoney(printOrder.availableAfter, printOrder.currency) : "À calculer"}</td>
+                </tr>
+              </tbody>
             </table>
-            <p>Solde dispo (1) = prévision initiale − paiements effectués. Solde dispo (2) = solde dispo (1) − encours, y compris la présente demande.</p>
           </section>
           <section className="payment-order-visas">
             <div>
-              <h3>Visa de la chargée des Finances</h3>
+              <h3>VISA</h3>
               <div className="payment-order-signature-line">
                 {printOrder.financeVisaName ? (
                   <>
@@ -1286,12 +1300,13 @@ export default function PaymentOrdersPage() {
                     </span>
                   </>
                 ) : (
-                  <span>Nom, date et signature</span>
+                  <span />
                 )}
               </div>
+              <p>Visa chargée des Finances</p>
             </div>
             <div>
-              <h3>Visa de l’Associé-Gérant</h3>
+              <h3>VISA</h3>
               <div className="payment-order-signature-line">
                 {printOrder.managerVisaName ? (
                   <>
@@ -1303,25 +1318,17 @@ export default function PaymentOrdersPage() {
                     </span>
                   </>
                 ) : (
-                  <span>Nom, date et signature</span>
+                  <span />
                 )}
               </div>
+              <p>Visa de l’Associé-Gérant</p>
             </div>
           </section>
-          <p
-            className={`payment-order-status payment-order-status-${printOrder.status.toLowerCase()}`}
-          >
-            Statut : {statusLabel[printOrder.status]}
-            {printOrder.rejectionReason
-              ? ` · Motif : ${printOrder.rejectionReason}`
-              : ""}
-          </p>
-          <DocumentFooter />
         </article>
       )}
       {printVoucherOrder?.cashVoucher && (
         <article
-          className="payment-order-print"
+          className="payment-order-print cash-voucher-print"
           aria-label="Bon de sortie de caisse à imprimer"
         >
           <DocumentLetterhead />

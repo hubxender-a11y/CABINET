@@ -8,6 +8,7 @@ import { PaymentOrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
   assertCashAvailable,
+  assertPaymentOrderFundingAvailable,
   createCashMovement,
   endOfDay,
   ensureCashAccount,
@@ -426,6 +427,13 @@ export class PaymentOrdersService {
         header.currency as 'CDF' | 'USD',
       );
       await lockCashAccount(transaction, cashAccount.id);
+      await assertPaymentOrderFundingAvailable(
+        transaction,
+        companyId,
+        cashAccount.id,
+        header.amount,
+        endOfDay(date),
+      );
       await assertCashAvailable(
         transaction,
         companyId,

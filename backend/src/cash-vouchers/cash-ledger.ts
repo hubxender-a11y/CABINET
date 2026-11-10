@@ -51,6 +51,30 @@ export async function getCashBalance(
   }, new Prisma.Decimal(0));
 }
 
+export async function getPaymentOrderFundingBalance(
+  transaction: CashTransaction,
+  companyId: string,
+  cashAccountId: string,
+  throughDate?: Date,
+) {
+  const rows = await transaction.cashMovement.groupBy({
+    by: ['direction', 'sourceType'],
+    where: {
+      companyId,
+      cashAccountId,
+      sourceType: {
+        in: ['CASH_FUNDING', 'CASH_VOUCHER', 'CASH_VOUCHER_REVERSAL'],
+      },
+      ...(throughDate ? { date: { lte: throughDate } } : {}),
+    },
+    _sum: { amount: true },
+  });
+  return rows.reduce((balance, row) => {
+    const amount = row._sum.amount ?? new Prisma.Decimal(0);
+    return row.direction === 'IN' ? balance.add(amount) : balance.sub(amount);
+  }, new Prisma.Decimal(0));
+}
+
 export async function assertCashAvailable(
   transaction: CashTransaction,
   companyId: string,
@@ -67,6 +91,27 @@ export async function assertCashAvailable(
   if (balance.lt(amount)) {
     throw new BadRequestException(
       `Solde insuffisant dans cette caisse à la date choisie (${balance.toFixed(2)} disponibles). Enregistrez d’abord le solde physique ou un encaissement.`,
+    );
+  }
+  return balance;
+}
+
+export async function assertPaymentOrderFundingAvailable(
+  transaction: CashTransaction,
+  companyId: string,
+  cashAccountId: string,
+  amount: Prisma.Decimal,
+  throughDate: Date,
+) {
+  const balance = await getPaymentOrderFundingBalance(
+    transaction,
+    companyId,
+    cashAccountId,
+    throughDate,
+  );
+  if (balance.lt(amount)) {
+    throw new BadRequestException(
+      `Approvisionnement de l’Associé-Gérant insuffisant (${balance.toFixed(2)} disponibles). Enregistrez un nouvel approvisionnement dans le module Caisse avant le paiement.`,
     );
   }
   return balance;

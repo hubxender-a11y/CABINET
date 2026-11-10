@@ -71,9 +71,8 @@ export class FundCashAccountDto {
   @IsIn(['CDF', 'USD'])
   currency: 'CDF' | 'USD';
 
-  @IsString()
-  @MaxLength(120)
-  source: string;
+  @IsIn(['ASSOCIE_GERANT'])
+  source: 'ASSOCIE_GERANT';
 
   @IsOptional()
   @IsString()
