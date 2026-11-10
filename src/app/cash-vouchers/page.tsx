@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
+import Link from "next/link";
 import {
   Check,
   CircleAlert,
@@ -50,6 +51,12 @@ type CashAccount = {
   balance: string;
   paymentOrderAvailable: string;
 };
+type PeriodCashAccount = CashAccount & {
+  openingBalance: string;
+  closingBalance: string;
+  openingPaymentOrderAvailable: string;
+  closingPaymentOrderAvailable: string;
+};
 type CashMovement = {
   id: string;
   cashAccountId: string;
@@ -62,6 +69,12 @@ type CashMovement = {
   cashAccount: { code: string; name: string; currency: Currency };
 };
 type Treasury = { accounts: CashAccount[]; movements: CashMovement[] };
+type TreasuryPeriod = {
+  from: string;
+  to: string;
+  accounts: PeriodCashAccount[];
+  movements: CashMovement[];
+};
 
 function amountInWords(value: string, currency: Currency) {
   const number = Number(value);
@@ -166,6 +179,14 @@ export default function CashVouchersPage() {
   const [selectedVoucher, setSelectedVoucher] = useState<CashVoucher | null>(
     null,
   );
+  const [printReady, setPrintReady] = useState(false);
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [periodData, setPeriodData] = useState<TreasuryPeriod | null>(null);
+  const [periodLoading, setPeriodLoading] = useState(false);
+  const [printData, setPrintData] = useState<(TreasuryPeriod & { printedAt: string }) | null>(null);
+  const [printDocument, setPrintDocument] = useState<"ledger" | "treasury" | null>(null);
+  const [printSaving, setPrintSaving] = useState(false);
   const [date, setDate] = useState("");
   const [beneficiary, setBeneficiary] = useState("");
   const [category, setCategory] = useState("");
@@ -189,6 +210,26 @@ export default function CashVouchersPage() {
     const today = kinshasaDate();
     setDate(today);
     setFundDate(today);
+    setPrintReady(true);
+  }, []);
+
+  useEffect(() => {
+    const printModes = [
+      "print-cash-ledger-mode",
+      "print-cash-treasury-mode",
+      "print-cash-voucher-mode",
+    ];
+    const cleanPrintMode = () => {
+      document.body.classList.remove(...printModes);
+      setPrintDocument(null);
+      setPrintData(null);
+      setPrintSaving(false);
+    };
+    window.addEventListener("afterprint", cleanPrintMode);
+    return () => {
+      window.removeEventListener("afterprint", cleanPrintMode);
+      document.body.classList.remove(...printModes);
+    };
   }, []);
 
   useEffect(() => {
@@ -237,6 +278,31 @@ export default function CashVouchersPage() {
     };
   }, [databaseConnected]);
 
+  useEffect(() => {
+    if (!databaseConnected || !periodStart || !periodEnd || periodStart > periodEnd) {
+      setPeriodData(null);
+      setPeriodLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setPeriodLoading(true);
+    setError("");
+    void apiRequest<TreasuryPeriod>(
+      `/cash-vouchers/treasury/period?from=${encodeURIComponent(periodStart)}&to=${encodeURIComponent(periodEnd)}`,
+      { signal: controller.signal },
+    )
+      .then((data) => setPeriodData(data))
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) return;
+        setPeriodData(null);
+        setError(caught instanceof Error ? caught.message : "Impossible de charger cette période.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPeriodLoading(false);
+      });
+    return () => controller.abort();
+  }, [databaseConnected, periodStart, periodEnd]);
+
   const cashAccount = accounts.find((account) => account.currency === currency);
   const movementBalances = useMemo(() => {
     const remainingByAccount = new Map(
@@ -264,6 +330,58 @@ export default function CashVouchersPage() {
       ].some((value) => value.toLocaleLowerCase("fr").includes(term)),
     );
   }, [query, vouchers]);
+  const pendingVouchers = useMemo(
+    () => vouchers.filter((voucher) => voucher.status === "PENDING_APPROVAL"),
+    [vouchers],
+  );
+  const pendingByCurrency = useMemo(
+    () =>
+      pendingVouchers.reduce(
+        (totals, voucher) => {
+          totals[voucher.currency] += Number(voucher.amount);
+          return totals;
+        },
+        { CDF: 0, USD: 0 },
+      ),
+    [pendingVouchers],
+  );
+  const selectedPeriodValid = Boolean(
+    periodStart && periodEnd && periodStart <= periodEnd,
+  );
+  const periodLoadedForSelection = Boolean(
+    selectedPeriodValid &&
+      periodData?.from === periodStart &&
+      periodData?.to === periodEnd,
+  );
+  const periodMovementBalances = useMemo(() => {
+    if (!periodData) return [];
+    const remainingByAccount = new Map(
+      periodData.accounts.map((account) => [
+        account.id,
+        Number(account.openingBalance),
+      ]),
+    );
+    return periodData.movements.map((movement) => {
+      const balanceBefore = remainingByAccount.get(movement.cashAccountId) ?? 0;
+      const amount = Number(movement.amount);
+      const balanceAfter =
+        balanceBefore + (movement.direction === "IN" ? amount : -amount);
+      remainingByAccount.set(movement.cashAccountId, balanceAfter);
+      return { ...movement, balanceAfter };
+    });
+  }, [periodData]);
+  const periodTotals = useMemo(() => {
+    const totals: Record<Currency, { entries: number; exits: number }> = {
+      CDF: { entries: 0, exits: 0 },
+      USD: { entries: 0, exits: 0 },
+    };
+    for (const movement of periodData?.movements ?? []) {
+      const currency = movement.cashAccount.currency;
+      totals[currency][movement.direction === "IN" ? "entries" : "exits"] += Number(movement.amount);
+    }
+    return totals;
+  }, [periodData]);
+  const displayedMovements = selectedPeriodValid ? periodMovementBalances : [];
 
   async function submitVoucher(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -379,7 +497,46 @@ export default function CashVouchersPage() {
     }));
   }
 
+  function printTreasuryDocument(kind: "ledger" | "treasury") {
+    if (!periodLoadedForSelection || !periodData || periodLoading || printSaving) {
+      setError("Choisissez une période valide et attendez le chargement avant l’impression.");
+      return;
+    }
+    setError("");
+    setPrintSaving(true);
+    flushSync(() => {
+      setPrintData({ ...periodData, printedAt: new Date().toISOString() });
+      setPrintDocument(kind);
+    });
+    const mode =
+      kind === "ledger" ? "print-cash-ledger-mode" : "print-cash-treasury-mode";
+    document.body.classList.remove(
+      "print-cash-ledger-mode",
+      "print-cash-treasury-mode",
+    );
+    document.body.classList.add(mode);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      const printable = document.querySelector(kind === "ledger" ? ".cash-ledger-print" : ".cash-treasury-print");
+      if (!printable) {
+        document.body.classList.remove(mode);
+        setPrintSaving(false);
+        setError("Le document n’a pas pu être préparé pour l’impression. Réessayez.");
+        return;
+      }
+      setPrintSaving(false);
+      window.print();
+    }));
+  }
+
   async function approveVoucher(voucher: CashVoucher) {
+    const hasLinkedOrder = Boolean(
+      voucher.reference && /^OP\/\d{4}\/\d+$/.test(voucher.reference),
+    );
+    if (!window.confirm(
+      hasLinkedOrder
+        ? `Confirmez-vous avoir examiné le bon ${voucher.voucherNumber}, l’OP ${voucher.reference} et son état de besoin, et autoriser le décaissement ?`
+        : `Confirmez-vous avoir examiné le bon ${voucher.voucherNumber} et autoriser le décaissement ?`,
+    )) return;
     setError("");
     setSuccess("");
     try {
@@ -485,16 +642,36 @@ export default function CashVouchersPage() {
 
   return (
     <div className="cash-vouchers-page space-y-6">
-      <header className="workspace-page-heading border-b border-slate-200 pb-5">
-        <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">
-          Trésorerie du cabinet
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold text-slate-900">
-          Gestion de la caisse
-        </h1>
-        <p className="mt-2 max-w-3xl text-sm text-slate-500">
-          Le solde physique, les fonds remis par l’Associé-Gérant et les bons en attente sont suivis séparément.
-        </p>
+      <header className="workspace-page-heading flex flex-col justify-between gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-end">
+        <div>
+          <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">
+            Gestion financière · Caisse
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold text-slate-900">
+            Trésorerie du cabinet
+          </h1>
+          <p className="mt-2 max-w-3xl text-sm text-slate-500">
+            Livre de caisse, apports de l’Associé-Gérant et bons à approuver.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => printTreasuryDocument("ledger")}
+            disabled={!printReady || loading || periodLoading || !periodLoadedForSelection || printSaving}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Printer className="h-4 w-4" /> Imprimer le livre de caisse
+          </button>
+          <button
+            type="button"
+            onClick={() => printTreasuryDocument("treasury")}
+            disabled={!printReady || loading || periodLoading || !periodLoadedForSelection || printSaving}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Printer className="h-4 w-4" /> Imprimer la trésorerie
+          </button>
+        </div>
       </header>
 
       <div
@@ -507,7 +684,7 @@ export default function CashVouchersPage() {
         )}
         <p>
           {databaseConnected
-            ? "Le livre suit tous les mouvements physiques. Pour payer une OP, seul le fonds alimenté par l’Associé-Gérant est retenu; les paiements clients restent exclus de ce disponible. Aucun journal comptable n’est généré automatiquement par l’OP."
+            ? "Le livre suit les mouvements physiques. Le fonds OP inclut uniquement les apports de l’Associé-Gérant; les règlements clients en restent exclus. Les bons en attente sont affichés séparément et ne sont pas débités."
             : "Base indisponible : les bons ne peuvent pas être enregistrés."}
         </p>
       </div>
@@ -540,6 +717,9 @@ export default function CashVouchersPage() {
               </p>
               <p className="mt-2 text-xs font-semibold text-blue-800">
                 Fonds d’approvisionnement disponibles : {formatMoney(Number(accounts.find((account) => account.currency === code)?.paymentOrderAvailable ?? 0), code)}
+              </p>
+              <p className="mt-1 text-xs text-amber-800">
+                Bons en attente · non débités : {formatMoney(pendingByCurrency[code], code)}
               </p>
             </div>
             {accounts.find((account) => account.currency === code) &&
@@ -682,6 +862,15 @@ export default function CashVouchersPage() {
           </p>
         )}
 
+      <section aria-labelledby="cash-vouchers-section-title" className="space-y-4">
+        <div>
+          <h2 id="cash-vouchers-section-title" className="text-xl font-semibold text-slate-900">
+            Bons de sortie caisse
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Chaque nouveau bon attend le visa de l’Associé-Gérant avant d’être débité et imprimé.
+          </p>
+        </div>
       <section className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <form
           onSubmit={submitVoucher}
@@ -819,6 +1008,9 @@ export default function CashVouchersPage() {
               <p className="mt-1 text-sm text-slate-500">
                 {loading ? "Chargement…" : `${visibleVouchers.length} bon(s)`}
               </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Un bon en attente doit être examiné. Pour une OP, consultez aussi sa pièce « état de besoin » avant le visa final.
+              </p>
             </div>
             <label className="relative min-w-44 flex-1 sm:max-w-56">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -868,6 +1060,11 @@ export default function CashVouchersPage() {
                         <p className="max-w-56 truncate text-xs text-slate-500">
                           {voucher.reason}
                         </p>
+                        {voucher.reference && /^OP\/\d{4}\/\d+$/.test(voucher.reference) ? (
+                          <Link href={`/payment-orders?order=${encodeURIComponent(voucher.reference)}`} className="mt-1 inline-block text-xs font-semibold text-blue-700 underline">
+                            Examiner l’OP et son état de besoin · {voucher.reference}
+                          </Link>
+                        ) : voucher.reference ? <span className="mt-1 block text-xs text-slate-500">Référence : {voucher.reference}</span> : null}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-900">
                         {formatMoney(Number(voucher.amount), voucher.currency)}
@@ -889,7 +1086,7 @@ export default function CashVouchersPage() {
                         {voucher.status === "PENDING_APPROVAL" && userRole === "COMPANY_ADMIN" && (
                           <>
                             <button type="button" onClick={() => void approveVoucher(voucher)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800">
-                              <Check className="h-3.5 w-3.5" /> Approuver & libérer
+                              <Check className="h-3.5 w-3.5" /> Examen fait · approuver & libérer
                             </button>
                             <button type="button" onClick={() => void rejectVoucher(voucher)} className="ml-1.5 inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50">
                               <X className="h-3.5 w-3.5" /> Rejeter
@@ -938,16 +1135,39 @@ export default function CashVouchersPage() {
           )}
         </section>
       </section>
+      </section>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <h2 className="font-semibold text-slate-900">Livre de caisse</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Encaissements sur factures, dépenses, bons de sortie et écarts de
-            comptage.
-          </p>
+        <div className="flex flex-col justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="font-semibold text-slate-900">Livre de caisse</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Journal des entrées, sorties et soldes après chaque mouvement.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => printTreasuryDocument("ledger")}
+            disabled={!printReady || loading || periodLoading || !periodLoadedForSelection || printSaving}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Printer className="h-4 w-4" /> Imprimer le livre
+          </button>
         </div>
-        {movements.length ? (
+        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <label className="block text-sm font-medium text-slate-700">
+            Période · du
+            <input type="date" value={periodStart} max={periodEnd || undefined} onChange={(event) => setPeriodStart(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Au
+            <input type="date" value={periodEnd} min={periodStart || undefined} onChange={(event) => setPeriodEnd(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
+          </label>
+          <div className="pb-2 text-sm text-slate-500" aria-live="polite">
+            {!periodStart || !periodEnd ? "Sélectionnez les deux dates pour consulter ou imprimer." : periodStart > periodEnd ? "La date de début doit précéder la date de fin." : periodLoading ? "Chargement de la période…" : periodData ? `${periodData.movements.length} mouvement${periodData.movements.length > 1 ? "s" : ""} sur la période` : "Aucune donnée de période disponible."}
+          </div>
+        </div>
+        {periodLoadedForSelection && periodData?.movements.length ? (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -963,7 +1183,7 @@ export default function CashVouchersPage() {
                 </tr>
               </thead>
               <tbody>
-                {movementBalances.map((movement) => (
+                {displayedMovements.map((movement) => (
                   <tr key={movement.id} className="border-t border-slate-100">
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                       {formatDate(movement.date)}
@@ -1010,10 +1230,50 @@ export default function CashVouchersPage() {
           </div>
         ) : (
           <p className="px-5 py-10 text-center text-sm text-slate-500">
-            Aucun mouvement de caisse enregistré.
+            {periodLoading ? "Chargement des mouvements…" : selectedPeriodValid ? "Aucun mouvement de caisse sur cette période." : "Sélectionnez une période pour afficher le livre de caisse."}
           </p>
         )}
       </section>
+
+      {printReady && printData && printDocument === "ledger" && createPortal(
+        <article className="cash-ledger-print" aria-label="Livre de caisse à imprimer">
+          <DocumentLetterhead />
+          <div className="cash-period-print-body">
+            <div className="cash-period-print-title">
+              <div><p>Trésorerie · Journal des mouvements physiques</p><h1>LIVRE DE CAISSE</h1></div>
+              <strong>{formatDate(printData.from)} — {formatDate(printData.to)}</strong>
+            </div>
+            <p className="cash-period-print-note">Soldes d’ouverture avant le {formatDate(printData.from)} · Soldes de clôture au {formatDate(printData.to)}</p>
+            <table>
+              <thead><tr><th>Date</th><th>Libellé / pièce</th><th>Caisse</th><th>Entrée</th><th>Sortie</th><th>Solde après</th></tr></thead>
+              <tbody>{periodMovementBalances.map((movement) => <tr key={movement.id}>
+                <td>{formatDate(movement.date)}</td><td>{movement.description}{movement.reference && <small>{movement.reference}</small>}</td><td>{movement.cashAccount.name}</td>
+                <td className="cash-print-number">{movement.direction === "IN" ? formatMoney(Number(movement.amount), movement.cashAccount.currency) : "—"}</td>
+                <td className="cash-print-number">{movement.direction === "OUT" ? formatMoney(Number(movement.amount), movement.cashAccount.currency) : "—"}</td>
+                <td className="cash-print-number">{formatMoney(movement.balanceAfter, movement.cashAccount.currency)}</td>
+              </tr>)}</tbody>
+            </table>
+            {!printData.movements.length && <p className="cash-period-empty">Aucun mouvement de caisse sur cette période.</p>}
+            <section className="cash-period-balances"><h2>Soldes par caisse</h2><table><thead><tr><th>Caisse</th><th>Devise</th><th>Solde d’ouverture</th><th>Solde de clôture</th></tr></thead><tbody>{printData.accounts.map((account) => <tr key={account.id}><td>{account.name} · {account.code}</td><td>{account.currency}</td><td>{formatMoney(Number(account.openingBalance), account.currency)}</td><td>{formatMoney(Number(account.closingBalance), account.currency)}</td></tr>)}</tbody></table></section>
+            <p className="cash-period-print-generated">Édité le {formatDate(printData.printedAt)}</p>
+          </div>
+          <DocumentFooter />
+        </article>, document.body,
+      )}
+
+      {printReady && printData && printDocument === "treasury" && createPortal(
+        <article className="cash-treasury-print" aria-label="Situation de trésorerie à imprimer">
+          <DocumentLetterhead />
+          <div className="cash-period-print-body">
+            <div className="cash-period-print-title"><div><p>Gestion financière · Synthèse de période</p><h1>SITUATION DE TRÉSORERIE</h1></div><strong>{formatDate(printData.from)} — {formatDate(printData.to)}</strong></div>
+            <p className="cash-period-print-note">Les soldes physiques et les fonds d’approvisionnement OP sont présentés séparément.</p>
+            <table><thead><tr><th>Caisse</th><th>Devise</th><th>Ouverture physique</th><th>Entrées</th><th>Sorties</th><th>Clôture physique</th><th>Fonds OP ouverture</th><th>Fonds OP clôture</th></tr></thead><tbody>{printData.accounts.map((account) => <tr key={account.id}><td>{account.name}</td><td>{account.currency}</td><td>{formatMoney(Number(account.openingBalance), account.currency)}</td><td>{formatMoney(periodTotals[account.currency].entries, account.currency)}</td><td>{formatMoney(periodTotals[account.currency].exits, account.currency)}</td><td><strong>{formatMoney(Number(account.closingBalance), account.currency)}</strong></td><td>{formatMoney(Number(account.openingPaymentOrderAvailable), account.currency)}</td><td>{formatMoney(Number(account.closingPaymentOrderAvailable), account.currency)}</td></tr>)}</tbody></table>
+            <section className="cash-period-balances"><h2>Bons de sortie encore en attente</h2><p className="cash-period-print-note">Ils ne sont pas déduits du solde physique. État actuel au moment de l’édition.</p>{pendingVouchers.length ? <table><thead><tr><th>N° bon</th><th>Date</th><th>Bénéficiaire</th><th>Motif</th><th>Montant</th></tr></thead><tbody>{pendingVouchers.map((voucher) => <tr key={voucher.id}><td>{voucher.voucherNumber}</td><td>{formatDate(voucher.date)}</td><td>{voucher.beneficiary}</td><td>{voucher.reason}</td><td className="cash-print-number">{formatMoney(Number(voucher.amount), voucher.currency)}</td></tr>)}</tbody></table> : <p>Aucun bon en attente.</p>}</section>
+            <p className="cash-period-print-generated">Édité le {formatDate(printData.printedAt)}</p>
+          </div>
+          <DocumentFooter />
+        </article>, document.body,
+      )}
 
       {selectedVoucher && (selectedVoucher.status === "ISSUED" || selectedVoucher.status === "CANCELLED") && createPortal(
         <article

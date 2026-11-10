@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -48,6 +49,22 @@ export class CashVouchersController {
   })
   treasury(@Req() request: AuthenticatedRequest) {
     return this.vouchers.treasury(request.user!.companyId);
+  }
+
+  @Get('treasury/period')
+  @ApiOperation({
+    summary: 'Get a date-ranged cash-book and treasury statement',
+  })
+  treasuryPeriod(
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.vouchers.treasuryPeriod(
+      request.user!.companyId,
+      from,
+      to,
+    );
   }
 
   @Post()

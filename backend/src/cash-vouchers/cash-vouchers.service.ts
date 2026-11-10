@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PaymentMethod, Prisma } from '@prisma/client';
+import { PaymentMethod, PaymentOrderStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -24,6 +24,12 @@ import {
   RejectCashVoucherDto,
   ReconcileCashAccountDto,
 } from './cash-vouchers.dto';
+
+function isIsoDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
 
 @Injectable()
 export class CashVouchersService {
@@ -75,6 +81,90 @@ export class CashVouchersService {
           balance: balance.toString(),
           paymentOrderAvailable: paymentOrderAvailable.toString(),
         })),
+        movements: movements.map((movement) => ({
+          ...movement,
+          amount: movement.amount.toString(),
+        })),
+      };
+    });
+  }
+
+  async treasuryPeriod(companyId: string, from: string, to: string) {
+    if (!isIsoDate(from) || !isIsoDate(to)) {
+      throw new BadRequestException(
+        'Choisissez une date de début et une date de fin valides.',
+      );
+    }
+    if (from > to) {
+      throw new BadRequestException(
+        'La date de début doit précéder ou égaler la date de fin.',
+      );
+    }
+
+    const rangeStart = new Date(`${from}T00:00:00.000Z`);
+    const rangeEnd = new Date(`${to}T23:59:59.999Z`);
+    const beforeStart = new Date(rangeStart.getTime() - 1);
+
+    return this.prisma.$transaction(async (transaction) => {
+      await Promise.all([
+        ensureCashAccount(transaction, companyId, 'CDF'),
+        ensureCashAccount(transaction, companyId, 'USD'),
+      ]);
+      const accounts = await transaction.cashAccount.findMany({
+        where: { companyId },
+        orderBy: { currency: 'asc' },
+      });
+      const balances = await Promise.all(
+        accounts.map(async (account) => {
+          const [openingBalance, closingBalance, openingFunds, closingFunds] =
+            await Promise.all([
+              getCashBalance(transaction, companyId, account.id, beforeStart),
+              getCashBalance(transaction, companyId, account.id, rangeEnd),
+              getPaymentOrderFundingBalance(
+                transaction,
+                companyId,
+                account.id,
+                beforeStart,
+              ),
+              getPaymentOrderFundingBalance(
+                transaction,
+                companyId,
+                account.id,
+                rangeEnd,
+              ),
+            ]);
+          return {
+            account,
+            openingBalance,
+            closingBalance,
+            openingFunds,
+            closingFunds,
+          };
+        }),
+      );
+      const movements = await transaction.cashMovement.findMany({
+        where: {
+          companyId,
+          date: { gte: rangeStart, lte: rangeEnd },
+        },
+        include: {
+          cashAccount: { select: { code: true, name: true, currency: true } },
+        },
+        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+      });
+
+      return {
+        from,
+        to,
+        accounts: balances.map(
+          ({ account, openingBalance, closingBalance, openingFunds, closingFunds }) => ({
+            ...account,
+            openingBalance: openingBalance.toString(),
+            closingBalance: closingBalance.toString(),
+            openingPaymentOrderAvailable: openingFunds.toString(),
+            closingPaymentOrderAvailable: closingFunds.toString(),
+          }),
+        ),
         movements: movements.map((movement) => ({
           ...movement,
           amount: movement.amount.toString(),
@@ -355,6 +445,19 @@ export class CashVouchersService {
         );
       }
 
+      const linkedOrderHeader = await transaction.paymentOrder.findFirst({
+        where: { companyId, cashVoucherId: voucher.id },
+        select: { id: true, orderNumber: true, status: true },
+      });
+      if (
+        linkedOrderHeader &&
+        linkedOrderHeader.status !== PaymentOrderStatus.APPROVED
+      ) {
+        throw new ConflictException(
+          'L’OP liée n’est plus en attente de règlement. Vérifiez le dossier avant de libérer ce bon.',
+        );
+      }
+
       const approvalDate = new Date();
       const cashAccount = await ensureCashAccount(
         transaction,
@@ -406,6 +509,40 @@ export class CashVouchersService {
         description: `${voucher.category} · ${voucher.beneficiary} · ${voucher.reason}`,
         reference: voucher.voucherNumber,
       });
+      const linkedOrder = await transaction.paymentOrder.updateMany({
+        where: {
+          companyId,
+          cashVoucherId: voucher.id,
+          status: PaymentOrderStatus.APPROVED,
+        },
+        data: {
+          status: PaymentOrderStatus.PAID,
+          paidAt: approvalDate,
+          paidBy: userId,
+        },
+      });
+      if (linkedOrderHeader && linkedOrder.count !== 1) {
+        throw new ConflictException(
+          'Le statut de l’OP liée n’a pas pu être clôturé. La sortie a été annulée; actualisez le dossier.',
+        );
+      }
+      if (linkedOrderHeader) {
+        await transaction.auditLog.create({
+          data: {
+            companyId,
+            userId,
+            action: 'PAYMENT_ORDER_PAID',
+            details: {
+              paymentOrderId: linkedOrderHeader.id,
+              orderNumber: linkedOrderHeader.orderNumber,
+              voucherId: voucher.id,
+              voucherNumber: voucher.voucherNumber,
+              amount: voucher.amount.toString(),
+              currency: voucher.currency,
+            },
+          },
+        });
+      }
       await transaction.auditLog.create({
         data: {
           companyId,

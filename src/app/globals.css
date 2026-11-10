@@ -3414,8 +3414,128 @@ summary:focus-visible {
 }
 
 .client-dossier-print,
-.cash-voucher-print {
+.cash-voucher-print,
+.cash-ledger-print,
+.cash-treasury-print {
   display: none;
+}
+
+.cash-period-print-body {
+  color: #14243a;
+  font: 10pt/1.45 Arial, sans-serif;
+}
+
+.cash-period-print-title {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 8mm;
+  border-bottom: 2px solid #e8a615;
+  padding-bottom: 4mm;
+}
+
+.cash-period-print-title p,
+.cash-period-print-note,
+.cash-period-print-generated {
+  color: #53657a;
+  font-size: 8pt;
+}
+
+.cash-period-print-title h1 {
+  margin-top: 1.5mm;
+  color: #073c6d;
+  font-size: 18pt;
+  font-weight: 800;
+}
+
+.cash-period-print-title > strong {
+  white-space: nowrap;
+  color: #073c6d;
+  font-size: 9pt;
+}
+
+.cash-period-print-note { margin: 4mm 0; }
+
+.cash-period-print-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8pt;
+}
+
+.cash-period-print-body th,
+.cash-period-print-body td {
+  border: 1px solid #cbd5e1;
+  padding: 2mm;
+  text-align: left;
+  vertical-align: top;
+}
+
+.cash-period-print-body th {
+  background: #073c6d !important;
+  color: #fff !important;
+  font-size: 7.5pt;
+  print-color-adjust: exact;
+}
+
+.cash-period-print-body tbody tr:nth-child(even) {
+  background: #f2f6fa !important;
+  print-color-adjust: exact;
+}
+
+.cash-period-print-body td small {
+  display: block;
+  color: #64748b;
+}
+
+.cash-print-number { text-align: right !important; white-space: nowrap; }
+.cash-period-balances { margin-top: 7mm; }
+.cash-period-balances h2 { margin: 0 0 2mm; color: #073c6d; font-size: 11pt; }
+.cash-period-empty { margin: 8mm 0; text-align: center; color: #64748b; }
+.cash-period-print-generated { margin-top: 8mm; text-align: right; }
+
+@media print {
+  @page cash-ledger-document { size: A4 landscape; margin: 12mm; }
+  @page cash-treasury-document { size: A4 portrait; margin: 12mm; }
+
+  body.print-cash-ledger-mode * { visibility: hidden !important; }
+  body.print-cash-ledger-mode .cash-ledger-print,
+  body.print-cash-ledger-mode .cash-ledger-print * { visibility: visible !important; }
+  body.print-cash-ledger-mode .cash-ledger-print {
+    page: cash-ledger-document;
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 999999 !important;
+    display: flex !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+    flex-direction: column !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  body.print-cash-treasury-mode * { visibility: hidden !important; }
+  body.print-cash-treasury-mode .cash-treasury-print,
+  body.print-cash-treasury-mode .cash-treasury-print * { visibility: visible !important; }
+  body.print-cash-treasury-mode .cash-treasury-print {
+    page: cash-treasury-document;
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 999999 !important;
+    display: flex !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+    flex-direction: column !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  .cash-ledger-print .document-letterhead,
+  .cash-treasury-print .document-letterhead { margin-bottom: 6mm !important; }
+  .cash-ledger-print .document-footer,
+  .cash-treasury-print .document-footer { margin-top: auto !important; }
+  .cash-ledger-print .cash-period-print-body,
+  .cash-treasury-print .cash-period-print-body { flex: 1; }
+  .cash-period-print-body tr { break-inside: avoid; }
 }
 
 @media print {

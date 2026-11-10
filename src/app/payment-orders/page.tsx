@@ -96,8 +96,8 @@ const requestRoles = [...financeRoles, "CASHIER"];
 const statusLabel: Record<Status, string> = {
   SUBMITTED: "En attente des Finances",
   FINANCE_APPROVED: "Visa Finances obtenu",
-  APPROVED: "Validée par l’Associé-Gérant",
-  PAID: "Payée · bon de caisse émis",
+  APPROVED: "OP validée · règlement à établir",
+  PAID: "Payée · bon de sortie approuvé",
   REJECTED: "Rejetée",
 };
 
@@ -290,11 +290,19 @@ export default function PaymentOrdersPage() {
   const [reason, setReason] = useState("");
   const [beneficiary, setBeneficiary] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("");
-  const [accountingAllocation, setAccountingAllocation] = useState("");
+  const [accountingCode, setAccountingCode] = useState("");
+  const [accountingName, setAccountingName] = useState("");
   const [budgetAccount, setBudgetAccount] = useState("");
 
   useEffect(() => {
     setDate(kinshasaToday());
+  }, []);
+  useEffect(() => {
+    const orderNumber = new URLSearchParams(window.location.search).get("order");
+    if (orderNumber) {
+      setSearch(orderNumber);
+      setFilter("ALL");
+    }
   }, []);
   useEffect(() => {
     const order = detailOrder;
@@ -429,6 +437,9 @@ export default function PaymentOrdersPage() {
   );
 
   const targetYear = Number(date.slice(0, 4));
+  const accountingAllocation = [accountingCode.trim(), accountingName.trim()]
+    .filter(Boolean)
+    .join(" · ");
   const budgetOrders = useMemo(
     () =>
       orders.filter(
@@ -493,7 +504,11 @@ export default function PaymentOrdersPage() {
       return;
     }
     if (!accountingAllocation.trim()) {
-      setError("Confirmez ou renseignez l’imputation comptable.");
+      setError("Renseignez le code et l’intitulé du compte comptable.");
+      return;
+    }
+    if (!attachmentFile) {
+      setError("Joignez l’état de besoin à cette demande d’OP.");
       return;
     }
     if (budgetLeft < 0) {
@@ -504,9 +519,7 @@ export default function PaymentOrdersPage() {
     }
     setSaving(true);
     try {
-      const attachmentBase64 = attachmentFile
-        ? await fileAsBase64(attachmentFile)
-        : undefined;
+      const attachmentBase64 = await fileAsBase64(attachmentFile);
       const order = await apiRequest<PaymentOrder>("/payment-orders", {
         method: "POST",
         body: JSON.stringify({
@@ -519,13 +532,9 @@ export default function PaymentOrdersPage() {
           expenseCategory,
           accountingAllocation,
           budgetAccount,
-          ...(attachmentFile
-            ? {
-                attachmentName: attachmentFile.name,
-                attachmentMimeType: attachmentFile.type,
-                attachmentBase64,
-              }
-            : {}),
+          attachmentName: attachmentFile.name,
+          attachmentMimeType: attachmentFile.type,
+          attachmentBase64,
         }),
       });
       setOrders((current) => [order, ...current]);
@@ -537,7 +546,8 @@ export default function PaymentOrdersPage() {
       setReason("");
       setBeneficiary("");
       setExpenseCategory("");
-      setAccountingAllocation("");
+      setAccountingCode("");
+      setAccountingName("");
       setAttachmentFile(null);
     } catch (caught) {
       setError(
@@ -624,9 +634,8 @@ export default function PaymentOrdersPage() {
     const rule = accountingRules.find(
       (item) => normalizeCategory(item.category) === normalizeCategory(value),
     );
-    setAccountingAllocation(
-      rule ? `${rule.accountCode} · ${rule.accountName}` : "",
-    );
+    setAccountingCode(rule?.accountCode ?? "");
+    setAccountingName(rule?.accountName ?? "");
     if (rule?.budgetAccount)
       setBudgetAccount(rule.budgetAccount);
   }
@@ -650,7 +659,7 @@ export default function PaymentOrdersPage() {
           ? `Enregistrer votre visa des Finances sur ${order.orderNumber} ?`
           : action === "manager-visa"
             ? `Valider définitivement ${order.orderNumber} au visa de l’Associé-Gérant ?`
-            : `Payer ${order.orderNumber} et émettre le bon de sortie ?`,
+            : `Émettre un bon de sortie caisse pour ${order.orderNumber} ? Le bon restera en attente du contrôle et du visa de l’Associé-Gérant. Aucun argent ne sera débité avant ce second visa.`,
       )
     )
       return;
@@ -662,11 +671,9 @@ export default function PaymentOrdersPage() {
       setOrders((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
-      setSuccess(`${updated.orderNumber} : ${statusLabel[updated.status]}.`);
-      if (action === "pay") {
-        const treasury = await apiRequest<{ accounts: CashAccountSummary[] }>("/cash-vouchers/treasury");
-        setCashAccounts(treasury.accounts);
-      }
+      setSuccess(action === "pay" && updated.cashVoucher
+        ? `${updated.orderNumber} : bon ${updated.cashVoucher.voucherNumber} émis et transmis à l’Associé-Gérant pour examen. Aucun décaissement n’a encore été enregistré.`
+        : `${updated.orderNumber} : ${statusLabel[updated.status]}.`);
       if (printOrder?.id === updated.id) setPrintOrder(updated);
       if (detailOrder?.id === updated.id) setDetailOrder(updated);
     } catch (caught) {
@@ -716,6 +723,10 @@ export default function PaymentOrdersPage() {
   }
 
   function printVoucher(order: PaymentOrder) {
+    if (order.cashVoucher?.status !== "ISSUED") {
+      setError("Le bon est encore en attente du contrôle et du visa de l’Associé-Gérant. Il ne peut pas encore être imprimé comme paiement effectué.");
+      return;
+    }
     flushSync(() => {
       setPrintVoucherOrder(order);
       setPrintOrder(null);
@@ -858,11 +869,15 @@ export default function PaymentOrdersPage() {
                 Préparer un ordre de paiement
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Une seule page pour la demande et ses contrôles. Le numéro est attribué à l’enregistrement ; les deux visas restent manuels.
+                Formulaire structuré selon le modèle du cabinet. L’état de besoin est annexé à l’OP ; les visas restent des validations humaines.
               </p>
             </div>
 
               <section className="space-y-4" aria-label="Détails de la demande">
+                <div className="rounded-xl bg-blue-50 px-4 py-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-blue-800">Étape 1 · Demande de paiement</p>
+                  <p className="mt-1 text-xs text-blue-900">Les informations ci-dessous reprennent le premier tableau du modèle OP.</p>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Date de la demande">
                     <input required type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
@@ -897,6 +912,10 @@ export default function PaymentOrdersPage() {
               </section>
 
               <section id="payment-order-controls" className="scroll-mt-6 space-y-4 border-t border-slate-200 pt-5" aria-label="Imputation et contrôle budgétaire">
+                <div className="rounded-xl bg-slate-100 px-4 py-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-700">Étape 2 · Imputation comptable et contrôle budgétaire</p>
+                  <p className="mt-1 text-xs text-slate-600">Le compte est confirmé par le comptable; les colonnes budgétaires sont calculées depuis la ligne approuvée.</p>
+                </div>
                 <Field label="Nature de la dépense">
                   <input list="payment-order-categories" maxLength={100} value={expenseCategory} onChange={(e) => updateExpenseCategory(e.target.value)} placeholder="Choisir ou saisir une catégorie" className={inputClass} />
                   <datalist id="payment-order-categories">
@@ -905,9 +924,18 @@ export default function PaymentOrdersPage() {
                   {selectedRule && <small className="text-emerald-700">Règle comptable trouvée : {selectedRule.accountCode} · {selectedRule.accountName}</small>}
                   {expenseCategory && !selectedRule && <small className="text-amber-800">Aucune règle configurée pour cette nature. Le comptable doit choisir l’imputation.</small>}
                 </Field>
-                <Field label="Imputation comptable · à confirmer par le comptable">
-                  <input required maxLength={120} value={accountingAllocation} onChange={(e) => setAccountingAllocation(e.target.value)} placeholder="Ex. 6041 · Fournitures de bureau" className={inputClass} />
-                </Field>
+                <fieldset className="rounded-xl border border-slate-200 bg-white p-4">
+                  <legend className="px-1 text-sm font-semibold text-slate-800">Imputation comptable · à confirmer par le comptable</legend>
+                  <div className="grid gap-3 sm:grid-cols-[0.7fr_1.3fr]">
+                    <Field label="Compte · code">
+                      <input required maxLength={40} value={accountingCode} onChange={(event) => setAccountingCode(event.target.value)} placeholder="Ex. 6041" className={inputClass} />
+                    </Field>
+                    <Field label="Intitulé du compte">
+                      <input required maxLength={80} value={accountingName} onChange={(event) => setAccountingName(event.target.value)} placeholder="Ex. Fournitures et documentation" className={inputClass} />
+                    </Field>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">Le code et l’intitulé sont proposés par la règle de dépense si elle existe. Le comptable les valide ou les corrige.</p>
+                </fieldset>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -929,12 +957,22 @@ export default function PaymentOrdersPage() {
                     </Field>
                   </div>
                   {selectedBudget ? (
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <BudgetValue label="Prévision initiale" value={formatMoney(initialForecast, currency)} />
-                      <BudgetValue label="Déjà payé" value={formatMoney(paidBudget, currency)} />
-                      <BudgetValue label="Solde disponible (1)" value={formatMoney(availableBefore, currency)} />
-                      <BudgetValue label="Encours avant cette OP" value={formatMoney(outstandingBudget, currency)} />
-                      <BudgetValue label="Solde disponible (2) · après cette OP" value={formatMoney(budgetLeft, currency)} />
+                    <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                      <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">Compte budgétaire : {selectedBudget.budgetAccount} · {currency}</p>
+                      <table className="min-w-[640px] w-full text-left text-xs">
+                        <thead className="bg-slate-100 uppercase tracking-wide text-slate-600">
+                          <tr><th className="px-3 py-2.5">Prévision initiale</th><th className="px-3 py-2.5">Solde disponible (1)</th><th className="px-3 py-2.5">Encours, OP comprise</th><th className="px-3 py-2.5">Solde disponible (2)</th></tr>
+                        </thead>
+                        <tbody>
+                          <tr className="font-semibold text-slate-900">
+                            <td className="px-3 py-3">{formatMoney(initialForecast, currency)}</td>
+                            <td className="px-3 py-3">{formatMoney(availableBefore, currency)}</td>
+                            <td className="px-3 py-3">{formatMoney(outstandingBudget + Number(amount || 0), currency)}</td>
+                            <td className={`px-3 py-3 ${budgetLeft < 0 ? "text-rose-700" : "text-emerald-700"}`}>{formatMoney(budgetLeft, currency)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <p className="border-t border-slate-200 px-3 py-2 text-[11px] text-slate-500">Déjà payé : {formatMoney(paidBudget, currency)} · Solde (1) = prévision − paiements · Encours = autres OP non rejetées + cette demande · Solde (2) = solde (1) − encours.</p>
                     </div>
                   ) : (
                     <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -973,6 +1011,10 @@ export default function PaymentOrdersPage() {
               </section>
 
               <section className="space-y-4 border-t border-slate-200 pt-5" aria-label="Pièce justificative et aperçu">
+                <div className="rounded-xl bg-amber-50 px-4 py-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-900">Étape 3 · État de besoin et transmission</p>
+                  <p className="mt-1 text-xs text-amber-900">La demande ne part pas aux visas tant que sa pièce n’est pas jointe.</p>
+                </div>
                 {(!budgetConfigured || !accountingAllocation.trim()) && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
                     <strong>Aperçu imprimable · dossier non transmissible</strong>
@@ -988,19 +1030,30 @@ export default function PaymentOrdersPage() {
                     <div><dt>Budget restant après la demande</dt><dd>{budgetConfigured ? formatMoney(budgetLeft, currency) : "Budget à configurer"}</dd></div>
                   </dl>
                 </div>
-                <Field label="Pièce justificative (PDF, JPG, PNG, DOCX ou XLSX · 8 Mo max)">
-                  <input type="file" accept=".pdf,.jpg,.jpeg,.png,.docx,.xlsx" onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-blue-800`} />
+                <Field label="État de besoin annexé à l’OP · obligatoire · PDF, JPG, PNG, DOCX ou XLSX · 8 Mo max">
+                  <input required type="file" accept=".pdf,.jpg,.jpeg,.png,.docx,.xlsx" onChange={(event) => {
+                    const selected = event.target.files?.[0] ?? null;
+                    if (selected && selected.size > 8 * 1024 * 1024) {
+                      setAttachmentFile(null);
+                      event.currentTarget.value = "";
+                      setError("L’état de besoin ne peut pas dépasser 8 Mo.");
+                      return;
+                    }
+                    setError("");
+                    setAttachmentFile(selected);
+                  }} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-blue-800`} />
+                  <small className="block text-xs font-normal text-slate-500">Les Finances et l’Associé-Gérant examinent cette pièce avant leurs visas.</small>
                   {attachmentFile && <span className="block text-xs text-slate-500">{attachmentFile.name} · {(attachmentFile.size / 1024 / 1024).toFixed(2)} Mo</span>}
                 </Field>
                 <button type="button" onClick={previewDraft} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-100">
                   <Printer className="h-4 w-4" /> Prévisualiser et imprimer le modèle
                 </button>
                 <div className="flex flex-col gap-2">
-                  <button type="submit" disabled={saving || !databaseConnected || !budgetConfigured || !accountingAllocation.trim() || budgetLeft < 0} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                  <button type="submit" disabled={saving || !databaseConnected || !budgetConfigured || !accountingCode.trim() || !accountingName.trim() || !attachmentFile || budgetLeft < 0} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
                     <Send className="h-4 w-4" />{saving ? "Enregistrement…" : "Transmettre aux Finances"}
                   </button>
                 </div>
-                <p className="text-xs leading-5 text-slate-500">Après le visa des Finances puis celui de l’Associé-Gérant, l’OP pourra être payée. Le paiement crée le bon de caisse et diminue le solde en espèces.</p>
+                <p className="text-xs leading-5 text-slate-500">Circuit : état de besoin annexé → visa des Finances → visa de l’Associé-Gérant sur l’OP → bon de sortie en attente → examen et visa du bon par l’Associé-Gérant → décaissement et clôture de l’OP.</p>
               </section>
           </form>
         )}
@@ -1097,7 +1150,7 @@ export default function PaymentOrdersPage() {
                       <span
                         className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusClass(order.status)}`}
                       >
-                        {statusLabel[order.status]}
+                        {order.status === "APPROVED" && order.cashVoucher?.status === "PENDING_APPROVAL" ? "Bon en attente du visa" : statusLabel[order.status]}
                       </span>
                     </div>
                     <div className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
@@ -1109,7 +1162,7 @@ export default function PaymentOrdersPage() {
                       )}
                       {order.cashVoucher && (
                         <span>
-                          Bon de sortie :{" "}
+                          Bon de sortie · {order.cashVoucher.status === "PENDING_APPROVAL" ? "en attente du visa" : order.cashVoucher.status === "ISSUED" ? "approuvé et payé" : order.cashVoucher.status === "REJECTED" ? "rejeté" : "annulé"} :{" "}
                           <strong className="text-slate-700">
                             {order.cashVoucher.voucherNumber}
                           </strong>
@@ -1138,14 +1191,14 @@ export default function PaymentOrdersPage() {
                         <Printer className="h-3.5 w-3.5" />
                         Imprimer l’OP
                       </button>
-                      {order.cashVoucher && (
+                      {order.cashVoucher?.status === "ISSUED" && (
                         <button
                           type="button"
                           onClick={() => printVoucher(order)}
                           className={actionClass}
                         >
                           <Printer className="h-3.5 w-3.5" />
-                          Voir le bon {order.cashVoucher.voucherNumber}
+                          Imprimer le bon {order.cashVoucher.voucherNumber}
                         </button>
                       )}
                       {order.attachment && (
@@ -1178,7 +1231,7 @@ export default function PaymentOrdersPage() {
                           Visa Associé-Gérant
                         </button>
                       )}
-                      {user?.role === "COMPANY_ADMIN" &&
+                      {user && requestRoles.includes(user.role) &&
                         order.status === "APPROVED" && (
                           <button
                             type="button"
@@ -1186,7 +1239,7 @@ export default function PaymentOrdersPage() {
                             className="inline-flex items-center gap-1.5 rounded-lg bg-[#0b4778] px-3 py-2 text-xs font-semibold text-white"
                           >
                             <Wallet className="h-3.5 w-3.5" />
-                            Vérifier la pièce et payer
+                            {order.cashVoucher?.status === "PENDING_APPROVAL" ? "Consulter le bon en attente" : order.cashVoucher?.status === "ISSUED" ? "Paiement confirmé" : "Examiner l’OP et établir le bon"}
                           </button>
                         )}
                       {canReject && (
@@ -1429,7 +1482,7 @@ export default function PaymentOrdersPage() {
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <BudgetValue
                 label="Statut"
-                value={statusLabel[detailOrder.status]}
+                value={detailOrder.status === "APPROVED" && detailOrder.cashVoucher?.status === "PENDING_APPROVAL" ? "Bon de sortie en attente du visa" : statusLabel[detailOrder.status]}
               />
               <BudgetValue
                 label="Imputation comptable"
@@ -1455,9 +1508,9 @@ export default function PaymentOrdersPage() {
               >
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div>
-                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                       <Paperclip className="h-4 w-4 text-amber-700" />
-                      Justificatif lié à cette OP
+                      État de besoin lié à cette OP
                     </p>
                     <p className="mt-1 break-all text-xs text-slate-600">
                       {detailOrder.attachment.fileName}
@@ -1513,30 +1566,38 @@ export default function PaymentOrdersPage() {
               </section>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
-              {detailOrder.cashVoucher && (
+              {detailOrder.cashVoucher?.status === "ISSUED" && (
                 <button
                   type="button"
                   onClick={() => printVoucher(detailOrder)}
                   className={actionClass}
                 >
                   <Printer className="h-3.5 w-3.5" />
-                  Voir / imprimer {detailOrder.cashVoucher.voucherNumber}
+                  Imprimer le bon {detailOrder.cashVoucher.voucherNumber}
                 </button>
               )}
-              {user?.role === "COMPANY_ADMIN" &&
-                detailOrder.status === "APPROVED" && (
+              {detailOrder.cashVoucher?.status === "PENDING_APPROVAL" && (
+                <p className="w-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  Bon {detailOrder.cashVoucher.voucherNumber} en attente d’examen et de visa dans le module Caisse. Aucun fonds n’a été débité.
+                  <Link href="/cash-vouchers" className="ml-2 font-semibold underline">Ouvrir la caisse</Link>
+                </p>
+              )}
+              {!detailOrder.attachment && detailOrder.status === "APPROVED" && (
+                <p className="w-full rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                  Aucun état de besoin n’est annexé à cette ancienne OP. Ajoutez la pièce au dossier avant d’établir un bon de sortie.
+                </p>
+              )}
+              {user && requestRoles.includes(user.role) &&
+                detailOrder.status === "APPROVED" &&
+                !["PENDING_APPROVAL", "ISSUED"].includes(detailOrder.cashVoucher?.status ?? "") && (
                   <button
                     type="button"
                     onClick={() => void act(detailOrder, "pay")}
-                    disabled={
-                      Boolean(detailOrder.attachment) &&
-                      (attachmentLoadingId === detailOrder.id ||
-                        attachmentPreview?.orderId !== detailOrder.id)
-                    }
+                    disabled={!detailOrder.attachment || attachmentLoadingId === detailOrder.id || attachmentPreview?.orderId !== detailOrder.id}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-[#0b4778] px-3 py-2 text-xs font-semibold text-white"
                   >
                     <Wallet className="h-3.5 w-3.5" />
-                    Payer l’OP
+                    Émettre le bon de sortie
                   </button>
                 )}
             </div>

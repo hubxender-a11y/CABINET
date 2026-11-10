@@ -7,10 +7,6 @@ import {
 import { PaymentOrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
-  assertCashAvailable,
-  assertPaymentOrderFundingAvailable,
-  createCashMovement,
-  endOfDay,
   ensureCashAccount,
   lockCashAccount,
 } from '../cash-vouchers/cash-ledger';
@@ -159,6 +155,7 @@ export class PaymentOrdersService {
     if (parsedDate.getTime() > now.getTime() + 86_400_000) {
       throw new BadRequestException('La date de l’OP ne peut pas être future.');
     }
+    const attachment = this.parseAttachment(dto);
     const year = parsedDate.getUTCFullYear();
     const words = amountInWords(amount, dto.currency);
 
@@ -283,16 +280,9 @@ export class PaymentOrdersService {
           availableAfter,
         },
       });
-      if (
-        dto.attachmentBase64 ||
-        dto.attachmentName ||
-        dto.attachmentMimeType
-      ) {
-        const attachment = this.parseAttachment(dto);
-        await transaction.paymentOrderAttachment.create({
-          data: { companyId, paymentOrderId: order.id, ...attachment },
-        });
-      }
+      await transaction.paymentOrderAttachment.create({
+        data: { companyId, paymentOrderId: order.id, ...attachment },
+      });
       await transaction.auditLog.create({
         data: {
           companyId,
@@ -413,11 +403,30 @@ export class PaymentOrdersService {
     return this.prisma.$transaction(async (transaction) => {
       const header = await transaction.paymentOrder.findFirst({
         where: { id, companyId },
+        include: {
+          cashVoucher: {
+            select: { id: true, voucherNumber: true, date: true, status: true },
+          },
+          attachment: {
+            select: { id: true, fileName: true, mimeType: true, size: true },
+          },
+        },
       });
       if (!header)
         throw new NotFoundException('Ordre de paiement introuvable.');
       if (header.status !== PaymentOrderStatus.APPROVED) {
-        throw new ConflictException('Seule une OP approuvée peut être payée.');
+        throw new ConflictException('Seule une OP approuvée peut générer un bon de sortie.');
+      }
+      if (
+        header.cashVoucher &&
+        ['PENDING_APPROVAL', 'ISSUED'].includes(header.cashVoucher.status)
+      ) {
+        return header;
+      }
+      if (!header.attachment) {
+        throw new BadRequestException(
+          'Joignez l’état de besoin à l’OP avant d’émettre un bon de sortie.',
+        );
       }
       const date = new Date();
       const year = date.getUTCFullYear();
@@ -427,26 +436,34 @@ export class PaymentOrdersService {
         header.currency as 'CDF' | 'USD',
       );
       await lockCashAccount(transaction, cashAccount.id);
-      await assertPaymentOrderFundingAvailable(
-        transaction,
-        companyId,
-        cashAccount.id,
-        header.amount,
-        endOfDay(date),
-      );
-      await assertCashAvailable(
-        transaction,
-        companyId,
-        cashAccount.id,
-        header.amount,
-        endOfDay(date),
-      );
       await transaction.$queryRaw`
         WITH advisory_lock AS MATERIALIZED (
           SELECT pg_advisory_xact_lock(hashtext(${`cash-voucher:${companyId}`}), CAST(${year} AS INTEGER))
         )
         SELECT 1 FROM advisory_lock
       `;
+      const currentOrder = await transaction.paymentOrder.findFirst({
+        where: { id, companyId },
+        include: {
+          cashVoucher: {
+            select: { id: true, voucherNumber: true, date: true, status: true },
+          },
+          attachment: {
+            select: { id: true, fileName: true, mimeType: true, size: true },
+          },
+        },
+      });
+      if (!currentOrder || currentOrder.status !== PaymentOrderStatus.APPROVED) {
+        throw new ConflictException(
+          'Cette OP a été traitée entre-temps. Actualisez le registre.',
+        );
+      }
+      if (
+        currentOrder.cashVoucher &&
+        ['PENDING_APPROVAL', 'ISSUED'].includes(currentOrder.cashVoucher.status)
+      ) {
+        return currentOrder;
+      }
       const vouchers = await transaction.cashVoucher.findMany({
         where: { companyId, voucherNumber: { startsWith: `BSC/${year}/` } },
         select: { voucherNumber: true },
@@ -472,10 +489,7 @@ export class PaymentOrdersService {
           cashAccountId: cashAccount.id,
           accountCode: cashAccount.code,
           reference: header.orderNumber,
-          status: 'ISSUED',
-          managerApprovalName: header.managerVisaName,
-          managerApprovalBy: header.managerVisaBy,
-          managerApprovedAt: header.managerVisaAt,
+          status: 'PENDING_APPROVAL',
         },
       });
       const updated = await transaction.paymentOrder.updateMany({
@@ -483,35 +497,20 @@ export class PaymentOrdersService {
           id,
           companyId,
           status: PaymentOrderStatus.APPROVED,
-          cashVoucherId: null,
         },
         data: {
-          status: PaymentOrderStatus.PAID,
-          paidAt: date,
-          paidBy: userId,
           cashVoucherId: voucher.id,
         },
       });
       if (updated.count !== 1)
         throw new ConflictException(
-          'Cette OP a déjà été payée ou modifiée. Actualisez le registre.',
+          'Cette OP a été traitée entre-temps. Actualisez le registre.',
         );
-      await createCashMovement(transaction, {
-        companyId,
-        cashAccountId: cashAccount.id,
-        date,
-        direction: 'OUT',
-        amount: header.amount,
-        sourceType: 'CASH_VOUCHER',
-        sourceId: voucher.id,
-        description: `${voucher.category} · ${header.beneficiary} · ${header.reason}`,
-        reference: voucherNumber,
-      });
       await transaction.auditLog.create({
         data: {
           companyId,
           userId,
-          action: 'PAYMENT_ORDER_PAID',
+          action: 'PAYMENT_ORDER_CASH_VOUCHER_SUBMITTED',
           details: {
             paymentOrderId: id,
             orderNumber: header.orderNumber,
@@ -519,6 +518,7 @@ export class PaymentOrdersService {
             voucherNumber,
             amount: header.amount.toString(),
             currency: header.currency,
+            approvalRequired: true,
           },
         },
       });
@@ -528,9 +528,7 @@ export class PaymentOrdersService {
           attachment: {
             select: { id: true, fileName: true, mimeType: true, size: true },
           },
-          cashVoucher: {
-            select: { id: true, voucherNumber: true, date: true, status: true },
-          },
+          cashVoucher: { select: { id: true, voucherNumber: true, date: true, status: true } },
         },
       });
     });

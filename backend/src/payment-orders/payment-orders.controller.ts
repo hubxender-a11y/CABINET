@@ -167,9 +167,9 @@ export class PaymentOrdersController {
   }
 
   @Post(':id/pay')
-  @Roles(UserRole.COMPANY_ADMIN)
+  @Roles(...requestRoles)
   @ApiOperation({
-    summary: 'Pay an approved order and issue its numbered cash voucher',
+    summary: 'Issue a numbered cash voucher for review after the OP is approved',
   })
   pay(
     @Param('id', new ParseUUIDPipe()) id: string,
