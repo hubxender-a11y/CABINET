@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import {
   CreateFixedAssetDto,
   CreateFixedAssetMovementDto,
+  SendFixedAssetReportDto,
 } from './fixed-assets.dto';
 import { FixedAssetsService } from './fixed-assets.service';
 
@@ -29,6 +31,33 @@ export class FixedAssetsController {
   @Get()
   list(@Req() request: AuthenticatedRequest) {
     return this.assets.list(request.user!.companyId);
+  }
+
+  @Get('report')
+  report(
+    @Query('period') period: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.assets.periodReport(period, request.user!.companyId);
+  }
+
+  @Post('report/send')
+  @Roles(
+    UserRole.COMPANY_ADMIN,
+    UserRole.FINANCE_MANAGER,
+    UserRole.ACCOUNTANT,
+    UserRole.CASHIER,
+  )
+  sendReport(
+    @Body() dto: SendFixedAssetReportDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.assets.sendPeriodReport(
+      dto,
+      request.user!.companyId,
+      request.user!.sub,
+      request.user!.name,
+    );
   }
 
   @Post()

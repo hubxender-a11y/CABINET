@@ -224,4 +224,65 @@ export class NotificationsService {
       return { notified: count, period };
     });
   }
+
+  async sendAssetReportToManagingPartner(
+    companyId: string,
+    senderId: string,
+    senderName: string,
+    report: {
+      period: string;
+      total: number;
+      active: number;
+      maintenance: number;
+      disposed: number;
+      movementCount: number;
+      totals: Record<string, { acquisitionCost: string; netBookValue: string }>;
+    },
+    note: string,
+  ) {
+    const [year, month] = report.period.split('-').map(Number);
+    const label = new Intl.DateTimeFormat('fr-CD', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'Africa/Kinshasa',
+    }).format(new Date(Date.UTC(year, month - 1, 15, 12)));
+    const amounts = Object.entries(report.totals)
+      .map(([currency, totals]) => {
+        const amount = new Intl.NumberFormat('fr-CD', {
+          maximumFractionDigits: currency === 'CDF' ? 0 : 2,
+        }).format(Number(totals.netBookValue));
+        return `${amount} ${currency}`;
+      })
+      .join(' · ') || 'Aucune valeur enregistrée';
+    const message = [
+      `${senderName} a transmis l’état du patrimoine pour ${label}.`,
+      `${report.total} bien(s) au total : ${report.active} en service, ${report.maintenance} en maintenance et ${report.disposed} sorti(s).`,
+      `${report.movementCount} mouvement(s) enregistré(s) pendant la période. Valeur nette indicative à la clôture : ${amounts}.`,
+      `Note : ${note}`,
+      'Ouvrez le module Patrimoine pour consulter et imprimer le détail de l’état.',
+    ].join(' ');
+
+    const recipients = await this.prisma.companyMembership.findMany({
+      where: {
+        companyId,
+        role: { in: [UserRole.MANAGING_PARTNER, UserRole.COMPANY_ADMIN] },
+        user: { isActive: true, id: { not: senderId } },
+      },
+      select: { userId: true },
+    });
+    if (!recipients.length) {
+      throw new NotFoundException(
+        'Aucun Associé-Gérant ou administrateur actif ne peut recevoir cet état.',
+      );
+    }
+    await this.prisma.notification.createMany({
+      data: recipients.map(({ userId }) => ({
+        companyId,
+        userId,
+        title: `État du patrimoine à examiner · ${report.period}`,
+        message,
+      })),
+    });
+    return { sent: recipients.length, period: report.period };
+  }
 }

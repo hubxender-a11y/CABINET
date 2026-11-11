@@ -100,3 +100,13 @@ export class CreateFixedAssetMovementDto {
   @MaxLength(500)
   description?: string;
 }
+
+export class SendFixedAssetReportDto {
+  @IsString()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/)
+  period: string;
+
+  @IsString()
+  @MaxLength(1000)
+  note: string;
+}

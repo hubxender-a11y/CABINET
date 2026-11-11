@@ -5,9 +5,11 @@ import {
   Archive,
   BadgeCheck,
   Building2,
-  Clock3,
+  CalendarDays,
   Plus,
   RefreshCw,
+  Send,
+  Printer,
   Wrench,
 } from "lucide-react";
 import { apiRequest } from "@/lib/api";
@@ -47,6 +49,37 @@ type FixedAsset = {
   movements: AssetMovement[];
 };
 
+type PeriodReport = {
+  period: string;
+  through: string;
+  total: number;
+  active: number;
+  maintenance: number;
+  disposed: number;
+  movementCount: number;
+  movements: Array<{
+    id: string;
+    assetNumber: string;
+    assetName: string;
+    type: string;
+    date: string;
+    description: string | null;
+  }>;
+  totals: Record<string, { acquisitionCost: string; netBookValue: string }>;
+  assets: Array<{
+    id: string;
+    assetNumber: string;
+    name: string;
+    category: string;
+    acquiredAt: string;
+    currency: string;
+    status: string;
+    assignedTo: string | null;
+    location: string | null;
+    netBookValue: string;
+  }>;
+};
+
 const movementOptions: { value: MovementType; label: string }[] = [
   { value: "ASSIGNMENT", label: "Affectation à un membre" },
   { value: "TRANSFER", label: "Transfert de bureau" },
@@ -77,6 +110,18 @@ function statusLabel(status: string) {
       : "Sorti du patrimoine";
 }
 
+function movementTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    ACQUISITION: "Acquisition",
+    ASSIGNMENT: "Affectation",
+    TRANSFER: "Transfert",
+    MAINTENANCE: "Maintenance",
+    RETURN: "Retour en service",
+    DISPOSAL: "Sortie du patrimoine",
+  };
+  return labels[type] ?? type;
+}
+
 export default function PatrimoinePage() {
   const today = useKinshasaDate() ?? "";
   const [assets, setAssets] = useState<FixedAsset[]>([]);
@@ -105,6 +150,13 @@ export default function PatrimoinePage() {
   const [movementDate, setMovementDate] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [reportPeriod, setReportPeriod] = useState("");
+  const [periodReport, setPeriodReport] = useState<PeriodReport | null>(null);
+  const [periodNote, setPeriodNote] = useState("");
+  const [periodLoading, setPeriodLoading] = useState(false);
+  const [sendingPeriodReport, setSendingPeriodReport] = useState(false);
+  const [periodError, setPeriodError] = useState("");
+  const [periodMessage, setPeriodMessage] = useState("");
 
   const loadAssets = useCallback(async () => {
     setLoading(true);
@@ -125,6 +177,34 @@ export default function PatrimoinePage() {
   useEffect(() => {
     void Promise.resolve().then(loadAssets);
   }, [loadAssets]);
+
+  useEffect(() => {
+    if (!today) return;
+    const requestedPeriod = new URLSearchParams(window.location.search).get("period");
+    setReportPeriod(
+      requestedPeriod && /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedPeriod) && requestedPeriod <= today.slice(0, 7)
+        ? requestedPeriod
+        : today.slice(0, 7),
+    );
+  }, [today]);
+
+  useEffect(() => {
+    if (!reportPeriod) return;
+    let active = true;
+    setPeriodLoading(true);
+    setPeriodError("");
+    setPeriodMessage("");
+    apiRequest<PeriodReport>(`/fixed-assets/report?period=${encodeURIComponent(reportPeriod)}`)
+      .then((report) => { if (active) setPeriodReport(report); })
+      .catch((requestError: unknown) => {
+        if (active) {
+          setPeriodReport(null);
+          setPeriodError(requestError instanceof Error ? requestError.message : "Impossible de préparer l’état périodique.");
+        }
+      })
+      .finally(() => { if (active) setPeriodLoading(false); });
+    return () => { active = false; };
+  }, [reportPeriod]);
 
   useEffect(() => {
     void apiRequest<{ role: string }>("/auth/me")
@@ -221,6 +301,32 @@ export default function PatrimoinePage() {
     }
   }
 
+  async function sendPeriodReport() {
+    if (!periodReport || !periodNote.trim()) return;
+    setSendingPeriodReport(true);
+    setPeriodError("");
+    setPeriodMessage("");
+    try {
+      await apiRequest("/fixed-assets/report/send", {
+        method: "POST",
+        body: JSON.stringify({ period: reportPeriod, note: periodNote.trim() }),
+      });
+      setPeriodMessage("L’état périodique et votre note ont été transmis à l’Associé-Gérant.");
+    } catch (requestError) {
+      setPeriodError(requestError instanceof Error ? requestError.message : "La transmission de l’état a échoué.");
+    } finally {
+      setSendingPeriodReport(false);
+    }
+  }
+
+  function printPeriodReport() {
+    document.body.classList.add("print-asset-period-report");
+    const cleanUp = () => document.body.classList.remove("print-asset-period-report");
+    window.addEventListener("afterprint", cleanUp, { once: true });
+    window.print();
+    window.setTimeout(cleanUp, 5000);
+  }
+
   const activeCount = assets.filter(
     (asset) => asset.status === "ACTIVE",
   ).length;
@@ -247,12 +353,12 @@ export default function PatrimoinePage() {
       <header className="asset-page-header">
         <div>
           <p className="asset-page-eyebrow">
-            Stock, matériel & patrimoine · biens durables
+            Immobilisations · biens durables
           </p>
           <h1>Patrimoine du cabinet</h1>
           <p>
-            Suivez les biens, leurs affectations et mouvements. La valeur nette
-            est indicative et ne génère pas d’écritures comptables.
+            Inventoriez les biens du cabinet, leurs affectations, leur état et
+            leurs mouvements. Préparez un état à la période demandée par l’Associé-Gérant.
           </p>
         </div>
         <div className="asset-page-actions">
@@ -353,6 +459,93 @@ export default function PatrimoinePage() {
           </ul>
         </section>
       )}
+
+      <section className="asset-period-report" aria-labelledby="asset-period-title">
+        <div className="asset-period-header asset-period-screen-only">
+          <div>
+            <p className="asset-page-eyebrow">Rapport patrimonial</p>
+            <h2 id="asset-period-title">État périodique du matériel</h2>
+            <p>Choisissez la période demandée, ajoutez une note, puis transmettez l’état à l’Associé-Gérant.</p>
+          </div>
+          <label className="asset-period-selector">
+            <CalendarDays className="h-4 w-4" />
+            <span>Période</span>
+            <input type="month" max={today.slice(0, 7) || undefined} value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value)} />
+          </label>
+        </div>
+        <div className="asset-period-print-heading">
+          <h1>Cabinet Transparency · État du patrimoine</h1>
+          <p>{reportPeriod ? new Intl.DateTimeFormat("fr-CD", { month: "long", year: "numeric", timeZone: "Africa/Kinshasa" }).format(new Date(`${reportPeriod}-15T12:00:00Z`)) : "Période non sélectionnée"} · situation au {periodReport ? formatDate(periodReport.through) : "—"}</p>
+        </div>
+        {periodError && <p role="alert" className="asset-period-screen-only rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{periodError}</p>}
+        {periodMessage && <p role="status" className="asset-period-screen-only rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{periodMessage}</p>}
+        {periodLoading ? (
+          <p className="asset-period-loading">Préparation de l’état…</p>
+        ) : periodReport ? (
+          <>
+            <div className="asset-period-stats">
+              <article><span>Biens inventoriés</span><strong>{periodReport.total}</strong></article>
+              <article><span>En service</span><strong>{periodReport.active}</strong></article>
+              <article><span>En maintenance</span><strong>{periodReport.maintenance}</strong></article>
+              <article><span>Sortis</span><strong>{periodReport.disposed}</strong></article>
+              <article><span>Mouvements de la période</span><strong>{periodReport.movementCount}</strong></article>
+            </div>
+            <div className="asset-period-values">
+              {Object.entries(periodReport.totals).map(([code, values]) => (
+                <p key={code}>Valeur d’acquisition détenue : <strong>{formatAmount(values.acquisitionCost, code)}</strong><span> · Valeur nette indicative : <strong>{formatAmount(values.netBookValue, code)}</strong></span></p>
+              ))}
+              {!Object.keys(periodReport.totals).length && <p>Aucun bien acquis avant la clôture de cette période.</p>}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="asset-period-table">
+                <thead><tr><th>N° inventaire</th><th>Matériel</th><th>État à la clôture</th><th>Affectation / lieu</th><th>Acquisition</th><th>Valeur nette indicative</th></tr></thead>
+                <tbody>{periodReport.assets.map((asset) => (
+                  <tr key={asset.id}>
+                    <td>{asset.assetNumber}</td>
+                    <td><strong>{asset.name}</strong><small>{asset.category}</small></td>
+                    <td>{statusLabel(asset.status)}</td>
+                    <td>{[asset.assignedTo, asset.location].filter(Boolean).join(" · ") || "Non affecté"}</td>
+                    <td>{formatDate(asset.acquiredAt)}</td>
+                    <td>{asset.status === "DISPOSED" ? "—" : formatAmount(asset.netBookValue, asset.currency)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+              {!periodReport.assets.length && <p className="asset-period-empty">Aucun matériel enregistré à cette date.</p>}
+            </div>
+            <div className="asset-period-movements">
+              <h3>Mouvements enregistrés pendant la période</h3>
+              {periodReport.movements.length ? (
+                <div className="overflow-x-auto">
+                  <table className="asset-period-table">
+                    <thead><tr><th>Date</th><th>N° inventaire</th><th>Matériel</th><th>Événement</th><th>Note</th></tr></thead>
+                    <tbody>{periodReport.movements.map((movement) => (
+                      <tr key={movement.id}>
+                        <td>{formatDate(movement.date)}</td>
+                        <td>{movement.assetNumber}</td>
+                        <td>{movement.assetName}</td>
+                        <td>{movementTypeLabel(movement.type)}</td>
+                        <td>{movement.description || "—"}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              ) : <p className="asset-period-empty">Aucun mouvement pendant cette période.</p>}
+            </div>
+            <label className="asset-period-note asset-period-screen-only">
+              Note pour l’Associé-Gérant
+              <textarea maxLength={1000} required rows={3} value={periodNote} onChange={(event) => setPeriodNote(event.target.value)} placeholder="Ex. Deux ordinateurs nécessitent un entretien préventif…" />
+            </label>
+            <p className="asset-period-print-note"><strong>Note :</strong> {periodNote.trim() || "Aucune note ajoutée."}</p>
+            <div className="asset-period-actions asset-period-screen-only">
+              <button type="button" onClick={printPeriodReport} disabled={!periodReport} className="asset-period-secondary"><Printer className="h-4 w-4" /> Imprimer l’état</button>
+              { ["COMPANY_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT", "CASHIER"].includes(userRole) && (
+                <button type="button" onClick={() => void sendPeriodReport()} disabled={sendingPeriodReport || periodLoading || !periodNote.trim()} className="asset-period-send"><Send className="h-4 w-4" />{sendingPeriodReport ? "Transmission…" : "Transmettre au Gérant"}</button>
+              )}
+            </div>
+            <p className="asset-period-footnote">Les biens sortis restent visibles dans l’inventaire mais sont exclus des valeurs détenues. La valeur nette est estimative et ne génère pas d’écriture comptable.</p>
+          </>
+        ) : null}
+      </section>
 
       {showForm &&
         ["COMPANY_ADMIN", "ACCOUNTANT", "FINANCE_MANAGER"].includes(
@@ -524,8 +717,7 @@ export default function PatrimoinePage() {
               Registre des immobilisations
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              L’inventaire de patrimoine reste distinct des stocks de
-              fournitures.
+              Biens suivis par numéro d’inventaire, affectation et état.
             </p>
           </div>
           <Building2 className="h-5 w-5 text-blue-600" />
@@ -684,8 +876,7 @@ export default function PatrimoinePage() {
               {error ? "Registre indisponible" : assets.length ? "Aucun bien ne correspond aux filtres" : "Aucun bien patrimonial enregistré"}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Ajoutez le matériel durable du cabinet ici. Les fournitures
-              restent dans le module de stock.
+              Ajoutez ici les biens durables du cabinet et suivez leur état au fil des périodes.
             </p>
           </div>
         )}

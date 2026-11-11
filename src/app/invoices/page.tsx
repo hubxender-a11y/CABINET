@@ -968,16 +968,18 @@ export default function InvoicesPage() {
                               type="button"
                               onClick={() => void removeInvoice(invoice)}
                               disabled={deletingInvoiceId === invoice.id}
-                              className="invoice-delete-button"
+                              className="invoice-delete-button invoice-delete-icon-button"
                               aria-label={`Supprimer définitivement la facture ${invoice.id}`}
                               title={`Supprimer la facture ${invoice.id}`}
                             >
-                              <Trash2 className="h-4 w-4" />
-                              <span>
-                                {deletingInvoiceId === invoice.id
-                                  ? "Suppression…"
-                                  : "Supprimer"}
-                              </span>
+                              {deletingInvoiceId === invoice.id ? (
+                                <span
+                                  aria-hidden="true"
+                                  className="h-4 w-4 animate-spin rounded-full border-2 border-rose-300 border-t-rose-700"
+                                />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
                             </button>
                           </div>
                         </td>

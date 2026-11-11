@@ -1115,6 +1115,111 @@ summary:focus-visible {
   background: var(--brand-deep);
 }
 
+.asset-period-report {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 4%);
+}
+
+.asset-period-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.4rem;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.asset-period-header h2 {
+  margin-top: 0.25rem;
+  color: #1e293b;
+  font-size: 1.1rem;
+  font-weight: 750;
+}
+
+.asset-period-header p:not(.asset-page-eyebrow) {
+  margin-top: 0.3rem;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.asset-period-selector {
+  display: grid;
+  min-width: 10rem;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.2rem 0.45rem;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.asset-period-selector input {
+  grid-column: 1 / -1;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #dbe2ec;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+
+.asset-period-print-heading { display: none; }
+
+.asset-period-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+  padding: 1rem 1.25rem 0;
+}
+
+.asset-period-stats article {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.8rem;
+  border: 1px solid #e8edf4;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+}
+
+.asset-period-stats span { color: #64748b; font-size: 0.67rem; }
+.asset-period-stats strong { color: #172554; font-size: 1.25rem; }
+
+.asset-period-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.9rem 1.25rem;
+  color: #475569;
+  font-size: 0.75rem;
+}
+
+.asset-period-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.72rem; }
+.asset-period-table th { padding: 0.7rem 0.8rem; background: #f1f5f9; color: #475569; font-size: 0.62rem; text-transform: uppercase; }
+.asset-period-table td { padding: 0.7rem 0.8rem; border-top: 1px solid #edf0f4; color: #334155; }
+.asset-period-table small { display: block; margin-top: 0.15rem; color: #64748b; }
+.asset-period-empty,.asset-period-loading { padding: 1.2rem; color: #64748b; font-size: 0.8rem; }
+.asset-period-movements { border-top: 1px solid #edf0f4; }
+.asset-period-movements h3 { padding: 0.85rem 1.25rem 0.5rem; color: #334155; font-size: 0.75rem; font-weight: 750; }
+
+.asset-period-note { display: grid; gap: 0.45rem; padding: 0.9rem 1.25rem 0; color: #334155; font-size: 0.75rem; font-weight: 700; }
+.asset-period-note textarea { width: 100%; resize: vertical; border: 1px solid #dbe2ec; border-radius: 0.7rem; padding: 0.65rem 0.75rem; color: #334155; font-size: 0.8rem; font-weight: 400; }
+.asset-period-print-note { padding: 0.8rem 1.25rem; color: #475569; font-size: 0.75rem; }
+.asset-period-actions { display: flex; justify-content: flex-end; gap: 0.55rem; padding: 0.4rem 1.25rem 1.1rem; }
+.asset-period-actions button { display: inline-flex; min-height: 2.4rem; align-items: center; justify-content: center; gap: 0.45rem; border-radius: 0.65rem; padding: 0.55rem 0.8rem; font-size: 0.72rem; font-weight: 700; }
+.asset-period-secondary { border: 1px solid #dbe2ec; background: #fff; color: #334155; }
+.asset-period-send { background: #0a4577; color: #fff; }
+.asset-period-actions button:disabled { cursor: not-allowed; opacity: 0.5; }
+.asset-period-footnote { border-top: 1px solid #edf0f4; padding: 0.7rem 1.25rem; color: #64748b; font-size: 0.68rem; }
+
+@media (max-width: 760px) {
+  .asset-period-header { align-items: stretch; flex-direction: column; }
+  .asset-period-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .asset-period-stats article:last-child { grid-column: 1 / -1; }
+  .asset-period-actions { align-items: stretch; flex-direction: column; }
+}
+
 .archive-binder-card {
   display: flex;
   min-width: 0;
@@ -2388,6 +2493,12 @@ summary:focus-visible {
 
 .invoice-delete-button {
   color: #b42318;
+}
+
+.invoice-delete-icon-button {
+  width: 2rem;
+  min-width: 2rem;
+  padding: 0;
 }
 
 .invoice-view-button:hover {
@@ -7013,6 +7124,41 @@ summary:focus-visible {
 }
 
 @media print {
+  @page asset-period-report {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  body.print-asset-period-report * { visibility: hidden !important; }
+  body.print-asset-period-report .asset-period-report,
+  body.print-asset-period-report .asset-period-report * { visibility: visible !important; }
+  body.print-asset-period-report .asset-period-report {
+    position: fixed !important;
+    inset: 10mm !important;
+    z-index: 2147483647 !important;
+    display: block !important;
+    overflow: visible !important;
+    width: auto !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    page: asset-period-report;
+  }
+  body.print-asset-period-report .asset-period-screen-only { display: none !important; }
+  body.print-asset-period-report .asset-period-print-heading { display: block; padding: 0 0 5mm; }
+  body.print-asset-period-report .asset-period-print-heading h1 { color: #0a4577; font-size: 17pt; font-weight: 700; }
+  body.print-asset-period-report .asset-period-print-heading p { margin-top: 2mm; color: #475569; font-size: 9pt; }
+  body.print-asset-period-report .asset-period-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0 0 4mm; }
+  body.print-asset-period-report .asset-period-stats article { padding: 3mm; }
+  body.print-asset-period-report .asset-period-values { padding: 2mm 0 4mm; }
+  body.print-asset-period-report .asset-period-table { font-size: 8pt; }
+  body.print-asset-period-report .asset-period-table th,
+  body.print-asset-period-report .asset-period-table td { padding: 2mm; }
+  body.print-asset-period-report .asset-period-movements { margin-top: 4mm; }
+  body.print-asset-period-report .asset-period-movements h3 { padding: 0 0 2mm; }
+  body.print-asset-period-report .asset-period-print-note { padding: 4mm 0 2mm; }
+  body.print-asset-period-report .asset-period-footnote { padding: 2mm 0; }
+
   @page payment-order-document {
     size: A4 portrait;
     margin: 0;

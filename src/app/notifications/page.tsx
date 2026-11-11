@@ -17,6 +17,10 @@ type NotificationItem = {
 type NotificationResponse = { notifications: NotificationItem[]; unreadCount: number };
 
 function destination(title: string) {
+  if (title.startsWith("État du patrimoine")) {
+    const period = /(\d{4}-(?:0[1-9]|1[0-2]))$/.exec(title)?.[1];
+    return period ? `/patrimoine?period=${period}` : "/patrimoine";
+  }
   if (title.startsWith("Facture impayée")) return "/recouvrement";
   if (title.startsWith("Approvisionnement reçu")) return "/funding";
   if (title.startsWith("OP à examiner") || title.startsWith("OP rejetée")) return "/payment-orders";

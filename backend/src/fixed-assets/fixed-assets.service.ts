@@ -6,9 +6,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   CreateFixedAssetDto,
   CreateFixedAssetMovementDto,
+  SendFixedAssetReportDto,
 } from './fixed-assets.dto';
 
 function elapsedMonths(acquiredAt: Date, asOf: Date): number {
@@ -22,7 +24,166 @@ function elapsedMonths(acquiredAt: Date, asOf: Date): number {
 
 @Injectable()
 export class FixedAssetsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  async periodReport(period: string, companyId: string) {
+    const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period ?? '');
+    if (!match) throw new BadRequestException('La période doit être au format AAAA-MM.');
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const start = new Date(Date.UTC(year, month - 1, 1));
+    const todayParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Kinshasa',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const todayValues = Object.fromEntries(
+      todayParts.map(({ type, value }) => [type, value]),
+    );
+    const currentYear = Number(todayValues.year);
+    const currentMonth = Number(todayValues.month);
+    const currentDay = Number(todayValues.day);
+    if (year > currentYear || (year === currentYear && month > currentMonth)) {
+      throw new BadRequestException('Un état patrimonial ne peut pas être préparé pour une période future.');
+    }
+    const end = year === currentYear && month === currentMonth
+      ? new Date(Date.UTC(year, month - 1, currentDay, 23, 59, 59, 999))
+      : new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+
+    const assets = await this.prisma.fixedAsset.findMany({
+      where: { companyId, acquiredAt: { lte: end } },
+      include: {
+        movements: {
+          where: { movementDate: { lte: end } },
+          orderBy: [{ movementDate: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+      orderBy: [{ assetNumber: 'asc' }],
+    });
+
+    const rows = assets.map((asset) => {
+      let status = 'ACTIVE';
+      let assignedTo: string | null = null;
+      let location: string | null = null;
+      for (const movement of asset.movements) {
+        if (movement.movementType === 'ACQUISITION') {
+          assignedTo = movement.toAssignee;
+          location = movement.toLocation;
+        } else if (movement.movementType === 'ASSIGNMENT') {
+          assignedTo = movement.toAssignee;
+        } else if (movement.movementType === 'TRANSFER') {
+          location = movement.toLocation;
+        } else if (movement.movementType === 'MAINTENANCE') {
+          status = 'MAINTENANCE';
+        } else if (movement.movementType === 'RETURN') {
+          status = 'ACTIVE';
+        } else if (movement.movementType === 'DISPOSAL') {
+          status = 'DISPOSED';
+        }
+      }
+      const depreciableAmount = new Prisma.Decimal(asset.acquisitionCost).sub(
+        asset.residualValue,
+      );
+      const months = Math.min(
+        elapsedMonths(asset.acquiredAt, end),
+        asset.usefulLifeMonths,
+      );
+      const accumulatedDepreciation = depreciableAmount
+        .mul(months)
+        .div(asset.usefulLifeMonths)
+        .toDecimalPlaces(2);
+      const netBookValue = new Prisma.Decimal(asset.acquisitionCost)
+        .sub(accumulatedDepreciation)
+        .toDecimalPlaces(2);
+      return {
+        id: asset.id,
+        assetNumber: asset.assetNumber,
+        name: asset.name,
+        category: asset.category,
+        serialNumber: asset.serialNumber,
+        acquiredAt: asset.acquiredAt,
+        acquisitionCost: asset.acquisitionCost,
+        currency: asset.currency,
+        status,
+        assignedTo,
+        location,
+        accumulatedDepreciation,
+        netBookValue,
+        notes: asset.notes,
+        movements: asset.movements,
+      };
+    });
+
+    const movements = rows.flatMap((asset) =>
+      asset.movements
+        .filter((movement) => movement.movementDate >= start && movement.movementDate <= end)
+        .map((movement) => ({
+          id: movement.id,
+          assetNumber: asset.assetNumber,
+          assetName: asset.name,
+          type: movement.movementType,
+          date: movement.movementDate,
+          description: movement.description,
+        })),
+    );
+    const retainedRows = rows.filter((asset) => asset.status !== 'DISPOSED');
+    const totals = retainedRows.reduce<Record<string, { acquisitionCost: string; netBookValue: string }>>(
+      (result, asset) => {
+        const current = result[asset.currency] ?? {
+          acquisitionCost: new Prisma.Decimal(0).toString(),
+          netBookValue: new Prisma.Decimal(0).toString(),
+        };
+        result[asset.currency] = {
+          acquisitionCost: new Prisma.Decimal(current.acquisitionCost)
+            .add(asset.acquisitionCost).toString(),
+          netBookValue: new Prisma.Decimal(current.netBookValue)
+            .add(asset.netBookValue).toString(),
+        };
+        return result;
+      },
+      {},
+    );
+
+    return {
+      period,
+      from: start,
+      through: end,
+      total: rows.length,
+      active: rows.filter((asset) => asset.status === 'ACTIVE').length,
+      maintenance: rows.filter((asset) => asset.status === 'MAINTENANCE').length,
+      disposed: rows.filter((asset) => asset.status === 'DISPOSED').length,
+      movementCount: movements.length,
+      movements,
+      totals,
+      assets: rows.map((asset) => {
+        const { movements: assetMovements, ...summary } = asset;
+        void assetMovements;
+        return summary;
+      }),
+    };
+  }
+
+  async sendPeriodReport(
+    dto: SendFixedAssetReportDto,
+    companyId: string,
+    userId: string,
+    senderName: string,
+  ) {
+    const note = dto.note.trim();
+    if (!note) throw new BadRequestException('Ajoutez une note à transmettre au Gérant.');
+    const report = await this.periodReport(dto.period, companyId);
+    return this.notifications.sendAssetReportToManagingPartner(
+      companyId,
+      userId,
+      senderName,
+      report,
+      note,
+    );
+  }
 
   async list(companyId: string) {
     const assets = await this.prisma.fixedAsset.findMany({
