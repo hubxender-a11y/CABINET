@@ -2,7 +2,7 @@
 
 import { Fragment, FormEvent, Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, Printer, X } from "lucide-react";
+import { ChevronDown, Download, Printer, X } from "lucide-react";
 import { useWorkspaceStore, type WorkspacePayment } from "@/components/workspace-store";
 import {
   DocumentFooter,
@@ -150,6 +150,148 @@ function PaymentsRegister() {
     document.body.classList.add("print-payment-receipt-mode");
     window.addEventListener("afterprint", cleanup);
     window.print();
+  }
+
+  async function downloadReceiptWord() {
+    if (!selectedReceipt) return;
+    const copies = Array.from(
+      document.querySelectorAll<HTMLElement>(".payment-receipt-copy"),
+    );
+    if (copies.length !== 2) return;
+
+    const inlineTree = (source: Element, target: Element) => {
+      const computed = window.getComputedStyle(source);
+      const styles = Array.from(computed)
+        .map((property) => `${property}:${computed.getPropertyValue(property)}`)
+        .join(";");
+      target.setAttribute("style", styles);
+      const sourceChildren = Array.from(source.children);
+      const targetChildren = Array.from(target.children);
+      sourceChildren.forEach((child, index) => {
+        const targetChild = targetChildren[index];
+        if (targetChild) inlineTree(child, targetChild);
+      });
+    };
+
+    const fileCopies: string[] = [];
+    for (const [index, source] of copies.entries()) {
+      const clone = source.cloneNode(true) as HTMLElement;
+      const title = index === 0 ? "Reçu de caisse" : "Bon d'entrée de caisse";
+      clone.querySelector("[data-receipt-title]")?.replaceChildren(title);
+      clone.querySelector("[data-receipt-copy-label]")?.replaceChildren(
+        index === 0 ? "Exemplaire client" : "Exemplaire cabinet",
+      );
+      inlineTree(source, clone);
+      if (index === 1) clone.style.pageBreakBefore = "always";
+
+      for (const image of Array.from(clone.querySelectorAll("img"))) {
+        try {
+          const response = await fetch(image.src);
+          if (!response.ok) continue;
+          const blob = await response.blob();
+          image.src = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+              typeof reader.result === "string"
+                ? resolve(reader.result)
+                : reject(new Error("Logo illisible"));
+            reader.onerror = () => reject(new Error("Logo illisible"));
+            reader.readAsDataURL(blob);
+          });
+        } catch {
+          // Word can still open the document if a decorative image is unavailable.
+        }
+      }
+      fileCopies.push(clone.outerHTML);
+    }
+
+    const wordDocument = `<!doctype html><html><head><meta charset="utf-8"><title>Reçu et bon d'entrée de caisse</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;color:#0f172a}.payment-receipt-copy{box-sizing:border-box;width:100%;page-break-inside:avoid}.payment-receipt-copy+ .payment-receipt-copy{page-break-before:always}</style></head><body>${fileCopies.join("")}</body></html>`;
+    const blob = new Blob(["\ufeff", wordDocument], {
+      type: "application/msword;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `caisse-${selectedReceipt.invoiceNumber.replace(/[^a-z0-9-]/gi, "-")}.doc`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function receiptCopy(title: string, copyLabel: string) {
+    if (!selectedReceipt) return null;
+    return (
+      <article className="payment-receipt-print payment-receipt-copy space-y-5 border border-slate-300 bg-white p-6 text-slate-900 shadow-sm sm:p-10">
+        <DocumentLetterhead />
+        <header className="border-y-2 border-slate-900 py-4 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500" data-receipt-copy-label>
+            {copyLabel}
+          </p>
+          <h2
+            id={copyLabel === "Exemplaire client" ? "payment-receipt-title-client" : "payment-receipt-title-cabinet"}
+            data-receipt-title
+            className="mt-2 text-2xl font-bold uppercase"
+          >
+            {title}
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Référence N° {selectedReceipt.id.replaceAll("-", "").slice(0, 12).toUpperCase()}
+          </p>
+        </header>
+
+        <section className="grid gap-4 text-sm sm:grid-cols-2">
+          <div className="space-y-2">
+            <p><span className="font-semibold">Client :</span> {selectedReceipt.customer}</p>
+            <p><span className="font-semibold">Facture :</span> {selectedReceipt.invoiceNumber}</p>
+            <p><span className="font-semibold">Date du règlement :</span> {formatDate(selectedReceipt.createdAt, { dateStyle: "long", timeStyle: "short" })}</p>
+          </div>
+          <div className="space-y-2">
+            <p><span className="font-semibold">Mode de paiement :</span> {methodLabels[selectedReceipt.method]}</p>
+            <p><span className="font-semibold">Référence :</span> {selectedReceipt.reference || "Non renseignée"}</p>
+            <p><span className="font-semibold">Statut :</span> {selectedReceipt.status === "RECEIVED" ? "Reçu et enregistré" : selectedReceipt.status || "À vérifier"}</p>
+          </div>
+        </section>
+
+        <section className="overflow-hidden border border-slate-400">
+          <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
+            <span>Montant de cette tranche reçue</span>
+            <strong>{formatMoney(Number(selectedReceipt.amount), selectedReceipt.currency)}</strong>
+          </div>
+          {receiptInvoiceTotal !== null && (
+            <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
+              <span>Montant total de la facture</span>
+              <strong>{formatMoney(receiptInvoiceTotal, selectedReceipt.currency)}</strong>
+            </div>
+          )}
+          {receiptPaidAfter !== null && receiptBalanceAfter !== null ? (
+            <>
+              <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
+                <span>Total cumulé reçu après ce règlement</span>
+                <strong>{formatMoney(receiptPaidAfter, selectedReceipt.currency)}</strong>
+              </div>
+              <div className="grid grid-cols-[1fr_auto] bg-slate-50 px-4 py-3 text-sm">
+                <span>Solde après ce règlement</span>
+                <strong>{formatMoney(receiptBalanceAfter, selectedReceipt.currency)}</strong>
+              </div>
+            </>
+          ) : receiptCurrentBalance !== null ? (
+            <div className="grid grid-cols-[1fr_auto] bg-slate-50 px-4 py-3 text-sm">
+              <span>Solde actuel de la facture</span>
+              <strong>{formatMoney(receiptCurrentBalance, selectedReceipt.currency)}</strong>
+            </div>
+          ) : null}
+        </section>
+
+        <p className="border border-slate-300 p-3 text-xs leading-5 text-slate-600">
+          {copyLabel === "Exemplaire client"
+            ? "Ce reçu confirme l’enregistrement du montant indiqué. Il ne remplace pas la facture et ne vaut pas certification fiscale."
+            : "Bon interne attestant l’entrée des fonds en caisse au titre du règlement indiqué."}
+        </p>
+
+        <div className="flex justify-end"><DocumentSignature /></div>
+        <DocumentFooter />
+        <p className="text-center text-[10px] text-slate-400">{displayCabinetName(profile?.legalName)}</p>
+      </article>
+    );
   }
 
   return (
@@ -443,12 +585,12 @@ function PaymentsRegister() {
 
       {selectedReceipt && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-6"
+          className="payment-receipt-dialog fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-6"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="payment-receipt-title"
+          aria-labelledby="payment-receipt-title-client"
         >
-          <div className="max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-slate-100 p-3 shadow-2xl sm:p-6">
+          <div className="payment-receipt-preview-scroll max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-slate-100 p-3 shadow-2xl sm:p-6">
             <div className="screen-only mb-3 flex items-center justify-between gap-3">
               <p className="text-sm font-medium text-slate-700">Aperçu du reçu de règlement</p>
               <div className="flex items-center gap-2">
@@ -457,7 +599,14 @@ function PaymentsRegister() {
                   onClick={printReceipt}
                   className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
                 >
-                  <Printer className="h-4 w-4" /> Imprimer le reçu
+                  <Printer className="h-4 w-4" /> Imprimer les 2 exemplaires
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadReceiptWord()}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <Download className="h-4 w-4" /> Télécharger Word
                 </button>
                 <button
                   type="button"
@@ -470,103 +619,10 @@ function PaymentsRegister() {
               </div>
             </div>
 
-            <article className="payment-receipt-print space-y-5 border border-slate-300 bg-white p-6 text-slate-900 shadow-sm sm:p-10">
-              <DocumentLetterhead />
-              <header className="border-y-2 border-slate-900 py-4 text-center">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Reçu de règlement
-                </p>
-                <h2
-                  id="payment-receipt-title"
-                  className="mt-2 text-2xl font-bold uppercase"
-                >
-                  Paiement reçu
-                </h2>
-                <p className="mt-2 text-sm text-slate-600">
-                  Reçu interne N°{" "}
-                  {selectedReceipt.id.replaceAll("-", "").slice(0, 12).toUpperCase()}
-                </p>
-              </header>
-
-              <section className="grid gap-4 text-sm sm:grid-cols-2">
-                <div className="space-y-2">
-                  <p>
-                    <span className="font-semibold">Client :</span>{" "}
-                    {selectedReceipt.customer}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Facture :</span>{" "}
-                    {selectedReceipt.invoiceNumber}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Date du règlement :</span>{" "}
-                    {formatDate(selectedReceipt.createdAt, {
-                      dateStyle: "long",
-                      timeStyle: "short",
-                    })}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <p>
-                    <span className="font-semibold">Mode de paiement :</span>{" "}
-                    {methodLabels[selectedReceipt.method]}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Référence :</span>{" "}
-                    {selectedReceipt.reference || "Non renseignée"}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Statut :</span>{" "}
-                    {selectedReceipt.status === "RECEIVED"
-                      ? "Reçu et enregistré"
-                      : selectedReceipt.status || "À vérifier"}
-                  </p>
-                </div>
-              </section>
-
-              <section className="overflow-hidden border border-slate-400">
-                <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
-                  <span>Montant de cette tranche reçue</span>
-                  <strong>{formatMoney(Number(selectedReceipt.amount), selectedReceipt.currency)}</strong>
-                </div>
-                {receiptInvoiceTotal !== null && (
-                  <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
-                    <span>Montant total de la facture</span>
-                    <strong>{formatMoney(receiptInvoiceTotal, selectedReceipt.currency)}</strong>
-                  </div>
-                )}
-                {receiptPaidAfter !== null && receiptBalanceAfter !== null ? (
-                  <>
-                    <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
-                      <span>Total cumulé reçu après ce règlement</span>
-                      <strong>{formatMoney(receiptPaidAfter, selectedReceipt.currency)}</strong>
-                    </div>
-                    <div className="grid grid-cols-[1fr_auto] bg-slate-50 px-4 py-3 text-sm">
-                      <span>Solde après ce règlement</span>
-                      <strong>{formatMoney(receiptBalanceAfter, selectedReceipt.currency)}</strong>
-                    </div>
-                  </>
-                ) : receiptCurrentBalance !== null ? (
-                  <div className="grid grid-cols-[1fr_auto] bg-slate-50 px-4 py-3 text-sm">
-                    <span>Solde actuel de la facture</span>
-                    <strong>{formatMoney(receiptCurrentBalance, selectedReceipt.currency)}</strong>
-                  </div>
-                ) : null}
-              </section>
-
-              <p className="border border-slate-300 p-3 text-xs leading-5 text-slate-600">
-                Ce reçu confirme l’enregistrement du montant indiqué. Il ne
-                remplace pas la facture et ne vaut pas certification fiscale.
-              </p>
-
-              <div className="flex justify-end">
-                <DocumentSignature />
-              </div>
-              <DocumentFooter />
-              <p className="text-center text-[10px] text-slate-400">
-                {displayCabinetName(profile?.legalName)}
-              </p>
-            </article>
+            <div className="payment-receipt-copies space-y-5">
+              {receiptCopy("Reçu de caisse", "Exemplaire client")}
+              {receiptCopy("Bon d'entrée de caisse", "Exemplaire cabinet")}
+            </div>
           </div>
         </div>
       )}

@@ -91,7 +91,6 @@ export class ArchivesService {
         fiscalYear: true,
         period: true,
         createdAt: true,
-        _count: { select: { documents: true } },
       },
       orderBy: [
         { fiscalYear: 'desc' },
@@ -100,9 +99,21 @@ export class ArchivesService {
         { name: 'asc' },
       ],
     });
-    return binders.map(({ _count, ...binder }) => ({
+    const documentCounts = await this.prisma.archiveDocument.groupBy({
+      by: ['binderId'],
+      where: {
+        companyId,
+        binderId: { in: binders.map((binder) => binder.id) },
+        deletedAt: null,
+      },
+      _count: { _all: true },
+    });
+    const countByBinderId = new Map(
+      documentCounts.map((item) => [item.binderId, item._count._all]),
+    );
+    return binders.map((binder) => ({
       ...binder,
-      documentCount: _count.documents,
+      documentCount: countByBinderId.get(binder.id) ?? 0,
     }));
   }
 
@@ -187,13 +198,18 @@ export class ArchivesService {
         }
 
         const documentCount = await transaction.archiveDocument.count({
-          where: { companyId, binderId: id },
+          where: { companyId, binderId: id, deletedAt: null },
         });
         if (documentCount > 0) {
           throw new ConflictException(
-            'Ce classeur contient des documents, y compris dans la corbeille. Déplacez-les ou supprimez-les définitivement avant de supprimer le classeur.',
+            'Ce classeur contient encore des documents actifs. Déplacez-les ou mettez-les dans la corbeille avant de le supprimer.',
           );
         }
+
+        await transaction.archiveDocument.updateMany({
+          where: { companyId, binderId: id, deletedAt: { not: null } },
+          data: { binderId: null },
+        });
 
         await transaction.archiveBinder.delete({ where: { id } });
         await transaction.auditLog.create({

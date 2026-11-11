@@ -139,6 +139,8 @@ export default function DocumentsPage() {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterYear, setFilterYear] = useState("");
   const [filterPinned, setFilterPinned] = useState(false);
+  const [documentPage, setDocumentPage] = useState(1);
+  const documentsPerPage = 10;
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
   const [showTrash, setShowTrash] = useState(false);
   const [showUploadForm, setShowUploadForm] = useState(false);
@@ -240,6 +242,15 @@ export default function DocumentsPage() {
         : documents,
     [documents, filterCategory],
   );
+  const pageCount = Math.max(1, Math.ceil(visibleDocuments.length / documentsPerPage));
+  const pageDocuments = useMemo(
+    () =>
+      visibleDocuments.slice(
+        (documentPage - 1) * documentsPerPage,
+        documentPage * documentsPerPage,
+      ),
+    [documentPage, visibleDocuments],
+  );
   const visibleBinders = useMemo(
     () =>
       binders.filter(
@@ -275,9 +286,17 @@ export default function DocumentsPage() {
     "ACCOUNTANT",
     "FINANCE_MANAGER",
   ].includes(userRole);
-  const selectedVisibleDocuments = visibleDocuments.filter((document) =>
+  const selectedVisibleDocuments = pageDocuments.filter((document) =>
     selectedDocumentIds.includes(document.id),
   );
+
+  useEffect(() => {
+    setDocumentPage(1);
+  }, [filterCategory, filterYear, filterBinderId, filterPinned, search, showTrash]);
+
+  useEffect(() => {
+    if (documentPage > pageCount) setDocumentPage(pageCount);
+  }, [documentPage, pageCount]);
 
   async function saveBinder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -452,17 +471,17 @@ export default function DocumentsPage() {
   }
 
   function toggleVisibleSelection() {
-    const allSelected = visibleDocuments.every((document) =>
+    const allSelected = pageDocuments.every((document) =>
       selectedDocumentIds.includes(document.id),
     );
     setSelectedDocumentIds((current) => {
       const visibleIds = new Set(
-        visibleDocuments.map((document) => document.id),
+        pageDocuments.map((document) => document.id),
       );
       const remaining = current.filter((id) => !visibleIds.has(id));
       return allSelected
         ? remaining
-        : [...remaining, ...visibleDocuments.map((document) => document.id)];
+        : [...remaining, ...pageDocuments.map((document) => document.id)];
     });
   }
 
@@ -519,7 +538,7 @@ export default function DocumentsPage() {
             ? "Document supprimé définitivement."
             : "Document déplacé dans la corbeille.",
       );
-      await loadDocuments();
+      await Promise.all([loadDocuments(), loadBinders()]);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -956,10 +975,8 @@ export default function DocumentsPage() {
               {showTrash ? "Corbeille des archives" : "Documents classés"}
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              {visibleDocuments.length} document
-              {visibleDocuments.length === 1 ? "" : "s"} affiché
-              {visibleDocuments.length === 1 ? "" : "s"} · conservés sur le
-              serveur du cabinet
+              {visibleDocuments.length ? (documentPage - 1) * documentsPerPage + 1 : 0}–
+              {Math.min(documentPage * documentsPerPage, visibleDocuments.length)} sur {visibleDocuments.length} document(s) · conservés sur le serveur du cabinet
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1041,11 +1058,11 @@ export default function DocumentsPage() {
               disabled={savingPins}
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
             >
-              {visibleDocuments.every((document) =>
+              {pageDocuments.every((document) =>
                 selectedDocumentIds.includes(document.id),
               )
-                ? "Désélectionner les fichiers affichés"
-                : "Sélectionner les fichiers affichés"}
+                ? "Désélectionner cette page"
+                : "Sélectionner cette page"}
             </button>
             <span className="mr-auto text-xs text-slate-500">
               {selectedVisibleDocuments.length} sélectionné(s)
@@ -1094,10 +1111,10 @@ export default function DocumentsPage() {
           </p>
         ) : visibleDocuments.length ? (
           <ul className="divide-y divide-slate-100">
-            {visibleDocuments.map((document) => (
+            {pageDocuments.map((document) => (
               <li
                 key={document.id}
-                className="flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center"
+                className="grid min-h-[92px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-5 py-5 transition-colors hover:bg-slate-50 sm:gap-6 sm:px-7"
               >
                 {canManageArchive && !showTrash && (
                   <input
@@ -1215,6 +1232,45 @@ export default function DocumentsPage() {
               cabinet.
             </p>
           </div>
+        )}
+        {!loading && visibleDocuments.length > 0 && (
+          <nav
+            aria-label="Pagination des documents archivés"
+            className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7"
+          >
+            <p className="text-sm text-slate-500">
+              Page <strong className="text-slate-800">{documentPage}</strong> sur {pageCount}
+            </p>
+            <div className="flex items-center gap-1.5 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setDocumentPage((page) => Math.max(1, page - 1))}
+                disabled={documentPage === 1}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Précédent
+              </button>
+              {Array.from({ length: pageCount }, (_, index) => index + 1).map((page) => (
+                <button
+                  key={page}
+                  type="button"
+                  aria-current={documentPage === page ? "page" : undefined}
+                  onClick={() => setDocumentPage(page)}
+                  className={`h-9 min-w-9 rounded-lg px-2 text-sm font-semibold ${documentPage === page ? "bg-blue-700 text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600 hover:bg-blue-50 hover:text-blue-800"}`}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setDocumentPage((page) => Math.min(pageCount, page + 1))}
+                disabled={documentPage === pageCount}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Suivant
+              </button>
+            </div>
+          </nav>
         )}
       </section>
 

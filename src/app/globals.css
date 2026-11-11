@@ -3644,24 +3644,56 @@ summary:focus-visible {
   }
 
   body.print-payment-receipt-mode .payment-receipt-print {
-    position: fixed !important;
-    inset: 0 !important;
-    z-index: 99999 !important;
-    width: 100% !important;
+    page: payment-receipt-document;
+    position: relative !important;
+    display: block !important;
+    width: 180mm !important;
     max-width: none !important;
     max-height: none !important;
     overflow: visible !important;
     margin: 0 !important;
     border: 0 !important;
     border-radius: 0 !important;
-    padding: 18mm !important;
+    padding: 0 !important;
     background: #fff !important;
     box-shadow: none !important;
+  }
+
+  body.print-payment-receipt-mode .payment-receipt-dialog,
+  body.print-payment-receipt-mode .payment-receipt-preview-scroll,
+  body.print-payment-receipt-mode .payment-receipt-copies {
+    position: static !important;
+    display: block !important;
+    width: 180mm !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+
+  body.print-payment-receipt-mode .payment-receipt-copy {
+    min-height: 267mm;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  body.print-payment-receipt-mode .payment-receipt-copy:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
 
   @page {
     size: A4;
     margin: 25.4mm;
+  }
+
+  @page payment-receipt-document {
+    size: A4;
+    margin: 15mm;
   }
 
   @page invoice-document {
