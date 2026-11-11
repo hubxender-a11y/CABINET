@@ -119,7 +119,7 @@ export class PaymentOrdersController {
   }
 
   @Post(':id/manager-visa')
-  @Roles(UserRole.COMPANY_ADMIN)
+  @Roles(UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER)
   @ApiOperation({
     summary: 'Record the managing partner visa on a payment order',
   })
@@ -136,7 +136,7 @@ export class PaymentOrdersController {
   }
 
   @Post(':id/reject')
-  @Roles(UserRole.COMPANY_ADMIN)
+  @Roles(UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER)
   @ApiOperation({ summary: 'Reject a payment order with a recorded reason' })
   reject(
     @Param('id', new ParseUUIDPipe()) id: string,

@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Plus, RefreshCw, Search, ShieldCheck, UserRound, UserRoundX } from "lucide-react";
+import { KeyRound, Plus, RefreshCw, Search, ShieldCheck, UserRound, UserRoundX } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { useNotifications } from "@/components/notification-provider";
 
 type Role =
   | "COMPANY_ADMIN"
+  | "MANAGING_PARTNER"
   | "FINANCE_MANAGER"
   | "ACCOUNTANT"
   | "CASHIER"
@@ -26,9 +27,10 @@ type TeamMember = {
 
 const roles: { value: Role; label: string }[] = [
   { value: "COMPANY_ADMIN", label: "Administrateur du cabinet" },
+  { value: "MANAGING_PARTNER", label: "Associé-Gérant" },
   { value: "FINANCE_MANAGER", label: "Responsable financier" },
   { value: "ACCOUNTANT", label: "Comptable" },
-  { value: "CASHIER", label: "Caissier" },
+  { value: "CASHIER", label: "Secrétaire" },
   { value: "SALES_MANAGER", label: "Responsable commercial" },
   { value: "STOCK_MANAGER", label: "Gestionnaire de stock" },
   { value: "AUDITOR", label: "Auditeur" },
@@ -50,6 +52,8 @@ export default function UsersPage() {
   const [query, setQuery] = useState("");
   const [currentUserId, setCurrentUserId] = useState("");
   const [accessDenied, setAccessDenied] = useState(false);
+  const [passwordResetMember, setPasswordResetMember] = useState("");
+  const [newMemberPassword, setNewMemberPassword] = useState("");
 
   const visibleMembers = useMemo(() => {
     const search = query.trim().toLocaleLowerCase("fr");
@@ -154,6 +158,29 @@ export default function UsersPage() {
           : "Impossible de modifier les accès.";
       setError(reason);
       notify({ type: "error", title: "Modification non enregistrée", message: reason });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetMemberPassword(event: FormEvent<HTMLFormElement>, member: TeamMember) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest(`/users/${member.id}/password`, {
+        method: "PATCH",
+        body: JSON.stringify({ password: newMemberPassword }),
+      });
+      setNewMemberPassword("");
+      setPasswordResetMember("");
+      setMessage(`Le mot de passe de ${member.name} a été remplacé.`);
+      notify({ type: "success", title: "Mot de passe remplacé", message: `Les prochains accès de ${member.name} utiliseront le nouveau mot de passe.` });
+    } catch (requestError) {
+      const reason = requestError instanceof Error ? requestError.message : "Impossible de remplacer le mot de passe.";
+      setError(reason);
+      notify({ type: "error", title: "Mot de passe inchangé", message: reason });
     } finally {
       setSaving(false);
     }
@@ -269,13 +296,27 @@ export default function UsersPage() {
                     {roles.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                   </select>
                 </label>
-                <button type="button" disabled={saving || member.id === currentUserId} title={member.id === currentUserId ? "Vous ne pouvez pas suspendre votre propre compte." : undefined} onClick={() => void updateMember(member, { isActive: !member.isActive })} className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${member.isActive ? "border border-slate-200 text-slate-700 hover:bg-slate-50" : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"}`}>
-                  {member.id === currentUserId
-                    ? "Compte actuel"
-                    : member.isActive
-                      ? <><UserRoundX className="h-4 w-4" /> Désactiver</>
-                      : <><ShieldCheck className="h-4 w-4" /> Réactiver</>}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" disabled={saving || member.id === currentUserId} title={member.id === currentUserId ? "Vous ne pouvez pas suspendre votre propre compte." : undefined} onClick={() => void updateMember(member, { isActive: !member.isActive })} className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${member.isActive ? "border border-slate-200 text-slate-700 hover:bg-slate-50" : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"}`}>
+                    {member.id === currentUserId ? "Compte actuel" : member.isActive ? <><UserRoundX className="h-4 w-4" /> Désactiver</> : <><ShieldCheck className="h-4 w-4" /> Réactiver</>}
+                  </button>
+                  <button type="button" disabled={saving} onClick={() => { setPasswordResetMember(passwordResetMember === member.id ? "" : member.id); setNewMemberPassword(""); }} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                    <KeyRound className="h-4 w-4" /> Nouveau mot de passe
+                  </button>
+                </div>
+                {passwordResetMember === member.id && (
+                  <form onSubmit={(event) => void resetMemberPassword(event, member)} className="grid gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4 sm:grid-cols-[1fr_auto] lg:col-span-3">
+                    <label className="space-y-1 text-sm font-medium text-slate-700">
+                      Nouveau mot de passe provisoire
+                      <input required type="password" minLength={14} maxLength={200} autoComplete="new-password" value={newMemberPassword} onChange={(event) => setNewMemberPassword(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2" />
+                      <span className="block text-xs font-normal text-slate-500">14 caractères minimum. Le mot de passe n’est jamais affiché après enregistrement.</span>
+                    </label>
+                    <div className="flex items-end gap-2">
+                      <button type="submit" disabled={saving} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Enregistrement…" : "Remplacer"}</button>
+                      <button type="button" onClick={() => { setPasswordResetMember(""); setNewMemberPassword(""); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">Annuler</button>
+                    </div>
+                  </form>
+                )}
               </article>
             ))}
           </div>

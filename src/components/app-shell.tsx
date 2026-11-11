@@ -82,6 +82,12 @@ const navigationGroups = [
 ];
 
 const allNavigationItems = navigationGroups.flatMap((group) => group.items);
+const managingPartnerPaths = ["/payment-orders", "/cash-vouchers", "/reports"];
+const managingPartnerNavigation = [
+  { href: "/payment-orders", label: "Ordres de paiement", icon: ScrollText, paths: ["/payment-orders"] },
+  { href: "/cash-vouchers", label: "Bons de sortie", icon: Receipt, paths: ["/cash-vouchers"] },
+  { href: "/reports", label: "Rapports", icon: BarChart3, paths: ["/reports"] },
+];
 
 const primaryNavigation = [
   {
@@ -129,6 +135,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     {},
   );
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [userRole, setUserRole] = useState("");
   const mobileMenuOpen = mobileMenuPath === pathname;
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuCloseButtonRef = useRef<HTMLButtonElement>(null);
@@ -138,6 +145,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     allNavigationItems.find((item) => pathname === item.href) ??
     allNavigationItems.find((item) => isActiveRoute(pathname, item.href));
   const activeHref = activePage?.href;
+  const visibleNavigationGroups = userRole === "MANAGING_PARTNER"
+    ? navigationGroups.map((group) => ({
+        ...group,
+        items: group.items.filter((item) => managingPartnerPaths.includes(item.href)),
+      })).filter((group) => group.items.length > 0)
+    : navigationGroups;
+  const visiblePrimaryNavigation = userRole === "MANAGING_PARTNER"
+    ? managingPartnerNavigation
+    : primaryNavigation;
+
+  useEffect(() => {
+    if (userRole !== "MANAGING_PARTNER") return;
+    const isAllowed = managingPartnerPaths.some((path) => isActiveRoute(pathname, path)) || pathname === "/notifications";
+    if (!isAllowed) router.replace("/payment-orders");
+  }, [pathname, router, userRole]);
 
   useEffect(() => {
     if (!getSessionToken()) return;
@@ -149,6 +171,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         })
         .catch(() => undefined);
     };
+    void apiRequest<{ role: string }>("/auth/me")
+      .then((user) => { if (active) setUserRole(user.role); })
+      .catch(() => undefined);
     refreshNotifications();
     const timer = window.setInterval(refreshNotifications, 30_000);
     return () => {
@@ -234,7 +259,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <nav className="app-navigation" aria-label="Navigation principale">
             <p className="app-navigation-overline">Menu principal</p>
-            {navigationGroups.map((group) => {
+            {visibleNavigationGroups.map((group) => {
               const groupActive = group.items.some(({ href }) =>
                 isActiveRoute(pathname, href),
               );
@@ -362,7 +387,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="app-primary-navigation"
               aria-label="Modules principaux"
             >
-              {primaryNavigation.map(({ href, label, icon: Icon, paths }) => {
+              {visiblePrimaryNavigation.map(({ href, label, icon: Icon, paths }) => {
                 const active = isActiveModule(pathname, paths);
                 return (
                   <Link
@@ -472,7 +497,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className="app-mobile-navigation-content"
                   aria-label="Navigation principale"
                 >
-                  {navigationGroups.map((group) => {
+                  {visibleNavigationGroups.map((group) => {
                     const groupActive = group.items.some(({ href }) =>
                       isActiveRoute(pathname, href),
                     );

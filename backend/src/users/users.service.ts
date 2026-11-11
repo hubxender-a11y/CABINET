@@ -8,7 +8,7 @@ import { Prisma, UserRole } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { PrismaService } from '../database/prisma.service';
 import { getCompanyId } from '../database/company-context';
-import { CreateUserDto, UpdateUserDto } from './users.dto';
+import { CreateUserDto, ResetUserPasswordDto, UpdateUserDto } from './users.dto';
 
 const forbiddenRoles = new Set<UserRole>([UserRole.PLATFORM_SUPER_ADMIN]);
 
@@ -190,5 +190,31 @@ export class UsersService {
       });
       return { ...updatedUser, role: updatedMembership.role };
     });
+  }
+
+  async resetPassword(id: string, dto: ResetUserPasswordDto, actorId: string) {
+    const companyId = getCompanyId();
+    const membership = await this.prisma.companyMembership.findFirst({
+      where: { userId: id, companyId },
+      select: { user: { select: { id: true, email: true } } },
+    });
+    if (!membership) throw new NotFoundException('Membre introuvable.');
+
+    const passwordHash = await hash(dto.password, 12);
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.user.update({
+        where: { id },
+        data: { passwordHash, passwordChangedAt: new Date() },
+      });
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId: actorId,
+          action: 'CABINET_MEMBER_PASSWORD_RESET',
+          details: { userId: id, email: membership.user.email },
+        },
+      });
+    });
+    return { id, passwordUpdated: true };
   }
 }

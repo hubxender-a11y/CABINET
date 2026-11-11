@@ -19,7 +19,16 @@ export class NotificationsService {
     const memberships = await transaction.companyMembership.findMany({
       where: {
         companyId,
-        role: { in: roles },
+        role: {
+          in: [
+            ...new Set([
+              ...roles,
+              UserRole.COMPANY_ADMIN,
+              UserRole.MANAGING_PARTNER,
+              UserRole.CASHIER,
+            ]),
+          ],
+        },
         user: {
           isActive: true,
           ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
@@ -47,9 +56,18 @@ export class NotificationsService {
     title: string,
     message: string,
   ) {
-    return transaction.notification.create({
+    const notification = await transaction.notification.create({
       data: { companyId, userId, title, message },
     });
+    await this.notifyRoles(
+      transaction,
+      companyId,
+      [],
+      title,
+      message,
+      userId,
+    );
+    return notification;
   }
 
   async list(companyId: string, userId: string) {
@@ -100,7 +118,7 @@ export class NotificationsService {
       const count = await this.notifyRoles(
         transaction,
         companyId,
-        [UserRole.COMPANY_ADMIN],
+        [UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER],
         `Rapport à vérifier · ${period}`,
         `${senderName} a transmis le rapport de ${label} pour vérification.`,
         userId,

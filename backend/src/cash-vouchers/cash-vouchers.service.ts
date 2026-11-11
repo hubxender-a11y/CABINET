@@ -314,6 +314,14 @@ export class CashVouchersService {
           },
         },
       });
+      await this.notifications.notifyRoles(
+        transaction,
+        companyId,
+        [UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER],
+        `Approvisionnement reçu · ${dto.currency}`,
+        `${amount.toString()} ${dto.currency} remis par l’Associé-Gérant et saisi par ${(await transaction.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? 'un membre du cabinet'}. Vérifiez le mouvement dans la caisse.`,
+        userId,
+      );
       return {
         movement: { ...movement, amount: movement.amount.toString() },
         balance: balance.toString(),
@@ -418,6 +426,14 @@ export class CashVouchersService {
           },
         },
       });
+      await this.notifications.notifyRoles(
+        transaction,
+        companyId,
+        [UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER],
+        `Bon de sortie à examiner · ${voucherNumber}`,
+        `${voucher.beneficiary} · ${amount.toString()} ${voucher.currency}. Bon saisi par ${(await transaction.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? 'un membre du cabinet'}. Examinez-le avant toute sortie de fonds.`,
+        userId,
+      );
 
       return voucher;
     });
@@ -565,7 +581,7 @@ export class CashVouchersService {
         companyId,
         [UserRole.CASHIER],
         `Bon de sortie approuvé · ${voucher.voucherNumber}`,
-        `L’Associé-Gérant a libéré la sortie de ${voucher.amount.toString()} ${voucher.currency} au bénéfice de ${voucher.beneficiary}. Vous pouvez effectuer le paiement et imprimer le bon.`,
+        `L’Associé-Gérant ${managerName} a libéré la sortie de ${voucher.amount.toString()} ${voucher.currency} au bénéfice de ${voucher.beneficiary}. Vous pouvez effectuer le paiement et imprimer le bon.`,
         userId,
       );
       return transaction.cashVoucher.findUniqueOrThrow({ where: { id } });
@@ -622,7 +638,7 @@ export class CashVouchersService {
         companyId,
         [UserRole.CASHIER],
         `Bon de sortie rejeté · ${rejectedVoucher.voucherNumber}`,
-        `L’Associé-Gérant a rejeté ce bon de sortie. Motif : ${reason}`,
+        `L’Associé-Gérant ${managerName} a rejeté ce bon de sortie. Motif : ${reason}`,
         userId,
       );
       return transaction.cashVoucher.findUniqueOrThrow({ where: { id } });

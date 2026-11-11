@@ -1066,7 +1066,7 @@ export default function CashVouchersPage() {
                         )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right">
-                        {voucher.status === "PENDING_APPROVAL" && userRole === "COMPANY_ADMIN" && (
+                        {voucher.status === "PENDING_APPROVAL" && ["COMPANY_ADMIN", "MANAGING_PARTNER"].includes(userRole) && (
                           <>
                             <button type="button" onClick={() => void approveVoucher(voucher)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800">
                               <Check className="h-3.5 w-3.5" /> Examen fait · approuver & libérer

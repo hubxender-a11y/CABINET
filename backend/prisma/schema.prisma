@@ -10,6 +10,7 @@ datasource db {
 enum UserRole {
   PLATFORM_SUPER_ADMIN
   COMPANY_ADMIN
+  MANAGING_PARTNER
   FINANCE_MANAGER
   ACCOUNTANT
   CASHIER
@@ -139,6 +140,7 @@ model User {
   email         String              @unique
   name          String
   passwordHash  String
+  passwordChangedAt DateTime @default(now())
   isActive      Boolean             @default(true)
   emailVerified Boolean             @default(false)
   createdAt     DateTime            @default(now())

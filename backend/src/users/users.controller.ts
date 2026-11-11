@@ -14,7 +14,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/authenticated-user';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
-import { CreateUserDto, UpdateUserDto } from './users.dto';
+import { CreateUserDto, ResetUserPasswordDto, UpdateUserDto } from './users.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('cabinet-team')
@@ -46,5 +46,16 @@ export class UsersController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.users.update(id, dto, request.user!.sub);
+  }
+
+  @Patch(':id/password')
+  @Roles(UserRole.COMPANY_ADMIN)
+  @ApiOperation({ summary: 'Set a new temporary password for a cabinet member' })
+  resetPassword(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ResetUserPasswordDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.users.resetPassword(id, dto, request.user!.sub);
   }
 }

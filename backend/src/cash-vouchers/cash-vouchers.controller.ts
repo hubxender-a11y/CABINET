@@ -82,7 +82,7 @@ export class CashVouchersController {
   }
 
   @Post(':id/approve')
-  @Roles(UserRole.COMPANY_ADMIN)
+  @Roles(UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER)
   @ApiOperation({
     summary: 'Approve and release a pending cash disbursement voucher',
   })
@@ -99,7 +99,7 @@ export class CashVouchersController {
   }
 
   @Post(':id/reject')
-  @Roles(UserRole.COMPANY_ADMIN)
+  @Roles(UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER)
   @ApiOperation({ summary: 'Reject a pending cash disbursement voucher' })
   reject(
     @Param('id', new ParseUUIDPipe()) id: string,

@@ -358,6 +358,7 @@ export default function PaymentOrdersPage() {
         if (active) {
           setOrders(rows);
           setUser(currentUser);
+          if (currentUser.role === "MANAGING_PARTNER") setActiveSection("register");
         }
       })
       .catch((caught: unknown) =>
@@ -376,7 +377,11 @@ export default function PaymentOrdersPage() {
   }, [databaseConnected]);
 
   useEffect(() => {
-    if (!databaseConnected || !date) return;
+    if (!databaseConnected || !date || !user) return;
+    if (user.role === "MANAGING_PARTNER") {
+      setConfigurationLoading(false);
+      return;
+    }
     let active = true;
     setConfigurationLoading(true);
     const query = new URLSearchParams({
@@ -409,7 +414,7 @@ export default function PaymentOrdersPage() {
     return () => {
       active = false;
     };
-  }, [currency, databaseConnected, date]);
+  }, [currency, databaseConnected, date, user]);
 
   const filteredOrders = useMemo(
     () =>
@@ -853,7 +858,7 @@ export default function PaymentOrdersPage() {
         role="tablist"
         aria-label="Sections des ordres de paiement"
       >
-        <button
+        {user && requestRoles.includes(user.role) && <button
           id="payment-order-new-tab"
           type="button"
           role="tab"
@@ -863,7 +868,7 @@ export default function PaymentOrdersPage() {
           className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeSection === "new" ? "border-[#0b4778] text-[#0b4778]" : "border-transparent text-slate-500 hover:text-slate-800"}`}
         >
           Nouveau dossier · OP {targetYear || "—"}
-        </button>
+        </button>}
         <button
           id="payment-order-register-tab"
           type="button"
@@ -1071,13 +1076,13 @@ export default function PaymentOrdersPage() {
             <div className="max-h-[75vh] divide-y divide-slate-100 overflow-auto">
               {filteredOrders.map((order) => {
                 const canManager = Boolean(
-                  user?.role === "COMPANY_ADMIN" &&
+                  user && ["COMPANY_ADMIN", "MANAGING_PARTNER"].includes(user.role) &&
                   ["SUBMITTED", "FINANCE_APPROVED"].includes(order.status) &&
                   user.id !== order.createdBy,
                 );
                 const canReject = Boolean(
                   user &&
-                  user.role === "COMPANY_ADMIN" &&
+                  (user.role === "COMPANY_ADMIN" || user.role === "MANAGING_PARTNER") &&
                   ["SUBMITTED", "FINANCE_APPROVED"].includes(order.status) &&
                   user.id !== order.createdBy,
                 );

@@ -309,9 +309,11 @@ export class PaymentOrdersService {
       await this.notifications.notifyRoles(
         transaction,
         companyId,
-        [UserRole.COMPANY_ADMIN],
+        [UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER],
         `OP à examiner · ${orderNumber}`,
-        `${order.requestingService} transmet une demande de ${amount.toString()} ${dto.currency} pour ${order.beneficiary}. Examinez l’état de besoin puis approuvez ou rejetez l’OP.`,
+        `${order.requestingService} · demande saisie par ${(
+          await transaction.user.findUnique({ where: { id: userId }, select: { name: true } })
+        )?.name ?? 'un membre du cabinet'}. ${amount.toString()} ${dto.currency} pour ${order.beneficiary}. Examinez l’état de besoin puis approuvez ou rejetez l’OP.`,
         userId,
       );
       return transaction.paymentOrder.findUniqueOrThrow({
@@ -410,7 +412,7 @@ export class PaymentOrdersService {
         companyId,
         order.createdBy,
         `OP rejetée · ${order.orderNumber}`,
-        `L’Associé-Gérant a rejeté cette demande. Motif : ${reason}`,
+        `L’Associé-Gérant ${name} a rejeté cette demande. Motif : ${reason}`,
       );
       return updated;
     });
@@ -754,7 +756,7 @@ export class PaymentOrdersService {
           companyId,
           [UserRole.CASHIER],
           `OP approuvée · ${order.orderNumber}`,
-          `L’Associé-Gérant a signé l’OP. Le bon de sortie ${voucherNumber} est créé et attend sa validation de caisse avant le paiement.`,
+          `L’Associé-Gérant ${name} a signé l’OP. Le bon de sortie ${voucherNumber} est créé et attend sa validation de caisse avant le paiement.`,
           userId,
         );
       }

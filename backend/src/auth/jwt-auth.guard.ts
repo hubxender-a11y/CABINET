@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -10,6 +11,8 @@ import type { Request } from 'express';
 import { AuthenticatedRequest, AuthenticatedUser } from './authenticated-user';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { PrismaService } from '../database/prisma.service';
+import { isManagingPartnerRouteAllowed } from './managing-partner-access.guard';
+import { UserRole } from '@prisma/client';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -56,16 +59,31 @@ export class JwtAuthGuard implements CanActivate {
       },
       select: {
         role: true,
-        user: { select: { email: true, name: true } },
+        user: { select: { email: true, name: true, passwordChangedAt: true } },
       },
     });
     if (!membership) throw new UnauthorizedException('Session invalide.');
+    if (
+      !payload.iat ||
+      membership.user.passwordChangedAt.getTime() > payload.iat * 1000 + 1000
+    ) {
+      throw new UnauthorizedException('Le mot de passe a changé. Reconnectez-vous.');
+    }
     (request as AuthenticatedRequest).user = {
       ...payload,
       email: membership.user.email,
       name: membership.user.name,
       role: membership.role,
     };
+    if (
+      membership.role === UserRole.MANAGING_PARTNER &&
+      !isManagingPartnerRouteAllowed(
+        context.getClass().name,
+        context.getHandler().name,
+      )
+    ) {
+      throw new ForbiddenException('Ce rôle est limité aux OP, aux rapports et aux visas de caisse.');
+    }
     return true;
   }
 }

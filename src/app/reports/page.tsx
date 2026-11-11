@@ -198,6 +198,13 @@ export default function ReportsPage() {
   const [reloadCount, setReloadCount] = useState(0);
   const [sendingForReview, setSendingForReview] = useState(false);
   const [reviewNotice, setReviewNotice] = useState("");
+  const [userRole, setUserRole] = useState("");
+
+  useEffect(() => {
+    void apiRequest<{ role: string }>("/auth/me")
+      .then((user) => setUserRole(user.role))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -382,6 +389,7 @@ export default function ReportsPage() {
   const monthlyReady = monthlyData?.period === period;
   const reportError = error || (hasConfiguredApi ? "" : "Connectez l’API du cabinet pour charger le rapport.");
   const reportAvailable = !reportError && monthlyReady;
+  const canSendReport = ["COMPANY_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT", "CASHIER"].includes(userRole);
 
   async function sendReportForReview() {
     if (!reportAvailable || !period) return;
@@ -434,7 +442,7 @@ export default function ReportsPage() {
             <Printer className="h-4 w-4" />
             Imprimer le rapport
           </button>
-          <button
+          {canSendReport && <button
             type="button"
             className="report-print-button"
             onClick={() => void sendReportForReview()}
@@ -442,7 +450,7 @@ export default function ReportsPage() {
           >
             <Send className="h-4 w-4" />
             {sendingForReview ? "Transmission…" : "Envoyer au Gérant"}
-          </button>
+          </button>}
         </div>
       </header>
 
@@ -458,7 +466,7 @@ export default function ReportsPage() {
               setReloadCount((count) => count + 1);
             }}>
               Réessayer
-            </button>
+            </button>}
           )}
         </div>
       )}
