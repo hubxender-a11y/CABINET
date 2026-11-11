@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   BarChart3,
+  Bell,
   Boxes,
   Building2,
   BriefcaseBusiness,
@@ -27,7 +28,8 @@ import {
   ScrollText,
   X,
 } from "lucide-react";
-import { setSessionToken } from "@/lib/session";
+import { getSessionToken, setSessionToken } from "@/lib/session";
+import { apiRequest } from "@/lib/api";
 import {
   companyDisplayName,
   companyLocation,
@@ -126,6 +128,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
     {},
   );
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const mobileMenuOpen = mobileMenuPath === pathname;
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuCloseButtonRef = useRef<HTMLButtonElement>(null);
@@ -135,6 +138,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     allNavigationItems.find((item) => pathname === item.href) ??
     allNavigationItems.find((item) => isActiveRoute(pathname, item.href));
   const activeHref = activePage?.href;
+
+  useEffect(() => {
+    if (!getSessionToken()) return;
+    let active = true;
+    const refreshNotifications = () => {
+      void apiRequest<{ unreadCount: number }>("/notifications")
+        .then((data) => {
+          if (active) setUnreadNotifications(data.unreadCount);
+        })
+        .catch(() => undefined);
+    };
+    refreshNotifications();
+    const timer = window.setInterval(refreshNotifications, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [pathname]);
 
   function toggleNavigationGroup(label: string, expanded: boolean) {
     setExpandedGroups((current) => ({
@@ -361,6 +382,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="app-location-pill">
                 {activePage?.label ?? location}
               </span>
+              <Link
+                href="/notifications"
+                className="app-icon-action relative"
+                aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} non lue(s)` : "Notifications"}
+                title="Notifications"
+              >
+                <Bell className="h-4 w-4" />
+                {unreadNotifications > 0 && (
+                  <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                    {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                  </span>
+                )}
+              </Link>
               <Link
                 href="/settings"
                 className="app-icon-action"

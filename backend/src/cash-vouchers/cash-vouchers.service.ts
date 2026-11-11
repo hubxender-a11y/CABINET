@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PaymentMethod, PaymentOrderStatus, Prisma } from '@prisma/client';
+import { PaymentMethod, PaymentOrderStatus, Prisma, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -24,6 +24,7 @@ import {
   RejectCashVoucherDto,
   ReconcileCashAccountDto,
 } from './cash-vouchers.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 function isIsoDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -33,7 +34,10 @@ function isIsoDate(value: string) {
 
 @Injectable()
 export class CashVouchersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   list(companyId: string) {
     return this.prisma.cashVoucher.findMany({
@@ -556,6 +560,14 @@ export class CashVouchersService {
           },
         },
       });
+      await this.notifications.notifyRoles(
+        transaction,
+        companyId,
+        [UserRole.CASHIER],
+        `Bon de sortie approuvé · ${voucher.voucherNumber}`,
+        `L’Associé-Gérant a libéré la sortie de ${voucher.amount.toString()} ${voucher.currency} au bénéfice de ${voucher.beneficiary}. Vous pouvez effectuer le paiement et imprimer le bon.`,
+        userId,
+      );
       return transaction.cashVoucher.findUniqueOrThrow({ where: { id } });
     });
   }
@@ -601,6 +613,18 @@ export class CashVouchersService {
           details: { voucherId: id, reason },
         },
       });
+      const rejectedVoucher = await transaction.cashVoucher.findUniqueOrThrow({
+        where: { id },
+        select: { voucherNumber: true },
+      });
+      await this.notifications.notifyRoles(
+        transaction,
+        companyId,
+        [UserRole.CASHIER],
+        `Bon de sortie rejeté · ${rejectedVoucher.voucherNumber}`,
+        `L’Associé-Gérant a rejeté ce bon de sortie. Motif : ${reason}`,
+        userId,
+      );
       return transaction.cashVoucher.findUniqueOrThrow({ where: { id } });
     });
   }

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PaymentOrderStatus, Prisma } from '@prisma/client';
+import { PaymentOrderStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
   ensureCashAccount,
@@ -12,6 +12,7 @@ import {
   lockCashAccount,
 } from '../cash-vouchers/cash-ledger';
 import { amountInWords } from './amount-in-words';
+import { NotificationsService } from '../notifications/notifications.service';
 import type {
   CreatePaymentOrderDto,
   RejectPaymentOrderDto,
@@ -21,7 +22,10 @@ import type {
 
 @Injectable()
 export class PaymentOrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   list(companyId: string) {
     return this.prisma.paymentOrder.findMany({
@@ -302,6 +306,14 @@ export class PaymentOrdersService {
           },
         },
       });
+      await this.notifications.notifyRoles(
+        transaction,
+        companyId,
+        [UserRole.COMPANY_ADMIN],
+        `OP à examiner · ${orderNumber}`,
+        `${order.requestingService} transmet une demande de ${amount.toString()} ${dto.currency} pour ${order.beneficiary}. Examinez l’état de besoin puis approuvez ou rejetez l’OP.`,
+        userId,
+      );
       return transaction.paymentOrder.findUniqueOrThrow({
         where: { id: order.id },
         include: {
@@ -393,6 +405,13 @@ export class PaymentOrdersService {
           },
         },
       });
+      await this.notifications.notifyUser(
+        transaction,
+        companyId,
+        order.createdBy,
+        `OP rejetée · ${order.orderNumber}`,
+        `L’Associé-Gérant a rejeté cette demande. Motif : ${reason}`,
+      );
       return updated;
     });
   }
@@ -730,6 +749,14 @@ export class PaymentOrdersService {
             },
           },
         });
+        await this.notifications.notifyRoles(
+          transaction,
+          companyId,
+          [UserRole.CASHIER],
+          `OP approuvée · ${order.orderNumber}`,
+          `L’Associé-Gérant a signé l’OP. Le bon de sortie ${voucherNumber} est créé et attend sa validation de caisse avant le paiement.`,
+          userId,
+        );
       }
       await transaction.auditLog.create({
         data: {

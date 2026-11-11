@@ -11,6 +11,7 @@ import { CashVouchersModule } from './cash-vouchers/cash-vouchers.module';
 import { PaymentOrdersModule } from './payment-orders/payment-orders.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { CompanyModule } from './company/company.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
@@ -23,6 +24,7 @@ import { APP_GUARD } from '@nestjs/core';
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     AuthModule,
+    NotificationsModule,
     DatabaseModule,
     UsersModule,
     CompanyModule,

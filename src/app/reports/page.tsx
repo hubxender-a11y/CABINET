@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Printer } from "lucide-react";
+import { Printer, Send } from "lucide-react";
 import type { WorkspaceInvoice } from "@/components/workspace-store";
 import { apiRequest } from "@/lib/api";
 import {
@@ -196,6 +196,8 @@ export default function ReportsPage() {
   const [generatedAt, setGeneratedAt] = useState<Date | null>(null);
   const [error, setError] = useState("");
   const [reloadCount, setReloadCount] = useState(0);
+  const [sendingForReview, setSendingForReview] = useState(false);
+  const [reviewNotice, setReviewNotice] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -381,6 +383,23 @@ export default function ReportsPage() {
   const reportError = error || (hasConfiguredApi ? "" : "Connectez l’API du cabinet pour charger le rapport.");
   const reportAvailable = !reportError && monthlyReady;
 
+  async function sendReportForReview() {
+    if (!reportAvailable || !period) return;
+    setSendingForReview(true);
+    setReviewNotice("");
+    try {
+      await apiRequest("/notifications/reports", {
+        method: "POST",
+        body: JSON.stringify({ period }),
+      });
+      setReviewNotice("Le rapport a été transmis à l’Associé-Gérant pour vérification.");
+    } catch (caught) {
+      setReviewNotice(caught instanceof Error ? caught.message : "Le rapport n’a pas pu être transmis.");
+    } finally {
+      setSendingForReview(false);
+    }
+  }
+
   return (
     <div className="report-page space-y-5">
       <header className="report-header">
@@ -415,8 +434,19 @@ export default function ReportsPage() {
             <Printer className="h-4 w-4" />
             Imprimer le rapport
           </button>
+          <button
+            type="button"
+            className="report-print-button"
+            onClick={() => void sendReportForReview()}
+            disabled={!report || monthlyLoading || !reportAvailable || sendingForReview}
+          >
+            <Send className="h-4 w-4" />
+            {sendingForReview ? "Transmission…" : "Envoyer au Gérant"}
+          </button>
         </div>
       </header>
+
+      {reviewNotice && <p role="status" className="report-screen-only rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">{reviewNotice}</p>}
 
       {reportError && (
         <div role="alert" className="report-error report-screen-only">
