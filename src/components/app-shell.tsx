@@ -409,13 +409,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </span>
               <Link
                 href="/notifications"
-                className="app-icon-action relative"
+                className={`app-icon-action relative app-notification-bell ${unreadNotifications ? "has-unread" : ""}`}
                 aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} non lue(s)` : "Notifications"}
                 title="Notifications"
               >
                 <Bell className="h-4 w-4" />
                 {unreadNotifications > 0 && (
-                  <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                  <span className="app-notification-count absolute -right-1 -top-1 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
                     {unreadNotifications > 99 ? "99+" : unreadNotifications}
                   </span>
                 )}
@@ -487,6 +487,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     {profile?.currencyCode ?? "CDF"}
                   </span>
                 </div>
+                <Link
+                  href="/notifications"
+                  onClick={() => setMobileMenuPath(null)}
+                  className="app-mobile-notifications-link"
+                >
+                  <Bell className="h-4 w-4" />
+                  <span>Notifications</span>
+                  {unreadNotifications > 0 && (
+                    <strong>{unreadNotifications > 99 ? "99+" : unreadNotifications}</strong>
+                  )}
+                </Link>
                 <h2
                   className="app-mobile-navigation-title"
                   id="mobile-navigation-title"

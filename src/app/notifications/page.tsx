@@ -17,6 +17,7 @@ type NotificationItem = {
 type NotificationResponse = { notifications: NotificationItem[]; unreadCount: number };
 
 function destination(title: string) {
+  if (title.startsWith("Facture impayée")) return "/recouvrement";
   if (title.startsWith("OP à examiner") || title.startsWith("OP rejetée")) return "/payment-orders";
   if (title.startsWith("OP approuvée") || title.startsWith("Bon de sortie")) return "/cash-vouchers";
   if (title.startsWith("Rapport à vérifier")) return "/reports";
@@ -34,6 +35,7 @@ function dateLabel(value: string) {
 }
 
 function iconFor(title: string) {
+  if (title.startsWith("Facture impayée")) return FileText;
   if (title.startsWith("OP")) return ClipboardList;
   if (title.startsWith("Bon de sortie")) return Receipt;
   if (title.startsWith("Rapport")) return FileText;
@@ -94,7 +96,7 @@ export default function NotificationsPage() {
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-700">Suivi des validations</p>
           <h1 className="mt-1 text-3xl font-bold text-slate-950">Notifications</h1>
-          <p className="mt-2 text-sm text-slate-600">Les décisions sur les OP, les bons de sortie et les rapports envoyés au Gérant apparaissent ici.</p>
+          <p className="mt-2 text-sm text-slate-600">Les OP à examiner, factures impayées, bons de sortie caisse et rapports transmis au Gérant apparaissent ici.</p>
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={() => void refresh()} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
@@ -119,7 +121,7 @@ export default function NotificationsPage() {
           <div className="px-5 py-14 text-center">
             <Bell className="mx-auto h-8 w-8 text-slate-300" />
             <p className="mt-3 font-semibold text-slate-800">Aucune notification pour le moment</p>
-            <p className="mt-1 text-sm text-slate-500">Une alerte apparaîtra ici lorsqu’une OP ou un rapport nécessitera une action.</p>
+            <p className="mt-1 text-sm text-slate-500">Une alerte apparaîtra ici lorsqu’une OP, une facture, un bon de sortie ou un rapport nécessitera un suivi.</p>
           </div>
         ) : (
           <ul className="divide-y divide-slate-100">

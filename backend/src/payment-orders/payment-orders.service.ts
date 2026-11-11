@@ -251,12 +251,7 @@ export class PaymentOrdersService {
         dto.accountingAllocation?.trim() ||
         (accountingRule
           ? `${accountingRule.accountCode} · ${accountingRule.accountName}`
-          : '');
-      if (!accountingAllocation) {
-        throw new BadRequestException(
-          'Confirmez ou saisissez l’imputation comptable avant de transmettre l’OP.',
-        );
-      }
+          : 'Sans imputation sur l’ordre de paiement');
       const outstanding = activeOrders.reduce((sum, order) => sum.add(order.amount), new Prisma.Decimal(0));
       const availableBefore = await getPaymentOrderFundingBalance(transaction, companyId, cashAccount.id);
       const availableAfter = availableBefore.sub(outstanding).sub(amount);

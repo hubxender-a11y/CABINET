@@ -16,7 +16,6 @@ import {
   Paperclip,
   Pin,
   ExternalLink,
-  Settings2,
 } from "lucide-react";
 import {
   DocumentFooter,
@@ -67,13 +66,6 @@ type PaymentOrder = {
     date: string;
     status: string;
   } | null;
-};
-type AccountingRule = {
-  id: string;
-  category: string;
-  accountCode: string;
-  accountName: string;
-  budgetAccount?: string | null;
 };
 type CashAccountSummary = {
   currency: Currency;
@@ -234,15 +226,6 @@ function statusClass(status: Status) {
   return "border-amber-200 bg-amber-50 text-amber-800";
 }
 
-function normalizeCategory(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLocaleLowerCase("fr")
-    .replace(/\s+/g, " ");
-}
-
 export default function PaymentOrdersPage() {
   const { databaseConnected } = useWorkspaceStore();
   const [orders, setOrders] = useState<PaymentOrder[]>([]);
@@ -276,26 +259,17 @@ export default function PaymentOrdersPage() {
   const [attachmentPreviewError, setAttachmentPreviewError] = useState("");
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
-  const [accountingRules, setAccountingRules] = useState<AccountingRule[]>([]);
   const [fundingSummary, setFundingSummary] = useState<FundingSummary>({
     initialForecast: "0", paid: "0", available: "0", outstanding: "0",
   });
   const [cashAccounts, setCashAccounts] = useState<CashAccountSummary[]>([]);
   const [configurationLoading, setConfigurationLoading] = useState(false);
-  const [configurationOpen, setConfigurationOpen] = useState(false);
-  const [configurationSaving, setConfigurationSaving] = useState(false);
-  const [setupCategory, setSetupCategory] = useState("");
-  const [setupAccountCode, setSetupAccountCode] = useState("");
-  const [setupAccountName, setSetupAccountName] = useState("");
   const [date, setDate] = useState("");
   const [requestingService, setRequestingService] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>("CDF");
   const [reason, setReason] = useState("");
   const [beneficiary, setBeneficiary] = useState("");
-  const [expenseCategory, setExpenseCategory] = useState("");
-  const [accountingCode, setAccountingCode] = useState("");
-  const [accountingName, setAccountingName] = useState("");
 
   useEffect(() => {
     setDate(kinshasaToday());
@@ -378,10 +352,6 @@ export default function PaymentOrdersPage() {
 
   useEffect(() => {
     if (!databaseConnected || !date || !user) return;
-    if (user.role === "MANAGING_PARTNER") {
-      setConfigurationLoading(false);
-      return;
-    }
     let active = true;
     setConfigurationLoading(true);
     const query = new URLSearchParams({
@@ -389,14 +359,13 @@ export default function PaymentOrdersPage() {
       currency,
     });
     void Promise.all([
-      apiRequest<{ accountingRules: AccountingRule[]; funding: FundingSummary }>(
+      apiRequest<{ funding: FundingSummary }>(
         `/payment-orders/configuration?${query.toString()}`,
       ),
       apiRequest<{ accounts: CashAccountSummary[] }>("/cash-vouchers/treasury"),
     ])
       .then(([configuration, treasury]) => {
         if (!active) return;
-        setAccountingRules(configuration.accountingRules);
         setFundingSummary(configuration.funding);
         setCashAccounts(treasury.accounts);
       })
@@ -440,9 +409,7 @@ export default function PaymentOrdersPage() {
   );
 
   const targetYear = Number(date.slice(0, 4));
-  const accountingAllocation = [accountingCode.trim(), accountingName.trim()]
-    .filter(Boolean)
-    .join(" · ");
+  const accountingAllocation = "Sans imputation sur l’ordre de paiement";
   const initialForecast = Number(fundingSummary.initialForecast);
   const paidBudget = Number(fundingSummary.paid);
   const outstandingBudget = Number(fundingSummary.outstanding);
@@ -450,9 +417,6 @@ export default function PaymentOrdersPage() {
   const budgetLeft = availableBefore - outstandingBudget - Number(amount || 0);
   const paymentOrderFunding = Number(
     cashAccounts.find((account) => account.currency === currency)?.paymentOrderAvailable ?? 0,
-  );
-  const selectedRule = accountingRules.find(
-    (rule) => normalizeCategory(rule.category) === normalizeCategory(expenseCategory),
   );
   const counts = useMemo(
     () => ({
@@ -478,10 +442,6 @@ export default function PaymentOrdersPage() {
       setError("Complétez le service, le bénéficiaire et le motif de la demande.");
       return;
     }
-    if (!accountingAllocation.trim()) {
-      setError("Renseignez le code et l’intitulé du compte comptable.");
-      return;
-    }
     if (!attachmentFile) {
       setError("Joignez l’état de besoin à cette demande d’OP.");
       return;
@@ -498,8 +458,6 @@ export default function PaymentOrdersPage() {
           currency,
           reason,
           beneficiary,
-          expenseCategory,
-          accountingAllocation,
           budgetAccount: "Approvisionnement de l’Associé-Gérant",
           attachmentName: attachmentFile.name,
           attachmentMimeType: attachmentFile.type,
@@ -514,9 +472,6 @@ export default function PaymentOrdersPage() {
       setAmount("");
       setReason("");
       setBeneficiary("");
-      setExpenseCategory("");
-      setAccountingCode("");
-      setAccountingName("");
       if (attachmentInputRef.current) attachmentInputRef.current.value = "";
       setAttachmentFile(null);
     } catch (caught) {
@@ -530,73 +485,8 @@ export default function PaymentOrdersPage() {
     }
   }
 
-  async function saveAccountingConfiguration() {
-    setError("");
-    if (
-      !setupCategory.trim() ||
-      !setupAccountCode.trim() ||
-      !setupAccountName.trim()
-    ) {
-      setError("Renseignez la nature de dépense, le code et l’intitulé du compte.");
-      return;
-    }
-    setConfigurationSaving(true);
-    try {
-      const rule = await apiRequest<AccountingRule>("/payment-orders/accounting-rules", {
-        method: "POST",
-        body: JSON.stringify({
-          category: setupCategory.trim(),
-          accountCode: setupAccountCode.trim(),
-          accountName: setupAccountName.trim(),
-        }),
-      });
-      setAccountingRules((current) => [
-        ...current.filter((item) => normalizeCategory(item.category) !== normalizeCategory(rule.category)),
-        rule,
-      ].sort((left, right) => left.category.localeCompare(right.category, "fr")));
-      setSetupCategory("");
-      setSetupAccountCode("");
-      setSetupAccountName("");
-      setSuccess(`Imputation proposée enregistrée pour « ${rule.category} ».`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Enregistrement de l’imputation impossible.");
-    } finally {
-      setConfigurationSaving(false);
-    }
-  }
-
-  function updateExpenseCategory(value: string) {
-    setExpenseCategory(value);
-    const rule = accountingRules.find(
-      (item) => normalizeCategory(item.category) === normalizeCategory(value),
-    );
-    setAccountingCode(rule?.accountCode ?? "");
-    setAccountingName(rule?.accountName ?? "");
-  }
-
   function updateReason(value: string) {
     setReason(value);
-    if (expenseCategory.trim()) return;
-    const normalizedReason = normalizeCategory(value);
-    const reasonWords = new Set(normalizedReason.split(/[^a-z0-9]+/).filter((word) => word.length > 3));
-    const candidates = accountingRules.map((rule) => {
-      const categoryWords = normalizeCategory(rule.category).split(/[^a-z0-9]+/).filter((word) => word.length > 3);
-      return {
-        rule,
-        score: categoryWords.length
-          ? categoryWords.filter((word) => reasonWords.has(word)).length / categoryWords.length
-          : 0,
-      };
-    }).sort((left, right) => right.score - left.score);
-    const matchingRule = candidates[0]?.score >= 0.5 &&
-      (!candidates[1] || candidates[0].score > candidates[1].score)
-      ? candidates[0].rule
-      : undefined;
-    if (matchingRule) {
-      setExpenseCategory(matchingRule.category);
-      setAccountingCode(matchingRule.accountCode);
-      setAccountingName(matchingRule.accountName);
-    }
   }
 
   async function act(
@@ -757,8 +647,7 @@ export default function PaymentOrdersPage() {
       currency,
       reason,
       beneficiary,
-      expenseCategory,
-      accountingAllocation: accountingAllocation || "À confirmer par le comptable",
+      accountingAllocation,
       budgetAccount: "Approvisionnement de l’Associé-Gérant",
       initialForecast: String(initialForecast),
       availableBefore: String(availableBefore),
@@ -922,33 +811,19 @@ export default function PaymentOrdersPage() {
                 </div>
               </section>
 
-              <section id="payment-order-controls" className="scroll-mt-6 space-y-4 border-t border-slate-200 pt-5" aria-label="Imputation et contrôle budgétaire">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="text-sm font-bold uppercase tracking-wide text-[#0b4778]">Imputation comptable et contrôle de l’approvisionnement</h3>
-                  {user && financeRoles.includes(user.role) && (
-                    <button type="button" onClick={() => setConfigurationOpen((open) => !open)} className={actionClass}>
-                      <Settings2 className="h-4 w-4" /> {configurationOpen ? "Fermer les règles" : "Règles comptables"}
-                    </button>
-                  )}
+              <section id="payment-order-controls" className="scroll-mt-6 space-y-4 border-t border-slate-200 pt-5" aria-label="Contrôle automatique des fonds OP">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wide text-[#0b4778]">Contrôle automatique des fonds OP</h3>
+                  <p className="mt-1 text-sm text-slate-600">Le calcul utilise les approvisionnements de l’Associé-Gérant et les OP actives. Les règlements des factures clients en sont exclus.</p>
                 </div>
-                <Field label="Nature de la dépense">
-                  <input list="payment-order-categories" maxLength={100} value={expenseCategory} onChange={(event) => updateExpenseCategory(event.target.value)} placeholder="Choisir ou saisir une catégorie" className={inputClass} />
-                  <datalist id="payment-order-categories">
-                    {accountingRules.map((rule) => <option key={rule.id} value={rule.category} />)}
-                  </datalist>
-                  {selectedRule ? <small className="text-emerald-700">Imputation proposée automatiquement selon la règle validée par le cabinet : {selectedRule.accountCode} · {selectedRule.accountName}. Le comptable peut la corriger.</small> : <small className="text-amber-800">Aucune imputation validée ne correspond encore à cette nature. Le compte doit être confirmé selon le plan comptable du cabinet.</small>}
-                </Field>
                 <div className="overflow-x-auto rounded-xl border border-slate-300">
-                  <table className="payment-order-budget-entry-table min-w-[900px] w-full border-collapse text-xs">
+                  <table className="payment-order-budget-entry-table min-w-[720px] w-full border-collapse text-xs">
                     <thead>
-                      <tr><th colSpan={2}>Imputation comptable · contrôle du comptable</th><th colSpan={5}>Contrôle automatique des fonds OP</th></tr>
-                      <tr><th>Compte · code</th><th>Intitulé du compte</th><th>Source des fonds</th><th>Approvisionné</th><th>Solde dispo (1)</th><th>Encours</th><th>Solde dispo (2)</th></tr>
+                      <tr><th>Source des fonds</th><th>Approvisionné</th><th>Solde dispo (1)</th><th>Encours</th><th>Solde dispo (2)</th></tr>
                     </thead>
                     <tbody>
                       <tr>
-                        <td><input required maxLength={40} value={accountingCode} onChange={(event) => setAccountingCode(event.target.value)} placeholder="Ex. 6041" className={inputClass} /></td>
-                        <td><input required maxLength={80} value={accountingName} onChange={(event) => setAccountingName(event.target.value)} placeholder="Ex. Fournitures et documentation" className={inputClass} /></td>
-                        <td>Associé-Gérant</td>
+                        <td>Associé-Gérant · {currency}</td>
                         <td>{configurationLoading ? "Calcul…" : formatMoney(initialForecast, currency)}</td>
                         <td>{configurationLoading ? "Calcul…" : formatMoney(availableBefore, currency)}</td>
                         <td>{formatMoney(outstandingBudget + Number(amount || 0), currency)}</td>
@@ -957,26 +832,10 @@ export default function PaymentOrdersPage() {
                     </tbody>
                   </table>
                 </div>
-                <p className="text-xs text-slate-500">Les versements de l’Associé-Gérant alimentent ce calcul; les factures clients en sont exclues. Déjà décaissé : {formatMoney(paidBudget, currency)} · Solde dispo (1) = approvisionnement restant · Encours = autres OP non rejetées + cette demande · Solde dispo (2) = solde (1) − encours.</p>
-                {budgetLeft < 0 && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Dépassement prévisionnel de {formatMoney(Math.abs(budgetLeft), currency)}. L’OP peut être soumise à l’Associé-Gérant; le bon de sortie ne pourra être approuvé qu’après réception des fonds nécessaires.</p>}
-                {configurationOpen && user && financeRoles.includes(user.role) && (
-                    <div className="grid gap-4 border-t border-slate-200 pt-4">
-                      <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-                        <div><h4 className="font-semibold text-slate-900">Règle d’imputation</h4><p className="text-xs text-slate-500">Enregistrez le compte validé par le comptable pour que le logiciel le propose automatiquement pour cette nature de dépense.</p></div>
-                        <Field label="Nature de dépense"><input maxLength={100} value={setupCategory} onChange={(event) => setSetupCategory(event.target.value)} placeholder="Ex. Revues et documentation" className={inputClass} /></Field>
-                        <div className="grid gap-3 sm:grid-cols-2"><Field label="Code du compte"><input maxLength={40} value={setupAccountCode} onChange={(event) => setSetupAccountCode(event.target.value)} placeholder="6041" className={inputClass} /></Field><Field label="Intitulé du compte"><input maxLength={100} value={setupAccountName} onChange={(event) => setSetupAccountName(event.target.value)} placeholder="Fournitures de bureau" className={inputClass} /></Field></div>
-                        <button type="button" onClick={() => void saveAccountingConfiguration()} disabled={configurationSaving} className={actionClass}><Check className="h-4 w-4" /> Enregistrer la règle</button>
-                      </div>
-                      {accountingRules.length > 0 && <div><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Imputations validées</p><ul className="grid gap-2 sm:grid-cols-2">{accountingRules.map((rule) => <li key={rule.id} className="rounded-lg bg-slate-100 px-3 py-2 text-sm"><strong>{rule.category}</strong><span className="block text-xs text-slate-600">{rule.accountCode} · {rule.accountName}</span></li>)}</ul></div>}
-                    </div>
-                  )}
-                <div className="flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4">
-                  <CircleDollarSign className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
-                  <div className="min-w-0 flex-1">
-                    <strong className="text-sm text-slate-900">Approvisionnement disponible pour les OP · {currency}</strong>
-                    <p className="mt-1 text-sm text-slate-700">{formatMoney(paymentOrderFunding, currency)} provenant des versements de l’Associé-Gérant. Les règlements des factures clients ne sont pas inclus dans ce fonds.</p>
-                    {Number(amount) > paymentOrderFunding && <p className="mt-2 text-xs font-semibold text-amber-800">Approvisionnement insuffisant pour ce paiement. L’OP peut suivre son circuit de visa, mais l’Associé-Gérant devra réapprovisionner la caisse avant le règlement.</p>}
-                  </div>
+                <p className="text-xs text-slate-500">Encours = autres OP non rejetées + cette demande. Solde dispo (2) = solde dispo (1) − encours. Déjà décaissé : {formatMoney(paidBudget, currency)}.</p>
+                {budgetLeft < 0 && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Le disponible est dépassé de {formatMoney(Math.abs(budgetLeft), currency)}. L’Associé-Gérant doit approvisionner la caisse avant l’approbation du bon de sortie.</p>}
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4">
+                  <p className="text-sm text-slate-700">Fonds immédiatement disponibles pour le règlement : <strong>{formatMoney(paymentOrderFunding, currency)}</strong></p>
                   <Link href="/cash-vouchers" className="shrink-0 text-xs font-bold text-blue-800 underline">Gérer la caisse</Link>
                 </div>
               </section>
@@ -1007,7 +866,7 @@ export default function PaymentOrdersPage() {
                 <button type="button" onClick={previewDraft} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-100">
                   <Printer className="h-4 w-4" /> Prévisualiser l’OP
                 </button>
-                <button type="submit" disabled={saving || !databaseConnected || !accountingCode.trim() || !accountingName.trim() || !attachmentFile} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="submit" disabled={saving || !databaseConnected || !attachmentFile} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
                   <Send className="h-4 w-4" />{saving ? "Enregistrement…" : "Enregistrer et transmettre"}
                 </button>
                 <p className="text-xs leading-5 text-slate-500">Après examen, l’Associé-Gérant approuve et signe ou rejette l’OP. Son approbation crée le bon de sortie en attente; le paiement attend ensuite l’approbation de ce bon.</p>
@@ -1242,20 +1101,15 @@ export default function PaymentOrdersPage() {
           <section className="payment-order-budget">
             <table>
               <colgroup>
-                <col style={{ width: "18%" }} /><col style={{ width: "25.4%" }} />
-                <col style={{ width: "13.9%" }} /><col style={{ width: "14.3%" }} />
-                <col style={{ width: "12.6%" }} /><col style={{ width: "15.8%" }} />
+                <col style={{ width: "22%" }} /><col style={{ width: "19.5%" }} />
+                <col style={{ width: "19.5%" }} /><col style={{ width: "19.5%" }} />
+                <col style={{ width: "19.5%" }} />
               </colgroup>
-              <thead><tr><th colSpan={2}>IMPUTATION COMPTABLE</th><th colSpan={4}>CONTROLE BUDGETAIRE</th></tr></thead>
+              <thead><tr><th colSpan={5}>CONTRÔLE AUTOMATIQUE DES FONDS OP</th></tr></thead>
               <tbody>
+                <tr><th>SOURCE DES FONDS</th><th>APPROVISIONNÉ</th><th>SOLDE DISPO (1)</th><th>ENCOURS</th><th>SOLDE DISPO (2)</th></tr>
                 <tr>
-                  <th rowSpan={3}>COMPTE</th>
-                  <td className="payment-order-account-value" rowSpan={3}>{printOrder.accountingAllocation || "À confirmer par le comptable"}</td>
-                  <th>COMPTE</th>
-                  <td className="payment-order-budget-account" colSpan={3}>{printOrder.budgetAccount || "Approvisionnement de l’Associé-Gérant"}</td>
-                </tr>
-                <tr><th>PREVISION INITIALE</th><th>SOLDE DISPO (1)</th><th>ENCOURS</th><th>SOLDE DISPO (2)</th></tr>
-                <tr>
+                  <td>Associé-Gérant · {printOrder.currency}</td>
                   <td>{printOrder.initialForecast.trim() ? printableMoney(printOrder.initialForecast, printOrder.currency) : "À définir"}</td>
                   <td>{printOrder.availableBefore.trim() ? printableMoney(printOrder.availableBefore, printOrder.currency) : "À calculer"}</td>
                   <td>{printOrder.outstanding.trim() ? printableMoney(String(Number(printOrder.outstanding) + Number(printOrder.amount)), printOrder.currency) : "À calculer"}</td>
@@ -1382,13 +1236,6 @@ export default function PaymentOrdersPage() {
               <span>Montant en lettres</span>
               <strong>{printVoucherOrder.amountInWords}</strong>
             </div>
-            <div>
-              <span>Imputation</span>
-              <strong>
-                {printVoucherOrder.accountingAllocation} ·{" "}
-                {printVoucherOrder.budgetAccount}
-              </strong>
-            </div>
           </div>
           <section className="payment-order-visas">
             <div>
@@ -1457,13 +1304,26 @@ export default function PaymentOrdersPage() {
                 value={detailOrder.status === "APPROVED" && detailOrder.cashVoucher?.status === "PENDING_APPROVAL" ? "Bon de sortie en attente du visa" : statusLabel[detailOrder.status]}
               />
               <BudgetValue
-                label="Imputation comptable"
-                value={detailOrder.accountingAllocation}
-              />
-              <BudgetValue
                 label="Service demandeur"
                 value={detailOrder.requestingService}
               />
+            </div>
+            <div className="mt-4 overflow-x-auto rounded-xl border border-blue-100">
+              <h3 className="bg-blue-50 px-4 py-3 text-sm font-semibold text-slate-900">Contrôle automatique des fonds OP · {detailOrder.currency}</h3>
+              <table className="w-full min-w-[620px] text-left text-xs">
+                <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  <tr><th className="px-3 py-3">Source des fonds</th><th className="px-3 py-3 text-right">Approvisionné</th><th className="px-3 py-3 text-right">Solde dispo (1)</th><th className="px-3 py-3 text-right">Encours</th><th className="px-3 py-3 text-right">Solde dispo (2)</th></tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t border-slate-100 font-semibold text-slate-800">
+                    <td className="px-3 py-3">Associé-Gérant</td>
+                    <td className="px-3 py-3 text-right">{formatMoney(detailOrder.initialForecast, detailOrder.currency)}</td>
+                    <td className="px-3 py-3 text-right">{formatMoney(detailOrder.availableBefore, detailOrder.currency)}</td>
+                    <td className="px-3 py-3 text-right">{formatMoney(Number(detailOrder.outstanding) + Number(detailOrder.amount), detailOrder.currency)}</td>
+                    <td className="px-3 py-3 text-right">{formatMoney(detailOrder.availableAfter, detailOrder.currency)}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
             <div className="mt-4 rounded-xl bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase text-slate-500">

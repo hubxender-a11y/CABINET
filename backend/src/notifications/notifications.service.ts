@@ -71,6 +71,7 @@ export class NotificationsService {
   }
 
   async list(companyId: string, userId: string) {
+    await this.syncUnpaidInvoiceNotifications(companyId);
     const notifications = await this.prisma.notification.findMany({
       where: { companyId, userId },
       orderBy: { createdAt: 'desc' },
@@ -80,6 +81,95 @@ export class NotificationsService {
       notifications,
       unreadCount: notifications.filter((item) => !item.read).length,
     };
+  }
+
+  private async syncUnpaidInvoiceNotifications(companyId: string) {
+    const prefix = 'Facture impayée · ';
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${`invoice-alerts:${companyId}`}), 0)
+      `;
+      const [memberships, invoices, existing] = await Promise.all([
+        transaction.companyMembership.findMany({
+          where: { companyId, user: { isActive: true } },
+          select: { userId: true },
+        }),
+        transaction.invoice.findMany({
+          where: {
+            companyId,
+            fiscalStatus: {
+              notIn: [
+                'DRAFT',
+                'REJECTED',
+                'CANCELLED',
+              ],
+            },
+          },
+          select: {
+            invoiceNumber: true,
+            totalAmount: true,
+            paidAmount: true,
+            currency: true,
+            customer: { select: { name: true } },
+          },
+          orderBy: { issueDate: 'desc' },
+        }),
+        transaction.notification.findMany({
+          where: { companyId, title: { startsWith: prefix } },
+          select: { id: true, userId: true, title: true, message: true, read: true },
+        }),
+      ]);
+
+      const openInvoices = invoices.flatMap((invoice) => {
+        const remaining = invoice.totalAmount.sub(invoice.paidAmount);
+        if (!remaining.gt(0)) return [];
+        const title = `${prefix}${invoice.invoiceNumber}`;
+        const amount = new Intl.NumberFormat('fr-CD', {
+          maximumFractionDigits: invoice.currency === 'CDF' ? 0 : 2,
+        }).format(Number(remaining));
+        return [{
+          title,
+          message: `${invoice.customer.name} · solde restant : ${amount} ${invoice.currency}. Ouvrez le recouvrement pour consulter la facture et enregistrer son paiement.`,
+        }];
+      });
+      const openTitles = new Set(openInvoices.map((invoice) => invoice.title));
+      const currentByKey = new Map(
+        existing.map((item) => [`${item.userId}:${item.title}`, item]),
+      );
+      const createData: Prisma.NotificationCreateManyInput[] = [];
+
+      for (const membership of memberships) {
+        for (const invoice of openInvoices) {
+          const existingItem = currentByKey.get(`${membership.userId}:${invoice.title}`);
+          if (!existingItem) {
+            createData.push({
+              companyId,
+              userId: membership.userId,
+              title: invoice.title,
+              message: invoice.message,
+            });
+          } else if (existingItem.message !== invoice.message) {
+            await transaction.notification.update({
+              where: { id: existingItem.id },
+              data: { message: invoice.message },
+            });
+          }
+        }
+      }
+
+      const settledUnreadIds = existing
+        .filter((item) => !item.read && !openTitles.has(item.title))
+        .map((item) => item.id);
+      if (settledUnreadIds.length) {
+        await transaction.notification.updateMany({
+          where: { companyId, id: { in: settledUnreadIds } },
+          data: { read: true },
+        });
+      }
+      if (createData.length) {
+        await transaction.notification.createMany({ data: createData });
+      }
+    });
   }
 
   async markRead(id: string, companyId: string, userId: string) {

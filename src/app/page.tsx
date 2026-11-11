@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Archive,
@@ -27,6 +27,7 @@ import {
   useCompanyProfile,
 } from "@/components/company-profile";
 import { formatMoney } from "@/lib/formatting";
+import { apiRequest } from "@/lib/api";
 import { getReceivables, receivableLabels } from "@/lib/receivables";
 import { useKinshasaDate } from "@/lib/use-kinshasa-date";
 
@@ -45,6 +46,24 @@ const statusClass: Record<string, string> = {
   Rejetée: "is-rejected",
   "En attente": "is-pending",
   Brouillon: "is-draft",
+};
+
+type DashboardOrder = {
+  id: string;
+  orderNumber: string;
+  beneficiary: string;
+  amount: string;
+  currency: "CDF" | "USD";
+  status: "SUBMITTED" | "FINANCE_APPROVED" | "APPROVED" | "PAID" | "REJECTED";
+};
+
+type DashboardCashVoucher = {
+  id: string;
+  voucherNumber: string;
+  beneficiary: string;
+  amount: string;
+  currency: "CDF" | "USD";
+  status: "PENDING_APPROVAL" | "ISSUED" | "REJECTED" | "CANCELLED";
 };
 
 const moduleLinks = [
@@ -120,6 +139,30 @@ export default function HomePage() {
   const primaryCurrency = profile?.currencyCode ?? "CDF";
   const cabinetName = companyDisplayName(profile);
   const [selectedClient, setSelectedClient] = useState("all");
+  const [paymentOrders, setPaymentOrders] = useState<DashboardOrder[]>([]);
+  const [cashVouchers, setCashVouchers] = useState<DashboardCashVoucher[]>([]);
+
+  useEffect(() => {
+    if (!databaseConnected) return;
+    let active = true;
+    const refresh = async () => {
+      const [orders, vouchers] = await Promise.allSettled([
+        apiRequest<DashboardOrder[]>("/payment-orders"),
+        apiRequest<DashboardCashVoucher[]>("/cash-vouchers"),
+      ]);
+      if (!active) return;
+      if (orders.status === "fulfilled") setPaymentOrders(orders.value);
+      if (vouchers.status === "fulfilled") setCashVouchers(vouchers.value);
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 45_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [databaseConnected]);
 
   const visibleInvoices = useMemo(
     () =>
@@ -156,11 +199,14 @@ export default function HomePage() {
   const certified = visibleInvoices.filter(
     (invoice) => invoice.fiscalStatus === "CERTIFIED",
   ).length;
-  const fiscalReviewCount = visibleInvoices.filter(({ fiscalStatus }) =>
-    fiscalStatus === "PENDING_FISCALIZATION" || fiscalStatus === "REJECTED",
-  ).length;
   const overdueCount = receivables.filter((item) => item.status === "overdue").length;
   const dueTodayCount = receivables.filter((item) => item.status === "today").length;
+  const activeOrders = paymentOrders.filter((order) =>
+    ["SUBMITTED", "FINANCE_APPROVED", "APPROVED"].includes(order.status),
+  );
+  const vouchersToReview = cashVouchers.filter(
+    (voucher) => voucher.status === "PENDING_APPROVAL",
+  );
   return (
     <div className="dashboard-page">
       <header className="dashboard-hero">
@@ -272,18 +318,20 @@ export default function HomePage() {
         })}
       </section>
 
-      <section className="grid gap-3 md:grid-cols-3" aria-label="Priorités du cabinet">
+      <section className="dashboard-attention-grid" aria-label="Éléments nécessitant un suivi">
         {[
-          { href: "/recouvrement", label: "Recouvrement", detail: `${overdueCount} en retard · ${dueTodayCount} à échéance aujourd’hui`, Icon: CalendarClock },
-          { href: "/fiscal", label: "Contrôle fiscal", detail: `${fiscalReviewCount} facture(s) à examiner`, Icon: Landmark },
-          { href: "/reports", label: "Clôture mensuelle", detail: "Consulter les registres et les contrôles", Icon: BarChart3 },
-        ].map(({ href, label, detail, Icon }) => (
-          <Link key={href} href={href} className="dashboard-priority-item">
-            <span className="dashboard-priority-icon is-amber"><Icon className="h-4 w-4" aria-hidden="true" /></span>
+          { href: "/payment-orders", label: "OP en cours", detail: "En attente de visa ou de paiement", count: activeOrders.length, Icon: ScrollText, tone: "is-violet" },
+          { href: "/recouvrement", label: "Factures non réglées", detail: `${overdueCount} en retard · ${dueTodayCount} à échéance aujourd’hui`, count: receivables.length, Icon: CalendarClock, tone: "is-amber" },
+          { href: "/cash-vouchers", label: "Bons à examiner", detail: "Sorties caisse en attente de validation", count: vouchersToReview.length, Icon: Receipt, tone: "is-blue" },
+        ].map(({ href, label, detail, count, Icon, tone }) => (
+          <Link key={href} href={href} className={`dashboard-attention-card ${tone}`}>
+            <span className="dashboard-attention-orbit" aria-hidden="true" />
+            <span className="dashboard-attention-icon"><Icon className="h-5 w-5" aria-hidden="true" /></span>
             <span className="min-w-0 flex-1">
               <strong>{label}</strong>
-              <small>{!databaseConnected && href !== "/reports" ? "Données du cabinet à vérifier" : detail}</small>
+              <small>{!databaseConnected ? "Données à actualiser" : detail}</small>
             </span>
+            <span className="dashboard-attention-count">{count}</span>
             <ChevronRight className="h-4 w-4 text-slate-500" aria-hidden="true" />
           </Link>
         ))}
@@ -425,7 +473,27 @@ export default function HomePage() {
                     <ChevronRight className="h-4 w-4 text-slate-300" />
                   </Link>
               ))}
-              {!clientsToFollowUp.length && !receivables.length && (
+              {activeOrders.slice(0, 2).map((order) => (
+                <Link key={order.id} href="/payment-orders" className="dashboard-priority-item dashboard-activity-alert">
+                  <span className="dashboard-priority-icon is-amber"><ScrollText className="h-4 w-4" /></span>
+                  <span className="min-w-0 flex-1">
+                    <strong>{order.orderNumber} · {order.beneficiary}</strong>
+                    <small>OP en cours · {formatMoney(order.amount, order.currency)}</small>
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-slate-300" />
+                </Link>
+              ))}
+              {vouchersToReview.slice(0, 2).map((voucher) => (
+                <Link key={voucher.id} href="/cash-vouchers" className="dashboard-priority-item dashboard-activity-alert">
+                  <span className="dashboard-priority-icon is-rose"><Receipt className="h-4 w-4" /></span>
+                  <span className="min-w-0 flex-1">
+                    <strong>{voucher.voucherNumber} · {voucher.beneficiary}</strong>
+                    <small>Bon de sortie à examiner · {formatMoney(voucher.amount, voucher.currency)}</small>
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-slate-300" />
+                </Link>
+              ))}
+              {!clientsToFollowUp.length && !receivables.length && !activeOrders.length && !vouchersToReview.length && (
                 <div className="dashboard-priority-empty">
                   <span className="dashboard-priority-icon is-green">
                     <CalendarClock className="h-4 w-4" />
