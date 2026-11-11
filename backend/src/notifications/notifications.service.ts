@@ -87,7 +87,10 @@ export class NotificationsService {
     const prefix = 'Facture impayée · ';
     await this.prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`
-        SELECT pg_advisory_xact_lock(hashtext(${`invoice-alerts:${companyId}`}), 0)
+        WITH advisory_lock AS MATERIALIZED (
+          SELECT pg_advisory_xact_lock(hashtext(${`invoice-alerts:${companyId}`}), 0)
+        )
+        SELECT 1 FROM advisory_lock
       `;
       const [memberships, invoices, existing] = await Promise.all([
         transaction.companyMembership.findMany({
