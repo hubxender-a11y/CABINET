@@ -255,6 +255,7 @@ export default function PaymentOrdersPage() {
   const [success, setSuccess] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("ALL");
+  const [activeSection, setActiveSection] = useState<"new" | "register">("new");
   const [printOrder, setPrintOrder] = useState<PaymentOrder | null>(null);
   const [printDraft, setPrintDraft] = useState(false);
   const [printAttachment, setPrintAttachment] = useState<{
@@ -902,7 +903,41 @@ export default function PaymentOrdersPage() {
         ))}
       </section>
 
-      <section className="grid items-start gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div
+        className="flex flex-wrap gap-2 border-b border-slate-200"
+        role="tablist"
+        aria-label="Sections des ordres de paiement"
+      >
+        <button
+          id="payment-order-new-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeSection === "new"}
+          aria-controls="payment-order-new-panel"
+          onClick={() => setActiveSection("new")}
+          className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeSection === "new" ? "border-[#0b4778] text-[#0b4778]" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+        >
+          Nouveau dossier · OP {targetYear || "—"}
+        </button>
+        <button
+          id="payment-order-register-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeSection === "register"}
+          aria-controls="payment-order-register-panel"
+          onClick={() => setActiveSection("register")}
+          className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${activeSection === "register" ? "border-[#0b4778] text-[#0b4778]" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+        >
+          Registre des OP
+        </button>
+      </div>
+
+      <div
+        id="payment-order-new-panel"
+        role="tabpanel"
+        aria-labelledby="payment-order-new-tab"
+        hidden={activeSection !== "new"}
+      >
         {user && requestRoles.includes(user.role) && (
           <form
             onSubmit={submit}
@@ -1040,8 +1075,15 @@ export default function PaymentOrdersPage() {
               </section>
           </form>
         )}
+      </div>
 
-        <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:sticky xl:top-4">
+      <div
+        id="payment-order-register-panel"
+        role="tabpanel"
+        aria-labelledby="payment-order-register-tab"
+        hidden={activeSection !== "register"}
+      >
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1252,7 +1294,7 @@ export default function PaymentOrdersPage() {
             </div>
           )}
         </section>
-      </section>
+      </div>
 
       {printOrder && createPortal(
         <article
