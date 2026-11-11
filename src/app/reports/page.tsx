@@ -466,7 +466,7 @@ export default function ReportsPage() {
               setReloadCount((count) => count + 1);
             }}>
               Réessayer
-            </button>}
+            </button>)}
           )}
         </div>
       )}
