@@ -18,6 +18,7 @@ type NotificationResponse = { notifications: NotificationItem[]; unreadCount: nu
 
 function destination(title: string) {
   if (title.startsWith("Facture impayée")) return "/recouvrement";
+  if (title.startsWith("Approvisionnement reçu")) return "/funding";
   if (title.startsWith("OP à examiner") || title.startsWith("OP rejetée")) return "/payment-orders";
   if (title.startsWith("OP approuvée") || title.startsWith("Bon de sortie")) return "/cash-vouchers";
   if (title.startsWith("Rapport à vérifier")) return "/reports";

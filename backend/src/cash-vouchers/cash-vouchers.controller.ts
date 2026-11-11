@@ -28,6 +28,7 @@ const cashVoucherIssuers = [
   UserRole.FINANCE_MANAGER,
   UserRole.ACCOUNTANT,
   UserRole.CASHIER,
+  UserRole.SECRETARY,
 ];
 
 @ApiTags('cash-vouchers')

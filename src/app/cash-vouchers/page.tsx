@@ -200,16 +200,11 @@ export default function CashVouchersPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [fundCurrency, setFundCurrency] = useState<Currency>("USD");
-  const [fundDate, setFundDate] = useState("");
-  const [fundAmount, setFundAmount] = useState("");
-  const [fundReference, setFundReference] = useState("");
-  const [fundSaving, setFundSaving] = useState(false);
+  const [cashVoucherTab, setCashVoucherTab] = useState<"issue" | "register">("issue");
 
   useEffect(() => {
     const today = kinshasaDate();
     setDate(today);
-    setFundDate(today);
     setPrintReady(true);
   }, []);
 
@@ -303,7 +298,14 @@ export default function CashVouchersPage() {
     return () => controller.abort();
   }, [databaseConnected, periodStart, periodEnd]);
 
-  const cashAccount = accounts.find((account) => account.currency === currency);
+  const canIssueVoucher = [
+    "COMPANY_ADMIN",
+    "FINANCE_MANAGER",
+    "ACCOUNTANT",
+    "CASHIER",
+    "SECRETARY",
+  ].includes(userRole);
+  const showIssueView = canIssueVoucher && cashVoucherTab === "issue";
   const movementBalances = useMemo(() => {
     const remainingByAccount = new Map(
       accounts.map((account) => [account.id, Number(account.balance)]),
@@ -410,8 +412,9 @@ export default function CashVouchersPage() {
       setReason("");
       setAmount("");
       setReference("");
+      setCashVoucherTab("register");
       void refreshTreasury().catch(() => undefined);
-      setSuccess(`Bon ${created.voucherNumber} créé. Il est en attente du visa de l’Associé-Gérant; aucun fonds n’a été retiré. L’impression sera disponible après approbation.`);
+      setSuccess(`Bon ${created.voucherNumber} · en attente du visa.`);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -420,47 +423,6 @@ export default function CashVouchersPage() {
       );
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function submitFunding(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    setSuccess("");
-    if (!databaseConnected) {
-      setError("Le serveur est indisponible : l’approvisionnement n’a pas été enregistré.");
-      return;
-    }
-    if (!Number.isFinite(Number(fundAmount)) || Number(fundAmount) <= 0) {
-      setError("Saisissez un montant positif pour l’entrée en caisse.");
-      return;
-    }
-    setFundSaving(true);
-    try {
-      const result = await apiRequest<{ paymentOrderAvailable: string }>("/cash-vouchers/funding", {
-        method: "POST",
-        body: JSON.stringify({
-          date: fundDate,
-          amount: fundAmount,
-          currency: fundCurrency,
-          source: "ASSOCIE_GERANT",
-          reference: fundReference.trim() || undefined,
-        }),
-      });
-      await refreshTreasury();
-      setSuccess(
-        `Approvisionnement enregistré. Fonds disponibles pour les OP : ${formatMoney(Number(result.paymentOrderAvailable), fundCurrency)}.`,
-      );
-      setFundAmount("");
-      setFundReference("");
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Impossible d’enregistrer cet approvisionnement.",
-      );
-    } finally {
-      setFundSaving(false);
     }
   }
 
@@ -533,7 +495,7 @@ export default function CashVouchersPage() {
       setVouchers((current) => current.map((item) => item.id === approved.id ? approved : item));
       await refreshTreasury();
       setSelectedVoucher(approved);
-      setSuccess(`Bon ${approved.voucherNumber} approuvé et autorisé à la sortie. Les fonds ont été débités; vous pouvez maintenant l’imprimer.`);
+      setSuccess(`Bon ${approved.voucherNumber} approuvé · fonds débités.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Impossible d’approuver ce bon.");
     }
@@ -636,11 +598,11 @@ export default function CashVouchersPage() {
           <h1 className="mt-2 text-3xl font-semibold text-slate-900">
             Bons de sortie de caisse
           </h1>
-          <p className="mt-2 max-w-3xl text-sm text-slate-500">
-            Un bon est établi à partir d’une OP validée et reste à approuver avant le décaissement.
-          </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link href="/funding" className="inline-flex items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-800 hover:bg-blue-100">
+            Approvisionnements
+          </Link>
           <button
             type="button"
             onClick={() => printTreasuryDocument("ledger")}
@@ -670,8 +632,8 @@ export default function CashVouchersPage() {
         )}
         <p>
           {databaseConnected
-            ? "Caisse connectée. Un bon en attente n’est pas débité avant son approbation."
-            : "Base indisponible : les bons ne peuvent pas être enregistrés."}
+            ? "Caisse connectée"
+            : "Serveur indisponible"}
         </p>
       </div>
 
@@ -701,9 +663,6 @@ export default function CashVouchersPage() {
                 {accounts.find((account) => account.currency === code)?.name ??
                   "Caisse"}
               </p>
-              <p className="mt-2 text-xs font-semibold text-blue-800">
-                Fonds disponibles pour les OP : {formatMoney(Number(accounts.find((account) => account.currency === code)?.paymentOrderAvailable ?? 0), code)}
-              </p>
             </div>
             {accounts.find((account) => account.currency === code) &&
               ["COMPANY_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT"].includes(
@@ -725,148 +684,40 @@ export default function CashVouchersPage() {
         ))}
       </section>
 
-      {[
-        "COMPANY_ADMIN",
-        "FINANCE_MANAGER",
-        "ACCOUNTANT",
-        "CASHIER",
-      ].includes(userRole) && (
-        <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-          <form
-            onSubmit={submitFunding}
-            className="cash-voucher-form space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-          >
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-600">
-                Approvisionnement · Associé-Gérant
-              </p>
-              <h2 className="mt-1 text-lg font-semibold text-slate-900">
-                {Number(accounts.find((account) => account.currency === fundCurrency)?.paymentOrderAvailable ?? 0) === 0
-                  ? "Enregistrer le fonds de départ"
-                  : "Réapprovisionner les fonds"}
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Enregistrez uniquement les fonds réellement remis par l’Associé-Gérant. Ils sont suivis séparément des règlements clients et n’engendrent pas d’écriture comptable automatique.
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-                Date de réception
-                <input
-                  required
-                  type="date"
-                  value={fundDate}
-                  onChange={(event) => setFundDate(event.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
-                />
-              </label>
-              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-                Devise
-                <select
-                  value={fundCurrency}
-                  onChange={(event) => setFundCurrency(event.target.value as Currency)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                >
-                  <option value="USD">USD · Dollar américain</option>
-                  <option value="CDF">CDF · Franc congolais</option>
-                </select>
-              </label>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-                Montant réellement reçu
-                <input
-                  required
-                  type="number"
-                  min="0.01"
-                  max="999999999999.99"
-                  step={fundCurrency === "CDF" ? "1" : "0.01"}
-                  value={fundAmount}
-                  onChange={(event) => setFundAmount(event.target.value)}
-                  placeholder={fundCurrency === "USD" ? "200.00" : "200000"}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
-                />
-              </label>
-              <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm text-slate-700">
-                <span className="block text-xs font-semibold uppercase tracking-wide text-blue-800">Origine affectée</span>
-                <span className="mt-1 block">Approvisionnement remis par l’Associé-Gérant</span>
-              </div>
-            </div>
-            <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-              Référence (facultative)
-              <input
-                maxLength={120}
-                value={fundReference}
-                onChange={(event) => setFundReference(event.target.value)}
-                placeholder="Reçu, bordereau ou référence interne"
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={fundSaving || !databaseConnected}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Wallet className="h-4 w-4" />
-              {fundSaving ? "Enregistrement…" : "Enregistrer l’approvisionnement"}
-            </button>
-          </form>
-
-          <aside className="cash-treasury-guide rounded-2xl border border-amber-200 bg-amber-50 p-5">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-800">
-              Fonctionnement des fonds
-            </p>
-            <h2 className="mt-1 text-lg font-semibold text-slate-900">
-              Le solde suit les mouvements réels
-            </h2>
-            <ol className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
-              <li><strong>1. Départ :</strong> saisissez les espèces réellement remises, par exemple 200 USD, avec leur origine.</li>
-              <li><strong>2. Bon de sortie :</strong> la création met le bon en attente. Elle ne retire encore aucun argent du livre ni de l’approvisionnement.</li>
-              <li><strong>3. Visa de l’Associé-Gérant :</strong> son approbation autorise la sortie et débite alors les deux soldes concernés. En cas de rejet, aucun montant n’est retiré.</li>
-              <li><strong>4. Réapprovisionnement :</strong> à la réception de nouveaux fonds, enregistrez leur montant ici; seuls ces apports augmentent le solde d’approvisionnement.</li>
-              <li><strong>5. Solde insuffisant :</strong> l’approbation est bloquée si l’approvisionnement affecté ou la caisse physique ne couvre pas le bon.</li>
-            </ol>
-            <p className="mt-4 rounded-xl border border-amber-200 bg-white/80 p-3 text-xs leading-5 text-amber-950">
-              Exemple : 200 USD remis par l’Associé-Gérant − 75 USD de bons approuvés = 125 USD de fonds d’approvisionnement. Les règlements clients et les autres entrées ne sont pas ajoutés à ce montant.
-            </p>
-          </aside>
-        </section>
-      )}
-
-      {!loading &&
-        accounts.length > 0 &&
-        movements.length === 0 &&
-        Number(accounts[0]?.balance ?? 0) === 0 && (
-          <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-            Première mise en service : comptez l’argent réellement présent,
-            puis enregistrez-le comme entrée initiale avec son origine. Utilisez
-            « Rapprocher » uniquement pour comparer le livre avec le comptage
-            physique et tracer un éventuel écart.
-          </p>
-        )}
-
       <section aria-labelledby="cash-vouchers-section-title" className="space-y-4">
         <div>
           <h2 id="cash-vouchers-section-title" className="text-xl font-semibold text-slate-900">
-            Bons de sortie caisse
+            Bon de sortie de caisse
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Chaque nouveau bon attend le visa de l’Associé-Gérant avant d’être débité et imprimé.
-          </p>
         </div>
-      <section className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
+      <div role="tablist" aria-label="Gestion des bons de sortie" className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+        {canIssueVoucher && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={showIssueView}
+            onClick={() => setCashVoucherTab("issue")}
+            className={`rounded-lg px-4 py-2 text-sm font-semibold ${showIssueView ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+          >
+            Émettre un bon
+          </button>
+        )}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!showIssueView}
+          onClick={() => setCashVoucherTab("register")}
+          className={`rounded-lg px-4 py-2 text-sm font-semibold ${!showIssueView ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+        >
+          Registre <span className="ml-1 text-xs text-slate-400">{vouchers.length}</span>
+        </button>
+      </div>
+      {showIssueView && (
+      <div>
         <form
           onSubmit={submitVoucher}
           className="cash-voucher-form space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
         >
-          <div className="border-b border-slate-100 pb-3">
-            <h2 className="text-lg font-semibold text-slate-900">
-              Émettre un bon
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Le numéro définitif est attribué après l’enregistrement.
-            </p>
-          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block space-y-1.5 text-sm font-medium text-slate-700">
               Date de sortie
@@ -902,11 +753,11 @@ export default function CashVouchersPage() {
             />
           </label>
           <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-            Motif détaillé
+            Motif
             <textarea
               required
               maxLength={500}
-              rows={3}
+              rows={2}
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
@@ -941,11 +792,6 @@ export default function CashVouchersPage() {
               </select>
             </label>
           </div>
-          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            {cashAccount
-              ? `${cashAccount.name} · ${formatMoney(Number(cashAccount.balance), currency)} au livre. La disponibilité à la date du bon sera vérifiée avant l’enregistrement.`
-              : "La caisse correspondant à cette devise sera créée automatiquement."}
-          </p>
           <label className="block space-y-1.5 text-sm font-medium text-slate-700">
             Référence du justificatif (facultatif)
             <input
@@ -978,21 +824,21 @@ export default function CashVouchersPage() {
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
           >
             <FileText className="h-4 w-4" />
-            {saving ? "Enregistrement…" : "Enregistrer et préparer le bon"}
+            {saving ? "Enregistrement…" : "Enregistrer le bon"}
           </button>
         </form>
-
+      </div>
+      )}
+      {!showIssueView && (
+      <div>
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
             <div>
               <h2 className="font-semibold text-slate-900">
-                Registre de caisse
+                Registre des bons
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 {loading ? "Chargement…" : `${visibleVouchers.length} bon(s)`}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Un bon en attente doit être examiné. Pour une OP, consultez aussi sa pièce « état de besoin » avant le visa final.
               </p>
             </div>
             <label className="relative min-w-44 flex-1 sm:max-w-56">
@@ -1069,7 +915,7 @@ export default function CashVouchersPage() {
                         {voucher.status === "PENDING_APPROVAL" && ["COMPANY_ADMIN", "MANAGING_PARTNER"].includes(userRole) && (
                           <>
                             <button type="button" onClick={() => void approveVoucher(voucher)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800">
-                              <Check className="h-3.5 w-3.5" /> Examen fait · approuver & libérer
+                              <Check className="h-3.5 w-3.5" /> Approuver et signer
                             </button>
                             <button type="button" onClick={() => void rejectVoucher(voucher)} className="ml-1.5 inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50">
                               <X className="h-3.5 w-3.5" /> Rejeter
@@ -1117,7 +963,8 @@ export default function CashVouchersPage() {
             </p>
           )}
         </section>
-      </section>
+      </div>
+      )}
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

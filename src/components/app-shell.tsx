@@ -45,6 +45,7 @@ const navigationGroups = [
       { href: "/clients", label: "Dossiers clients", icon: Users },
       { href: "/invoices", label: "Factures clients", icon: Receipt },
       { href: "/payments", label: "Règlements clients", icon: Wallet },
+      { href: "/funding", label: "Approvisionnements", icon: Wallet },
       { href: "/cash-vouchers", label: "Bons de sortie caisse", icon: Receipt },
       { href: "/payment-orders", label: "Ordres de paiement", icon: ScrollText },
       { href: "/recouvrement", label: "Recouvrement", icon: CalendarClock },
@@ -82,9 +83,10 @@ const navigationGroups = [
 ];
 
 const allNavigationItems = navigationGroups.flatMap((group) => group.items);
-const managingPartnerPaths = ["/payment-orders", "/cash-vouchers", "/reports"];
+const managingPartnerPaths = ["/payment-orders", "/funding", "/cash-vouchers", "/reports"];
 const managingPartnerNavigation = [
   { href: "/payment-orders", label: "Ordres de paiement", icon: ScrollText, paths: ["/payment-orders"] },
+  { href: "/funding", label: "Approvisionnements", icon: Wallet, paths: ["/funding"] },
   { href: "/cash-vouchers", label: "Bons de sortie", icon: Receipt, paths: ["/cash-vouchers"] },
   { href: "/reports", label: "Rapports", icon: BarChart3, paths: ["/reports"] },
 ];
@@ -100,7 +102,7 @@ const primaryNavigation = [
     href: "/invoices",
     label: "Gestion",
     icon: Receipt,
-    paths: ["/invoices", "/payments", "/cash-vouchers", "/payment-orders", "/recouvrement", "/expenses", "/fiscal", "/reports"],
+    paths: ["/invoices", "/payments", "/funding", "/cash-vouchers", "/payment-orders", "/recouvrement", "/expenses", "/fiscal", "/reports"],
   },
   {
     href: "/patrimoine",
