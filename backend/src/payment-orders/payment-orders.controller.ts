@@ -136,7 +136,7 @@ export class PaymentOrdersController {
   }
 
   @Post(':id/reject')
-  @Roles(...financeRoles)
+  @Roles(UserRole.COMPANY_ADMIN)
   @ApiOperation({ summary: 'Reject a payment order with a recorded reason' })
   reject(
     @Param('id', new ParseUUIDPipe()) id: string,

@@ -8,6 +8,7 @@ import { PaymentOrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
   ensureCashAccount,
+  getPaymentOrderFundingBalance,
   lockCashAccount,
 } from '../cash-vouchers/cash-ledger';
 import { amountInWords } from './amount-in-words';
@@ -39,7 +40,7 @@ export class PaymentOrdersService {
   }
 
   async configuration(companyId: string, year: number, currency: 'CDF' | 'USD') {
-    const [budgets, accountingRules] = await Promise.all([
+    const [budgets, accountingRules, cashAccount, orders] = await Promise.all([
       this.prisma.paymentOrderBudget.findMany({
         where: { companyId, year, currency, isActive: true },
         orderBy: { budgetAccount: 'asc' },
@@ -48,8 +49,47 @@ export class PaymentOrdersService {
         where: { companyId, isActive: true },
         orderBy: { category: 'asc' },
       }),
+      this.prisma.$transaction((transaction) =>
+        ensureCashAccount(transaction, companyId, currency),
+      ),
+      this.prisma.paymentOrder.findMany({
+        where: {
+          companyId,
+          currency,
+          status: { in: [PaymentOrderStatus.SUBMITTED, PaymentOrderStatus.FINANCE_APPROVED, PaymentOrderStatus.APPROVED] },
+        },
+        select: { amount: true },
+      }),
     ]);
-    return { budgets, accountingRules };
+    const funding = cashAccount
+      ? await this.prisma.$transaction(async (transaction) => {
+          const movements = await transaction.cashMovement.groupBy({
+            by: ['direction', 'sourceType'],
+            where: {
+              companyId,
+              cashAccountId: cashAccount.id,
+              sourceType: { in: ['CASH_FUNDING', 'CASH_VOUCHER', 'CASH_VOUCHER_REVERSAL'] },
+            },
+            _sum: { amount: true },
+          });
+          const total = (sourceType: string, direction: 'IN' | 'OUT') =>
+            movements.find((row) => row.sourceType === sourceType && row.direction === direction)?._sum.amount ?? new Prisma.Decimal(0);
+          const provisioned = total('CASH_FUNDING', 'IN');
+          const paid = total('CASH_VOUCHER', 'OUT').sub(total('CASH_VOUCHER_REVERSAL', 'IN'));
+          const available = await getPaymentOrderFundingBalance(transaction, companyId, cashAccount.id);
+          return {
+            initialForecast: provisioned.toString(),
+            paid: paid.toString(),
+            available: available.toString(),
+          };
+        })
+      : { initialForecast: '0', paid: '0', available: '0' };
+    const outstanding = orders.reduce((sum, order) => sum.add(order.amount), new Prisma.Decimal(0));
+    return {
+      budgets,
+      accountingRules,
+      funding: { ...funding, outstanding: outstanding.toString() },
+    };
   }
 
   async saveBudget(
@@ -166,47 +206,28 @@ export class PaymentOrdersService {
         )
         SELECT 1 FROM advisory_lock
       `;
-      const budgetAccount = dto.budgetAccount.trim();
-      const budgetOrders = await transaction.paymentOrder.findMany({
+      const budgetAccount = 'Approvisionnement de l’Associé-Gérant';
+      const activeOrders = await transaction.paymentOrder.findMany({
         where: {
           companyId,
-          budgetAccount,
           currency: dto.currency,
-          date: {
-            gte: new Date(Date.UTC(year, 0, 1)),
-            lt: new Date(Date.UTC(year + 1, 0, 1)),
-          },
-          status: { not: PaymentOrderStatus.REJECTED },
+          status: { in: [PaymentOrderStatus.SUBMITTED, PaymentOrderStatus.FINANCE_APPROVED, PaymentOrderStatus.APPROVED] },
         },
-        select: { initialForecast: true, amount: true, status: true },
+        select: { amount: true },
       });
-      const configuredBudget = await transaction.paymentOrderBudget.findUnique({
+      const cashAccount = await ensureCashAccount(transaction, companyId, dto.currency);
+      const movements = await transaction.cashMovement.groupBy({
+        by: ['direction', 'sourceType'],
         where: {
-          companyId_year_currency_budgetAccount: {
-            companyId,
-            year,
-            currency: dto.currency,
-            budgetAccount,
-          },
+          companyId,
+          cashAccountId: cashAccount.id,
+          sourceType: { in: ['CASH_FUNDING', 'CASH_VOUCHER', 'CASH_VOUCHER_REVERSAL'] },
         },
+        _sum: { amount: true },
       });
-      const initialForecast =
-        configuredBudget?.initialForecast ?? budgetOrders[0]?.initialForecast;
-      if (!initialForecast) {
-        throw new BadRequestException(
-          'Aucun budget approuvé n’est configuré pour cette ligne, cette devise et cet exercice. Ajoutez-le dans Configuration du budget.',
-        );
-      }
-      if (
-        !configuredBudget &&
-        budgetOrders.some(
-          (order) => !order.initialForecast.equals(initialForecast),
-        )
-      ) {
-        throw new ConflictException(
-          'La prévision initiale doit rester identique pour un même compte budgétaire, une même devise et un même exercice.',
-        );
-      }
+      const movementTotal = (sourceType: string, direction: 'IN' | 'OUT') =>
+        movements.find((row) => row.sourceType === sourceType && row.direction === direction)?._sum.amount ?? new Prisma.Decimal(0);
+      const initialForecast = movementTotal('CASH_FUNDING', 'IN');
       if (dto.currency === 'CDF' && !initialForecast.isInteger())
         throw new BadRequestException(
           'La prévision budgétaire en CDF doit être un nombre entier.',
@@ -232,24 +253,9 @@ export class PaymentOrdersService {
           'Confirmez ou saisissez l’imputation comptable avant de transmettre l’OP.',
         );
       }
-      const paid = budgetOrders
-        .filter((order) => order.status === PaymentOrderStatus.PAID)
-        .reduce((sum, order) => sum.add(order.amount), new Prisma.Decimal(0));
-      const outstanding = budgetOrders
-        .filter(
-          (order) =>
-            order.status === PaymentOrderStatus.SUBMITTED ||
-            order.status === PaymentOrderStatus.FINANCE_APPROVED ||
-            order.status === PaymentOrderStatus.APPROVED,
-        )
-        .reduce((sum, order) => sum.add(order.amount), new Prisma.Decimal(0));
-      const availableBefore = initialForecast.sub(paid);
+      const outstanding = activeOrders.reduce((sum, order) => sum.add(order.amount), new Prisma.Decimal(0));
+      const availableBefore = await getPaymentOrderFundingBalance(transaction, companyId, cashAccount.id);
       const availableAfter = availableBefore.sub(outstanding).sub(amount);
-      if (availableAfter.lt(0)) {
-        throw new BadRequestException(
-          `Budget insuffisant : disponible avant engagement ${availableBefore.toFixed(2)}, engagements en attente ${outstanding.toFixed(2)}, demande ${amount.toFixed(2)}.`,
-        );
-      }
       const existing = await transaction.paymentOrder.findMany({
         where: { companyId, orderNumber: { startsWith: `OP/${year}/` } },
         select: { orderNumber: true },
@@ -618,17 +624,14 @@ export class PaymentOrdersService {
       const expected =
         visa === 'FINANCE'
           ? PaymentOrderStatus.SUBMITTED
-          : PaymentOrderStatus.FINANCE_APPROVED;
+          : order.status === PaymentOrderStatus.FINANCE_APPROVED
+            ? PaymentOrderStatus.FINANCE_APPROVED
+            : PaymentOrderStatus.SUBMITTED;
       if (order.status !== expected) {
         throw new ConflictException(
           visa === 'FINANCE'
             ? 'Cette OP n’attend plus le visa des Finances.'
-            : 'Le visa des Finances doit être enregistré avant celui de l’Associé-Gérant.',
-        );
-      }
-      if (visa === 'MANAGER' && order.financeVisaBy === userId) {
-        throw new ConflictException(
-          'Le visa de l’Associé-Gérant doit être donné par une autre personne que celui des Finances.',
+            : 'Cette OP n’attend plus la décision de l’Associé-Gérant.',
         );
       }
       const result = await transaction.paymentOrder.updateMany({
