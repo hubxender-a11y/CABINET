@@ -7,6 +7,7 @@ export type AuthenticatedUser = {
   name: string;
   companyId: string;
   role: UserRole;
+  iat?: number;
 };
 
 export type AuthenticatedRequest = Request & {
