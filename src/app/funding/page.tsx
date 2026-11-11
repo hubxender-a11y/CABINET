@@ -81,7 +81,6 @@ export default function FundingPage() {
     "FINANCE_MANAGER",
     "ACCOUNTANT",
     "CASHIER",
-    "SECRETARY",
   ].includes(userRole);
   const fundingMovements = useMemo(
     () => treasury.movements.filter((movement) => movement.sourceType === "CASH_FUNDING"),

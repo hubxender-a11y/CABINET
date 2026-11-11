@@ -303,7 +303,6 @@ export default function CashVouchersPage() {
     "FINANCE_MANAGER",
     "ACCOUNTANT",
     "CASHIER",
-    "SECRETARY",
   ].includes(userRole);
   const showIssueView = canIssueVoucher && cashVoucherTab === "issue";
   const movementBalances = useMemo(() => {
