@@ -467,7 +467,6 @@ export default function ReportsPage() {
             }}>
               Réessayer
             </button>)}
-          )}
         </div>
       )}
 
