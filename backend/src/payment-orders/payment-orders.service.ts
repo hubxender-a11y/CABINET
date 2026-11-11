@@ -600,6 +600,17 @@ export class PaymentOrdersService {
         where: { id, companyId },
       });
       if (!order) throw new NotFoundException('Ordre de paiement introuvable.');
+      if (visa === 'MANAGER') {
+        const attachment = await transaction.paymentOrderAttachment.findFirst({
+          where: { paymentOrderId: id, companyId },
+          select: { id: true },
+        });
+        if (!attachment) {
+          throw new ConflictException(
+            'Joignez l’état de besoin avant l’approbation de l’Associé-Gérant.',
+          );
+        }
+      }
       if (order.createdBy === userId)
         throw new ConflictException(
           'Le demandeur ne peut pas viser sa propre OP.',
@@ -641,9 +652,82 @@ export class PaymentOrdersService {
         throw new ConflictException(
           'Cette OP a été traitée entre-temps. Actualisez le registre.',
         );
-      const updated = await transaction.paymentOrder.findUniqueOrThrow({
-        where: { id },
-      });
+      let voucherNumber: string | undefined;
+      if (visa === 'MANAGER') {
+        const date = new Date();
+        const year = date.getUTCFullYear();
+        const cashAccount = await ensureCashAccount(
+          transaction,
+          companyId,
+          order.currency as 'CDF' | 'USD',
+        );
+        await lockCashAccount(transaction, cashAccount.id);
+        await transaction.$queryRaw`
+          WITH advisory_lock AS MATERIALIZED (
+            SELECT pg_advisory_xact_lock(hashtext(${`cash-voucher:${companyId}`}), CAST(${year} AS INTEGER))
+          )
+          SELECT 1 FROM advisory_lock
+        `;
+        const vouchers = await transaction.cashVoucher.findMany({
+          where: { companyId, voucherNumber: { startsWith: `BSC/${year}/` } },
+          select: { voucherNumber: true },
+        });
+        const lastSequence = vouchers.reduce((maximum, voucher) => {
+          const match = new RegExp(`^BSC/${year}/(\\d+)$`).exec(
+            voucher.voucherNumber,
+          );
+          return Math.max(maximum, match ? Number(match[1]) : 0);
+        }, 0);
+        voucherNumber = `BSC/${year}/${String(lastSequence + 1).padStart(4, '0')}`;
+        const voucher = await transaction.cashVoucher.create({
+          data: {
+            companyId,
+            voucherNumber,
+            date,
+            beneficiary: order.beneficiary,
+            category: `Règlement de l’OP ${order.orderNumber}`,
+            reason: order.reason,
+            amount: order.amount,
+            currency: order.currency,
+            method: order.currency === 'CDF' ? 'CASH_CDF' : 'CASH_USD',
+            cashAccountId: cashAccount.id,
+            accountCode: cashAccount.code,
+            reference: order.orderNumber,
+            status: 'PENDING_APPROVAL',
+          },
+        });
+        const linked = await transaction.paymentOrder.updateMany({
+          where: {
+            id,
+            companyId,
+            status: PaymentOrderStatus.APPROVED,
+            cashVoucherId: null,
+          },
+          data: { cashVoucherId: voucher.id },
+        });
+        if (linked.count !== 1) {
+          throw new ConflictException(
+            'Le bon de sortie n’a pas pu être ajouté à la caisse. Actualisez le dossier.',
+          );
+        }
+        await transaction.auditLog.create({
+          data: {
+            companyId,
+            userId,
+            action: 'PAYMENT_ORDER_CASH_VOUCHER_SUBMITTED',
+            details: {
+              paymentOrderId: id,
+              orderNumber: order.orderNumber,
+              voucherId: voucher.id,
+              voucherNumber,
+              amount: order.amount.toString(),
+              currency: order.currency,
+              approvalRequired: true,
+              createdByManagerApproval: true,
+            },
+          },
+        });
+      }
       await transaction.auditLog.create({
         data: {
           companyId,
@@ -652,10 +736,24 @@ export class PaymentOrdersService {
             visa === 'FINANCE'
               ? 'PAYMENT_ORDER_FINANCE_VISA'
               : 'PAYMENT_ORDER_MANAGER_VISA',
-          details: { paymentOrderId: id, orderNumber: order.orderNumber },
+          details: {
+            paymentOrderId: id,
+            orderNumber: order.orderNumber,
+            ...(voucherNumber ? { voucherNumber } : {}),
+          },
         },
       });
-      return updated;
+      return transaction.paymentOrder.findUniqueOrThrow({
+        where: { id },
+        include: {
+          attachment: {
+            select: { id: true, fileName: true, mimeType: true, size: true },
+          },
+          cashVoucher: {
+            select: { id: true, voucherNumber: true, date: true, status: true },
+          },
+        },
+      });
     });
   }
 }

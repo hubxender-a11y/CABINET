@@ -6528,6 +6528,82 @@ summary:focus-visible {
   display: none;
 }
 
+.payment-order-entry-table th,
+.payment-order-entry-table td,
+.payment-order-budget-entry-table th,
+.payment-order-budget-entry-table td {
+  border: 1px solid #cbd5e1;
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.payment-order-entry-table th,
+.payment-order-budget-entry-table thead th {
+  background: #f1f6fa;
+  color: #173d60;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.payment-order-entry-table th {
+  width: 34%;
+}
+
+.payment-order-budget-entry-table thead tr:first-child th {
+  background: #0b4778;
+  color: white;
+  text-align: center;
+}
+
+.payment-order-budget-entry-table tbody td {
+  min-width: 9rem;
+  color: #173d60;
+  font-weight: 600;
+}
+
+.payment-order-attachment-heading {
+  margin-bottom: 0.5rem;
+  color: #173d60;
+  font-size: 0.8rem;
+}
+
+.payment-order-attachment-heading p {
+  margin: 0 0 0.4rem;
+  color: #64748b;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.payment-order-attachment-heading h2 {
+  margin: 0 0 0.4rem;
+  color: #073c6d;
+  font-size: 1.2rem;
+}
+
+.payment-order-attachment-image,
+.payment-order-attachment-pdf {
+  display: block;
+  width: 100%;
+  height: 255mm;
+  object-fit: contain;
+  border: 0;
+}
+
+.payment-order-attachment-office-note {
+  margin-top: 2rem;
+  border: 1px solid #cbd5e1;
+  padding: 1.25rem;
+  color: #334155;
+}
+
+.payment-order-attachment-office-note p + p {
+  margin-top: 0.75rem;
+}
+
 @page payment-order-document {
   size: A4 portrait;
   margin: 0;
@@ -6993,6 +7069,31 @@ summary:focus-visible {
     min-height: auto !important;
     overflow: visible !important;
     padding: 0 !important;
+  }
+
+  body.print-payment-order-mode .payment-order-attachment-print {
+    position: relative !important;
+    inset: auto !important;
+    display: block !important;
+    width: auto !important;
+    min-height: 260mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  .payment-order-attachment-heading {
+    margin-bottom: 4mm;
+  }
+
+  .payment-order-attachment-image,
+  .payment-order-attachment-pdf {
+    width: 100%;
+    height: 255mm;
+    max-height: 255mm;
+    object-fit: contain;
   }
 
   .cash-voucher-print .payment-order-heading {
