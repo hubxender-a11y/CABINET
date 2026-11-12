@@ -3,6 +3,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
 } from 'class-validator';
@@ -77,8 +78,29 @@ export class FundCashAccountDto {
   @IsIn(['CDF', 'USD'])
   currency: 'CDF' | 'USD';
 
+  @IsOptional()
+  @IsIn(['CDF', 'USD'])
+  receivedCurrency?: 'CDF' | 'USD';
+
   @IsIn(['ASSOCIE_GERANT'])
   source: 'ASSOCIE_GERANT';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  reference?: string;
+}
+
+export class ConvertCashCurrencyDto {
+  @IsDateString()
+  date: string;
+
+  @IsString()
+  @Matches(/^\d{1,12}(?:\.\d{1,2})?$/)
+  amountUsd: string;
+
+  @IsUUID()
+  sourceAccountId: string;
 
   @IsOptional()
   @IsString()

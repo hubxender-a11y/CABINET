@@ -8,6 +8,7 @@ import { PaymentOrderStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
   ensureCashAccount,
+  getCashInflowTotal,
   getPaymentOrderFundingBalance,
   lockCashAccount,
 } from '../cash-vouchers/cash-ledger';
@@ -43,7 +44,11 @@ export class PaymentOrdersService {
     });
   }
 
-  async configuration(companyId: string, year: number, currency: 'CDF' | 'USD') {
+  async configuration(
+    companyId: string,
+    year: number,
+    currency: 'CDF' | 'USD',
+  ) {
     const [budgets, accountingRules, cashAccount, orders] = await Promise.all([
       this.prisma.paymentOrderBudget.findMany({
         where: { companyId, year, currency, isActive: true },
@@ -60,35 +65,55 @@ export class PaymentOrdersService {
         where: {
           companyId,
           currency,
-          status: { in: [PaymentOrderStatus.SUBMITTED, PaymentOrderStatus.FINANCE_APPROVED, PaymentOrderStatus.APPROVED] },
+          status: {
+            in: [
+              PaymentOrderStatus.SUBMITTED,
+              PaymentOrderStatus.FINANCE_APPROVED,
+              PaymentOrderStatus.APPROVED,
+            ],
+          },
         },
         select: { amount: true },
       }),
     ]);
     const funding = cashAccount
       ? await this.prisma.$transaction(async (transaction) => {
-          const movements = await transaction.cashMovement.groupBy({
-            by: ['direction', 'sourceType'],
-            where: {
+          const [movements, initialForecast, available] = await Promise.all([
+            transaction.cashMovement.groupBy({
+              by: ['direction', 'sourceType'],
+              where: {
+                companyId,
+                cashAccountId: cashAccount.id,
+                sourceType: { in: ['CASH_VOUCHER', 'CASH_VOUCHER_REVERSAL'] },
+              },
+              _sum: { amount: true },
+            }),
+            getCashInflowTotal(transaction, companyId, cashAccount.id),
+            getPaymentOrderFundingBalance(
+              transaction,
               companyId,
-              cashAccountId: cashAccount.id,
-              sourceType: { in: ['CASH_FUNDING', 'CASH_VOUCHER', 'CASH_VOUCHER_REVERSAL'] },
-            },
-            _sum: { amount: true },
-          });
+              cashAccount.id,
+            ),
+          ]);
           const total = (sourceType: string, direction: 'IN' | 'OUT') =>
-            movements.find((row) => row.sourceType === sourceType && row.direction === direction)?._sum.amount ?? new Prisma.Decimal(0);
-          const provisioned = total('CASH_FUNDING', 'IN');
-          const paid = total('CASH_VOUCHER', 'OUT').sub(total('CASH_VOUCHER_REVERSAL', 'IN'));
-          const available = await getPaymentOrderFundingBalance(transaction, companyId, cashAccount.id);
+            movements.find(
+              (row) =>
+                row.sourceType === sourceType && row.direction === direction,
+            )?._sum.amount ?? new Prisma.Decimal(0);
+          const paid = total('CASH_VOUCHER', 'OUT').sub(
+            total('CASH_VOUCHER_REVERSAL', 'IN'),
+          );
           return {
-            initialForecast: provisioned.toString(),
+            initialForecast: initialForecast.toString(),
             paid: paid.toString(),
             available: available.toString(),
           };
         })
       : { initialForecast: '0', paid: '0', available: '0' };
-    const outstanding = orders.reduce((sum, order) => sum.add(order.amount), new Prisma.Decimal(0));
+    const outstanding = orders.reduce(
+      (sum, order) => sum.add(order.amount),
+      new Prisma.Decimal(0),
+    );
     return {
       budgets,
       accountingRules,
@@ -104,9 +129,13 @@ export class PaymentOrdersService {
     const budgetAccount = dto.budgetAccount.trim();
     const initialForecast = new Prisma.Decimal(dto.initialForecast);
     if (!budgetAccount || initialForecast.lt(0))
-      throw new BadRequestException('La ligne et la prévision doivent être valides.');
+      throw new BadRequestException(
+        'La ligne et la prévision doivent être valides.',
+      );
     if (dto.currency === 'CDF' && !initialForecast.isInteger())
-      throw new BadRequestException('La prévision en CDF doit être un nombre entier.');
+      throw new BadRequestException(
+        'La prévision en CDF doit être un nombre entier.',
+      );
 
     return this.prisma.$transaction(async (transaction) => {
       const from = new Date(Date.UTC(dto.year, 0, 1));
@@ -121,7 +150,10 @@ export class PaymentOrdersService {
         },
         select: { amount: true, status: true },
       });
-      const used = orders.reduce((sum, order) => sum.add(order.amount), new Prisma.Decimal(0));
+      const used = orders.reduce(
+        (sum, order) => sum.add(order.amount),
+        new Prisma.Decimal(0),
+      );
       if (initialForecast.lt(used))
         throw new BadRequestException(
           `La prévision ne peut pas être inférieure aux dépenses déjà payées et aux engagements (${used.toFixed(2)} ${dto.currency}).`,
@@ -135,7 +167,13 @@ export class PaymentOrdersService {
             budgetAccount,
           },
         },
-        create: { companyId, year: dto.year, currency: dto.currency, budgetAccount, initialForecast },
+        create: {
+          companyId,
+          year: dto.year,
+          currency: dto.currency,
+          budgetAccount,
+          initialForecast,
+        },
         update: { initialForecast, isActive: true },
       });
       await transaction.auditLog.create({
@@ -143,7 +181,12 @@ export class PaymentOrdersService {
           companyId,
           userId,
           action: 'PAYMENT_ORDER_BUDGET_SAVED',
-          details: { budgetAccount, year: dto.year, currency: dto.currency, initialForecast: initialForecast.toString() },
+          details: {
+            budgetAccount,
+            year: dto.year,
+            currency: dto.currency,
+            initialForecast: initialForecast.toString(),
+          },
         },
       });
       return budget;
@@ -161,13 +204,28 @@ export class PaymentOrdersService {
     const accountName = dto.accountName.trim();
     const budgetAccount = dto.budgetAccount?.trim() || null;
     if (!categoryKey || !accountCode || !accountName)
-      throw new BadRequestException('La catégorie, le code et le libellé du compte sont obligatoires.');
+      throw new BadRequestException(
+        'La catégorie, le code et le libellé du compte sont obligatoires.',
+      );
 
     return this.prisma.$transaction(async (transaction) => {
       const rule = await transaction.paymentOrderAccountingRule.upsert({
         where: { companyId_categoryKey: { companyId, categoryKey } },
-        create: { companyId, category, categoryKey, accountCode, accountName, budgetAccount },
-        update: { category, accountCode, accountName, budgetAccount, isActive: true },
+        create: {
+          companyId,
+          category,
+          categoryKey,
+          accountCode,
+          accountName,
+          budgetAccount,
+        },
+        update: {
+          category,
+          accountCode,
+          accountName,
+          budgetAccount,
+          isActive: true,
+        },
       });
       await transaction.auditLog.create({
         data: {
@@ -215,23 +273,37 @@ export class PaymentOrdersService {
         where: {
           companyId,
           currency: dto.currency,
-          status: { in: [PaymentOrderStatus.SUBMITTED, PaymentOrderStatus.FINANCE_APPROVED, PaymentOrderStatus.APPROVED] },
+          status: {
+            in: [
+              PaymentOrderStatus.SUBMITTED,
+              PaymentOrderStatus.FINANCE_APPROVED,
+              PaymentOrderStatus.APPROVED,
+            ],
+          },
         },
         select: { amount: true },
       });
-      const cashAccount = await ensureCashAccount(transaction, companyId, dto.currency);
-      const movements = await transaction.cashMovement.groupBy({
-        by: ['direction', 'sourceType'],
-        where: {
-          companyId,
-          cashAccountId: cashAccount.id,
-          sourceType: { in: ['CASH_FUNDING', 'CASH_VOUCHER', 'CASH_VOUCHER_REVERSAL'] },
-        },
-        _sum: { amount: true },
-      });
+      const cashAccount = await ensureCashAccount(
+        transaction,
+        companyId,
+        dto.currency,
+      );
+      const [movements, initialForecast] = await Promise.all([
+        transaction.cashMovement.groupBy({
+          by: ['direction', 'sourceType'],
+          where: {
+            companyId,
+            cashAccountId: cashAccount.id,
+            sourceType: { in: ['CASH_VOUCHER', 'CASH_VOUCHER_REVERSAL'] },
+          },
+          _sum: { amount: true },
+        }),
+        getCashInflowTotal(transaction, companyId, cashAccount.id),
+      ]);
       const movementTotal = (sourceType: string, direction: 'IN' | 'OUT') =>
-        movements.find((row) => row.sourceType === sourceType && row.direction === direction)?._sum.amount ?? new Prisma.Decimal(0);
-      const initialForecast = movementTotal('CASH_FUNDING', 'IN');
+        movements.find(
+          (row) => row.sourceType === sourceType && row.direction === direction,
+        )?._sum.amount ?? new Prisma.Decimal(0);
       if (dto.currency === 'CDF' && !initialForecast.isInteger())
         throw new BadRequestException(
           'La prévision budgétaire en CDF doit être un nombre entier.',
@@ -252,8 +324,15 @@ export class PaymentOrdersService {
         (accountingRule
           ? `${accountingRule.accountCode} · ${accountingRule.accountName}`
           : 'Sans imputation sur l’ordre de paiement');
-      const outstanding = activeOrders.reduce((sum, order) => sum.add(order.amount), new Prisma.Decimal(0));
-      const availableBefore = await getPaymentOrderFundingBalance(transaction, companyId, cashAccount.id);
+      const outstanding = activeOrders.reduce(
+        (sum, order) => sum.add(order.amount),
+        new Prisma.Decimal(0),
+      );
+      const availableBefore = await getPaymentOrderFundingBalance(
+        transaction,
+        companyId,
+        cashAccount.id,
+      );
       const availableAfter = availableBefore.sub(outstanding).sub(amount);
       const existing = await transaction.paymentOrder.findMany({
         where: { companyId, orderNumber: { startsWith: `OP/${year}/` } },
@@ -306,9 +385,14 @@ export class PaymentOrdersService {
         companyId,
         [UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER],
         `OP à examiner · ${orderNumber}`,
-        `${order.requestingService} · demande saisie par ${(
-          await transaction.user.findUnique({ where: { id: userId }, select: { name: true } })
-        )?.name ?? 'un membre du cabinet'}. ${amount.toString()} ${dto.currency} pour ${order.beneficiary}. Examinez l’état de besoin puis approuvez ou rejetez l’OP.`,
+        `${order.requestingService} · demande saisie par ${
+          (
+            await transaction.user.findUnique({
+              where: { id: userId },
+              select: { name: true },
+            })
+          )?.name ?? 'un membre du cabinet'
+        }. ${amount.toString()} ${dto.currency} pour ${order.beneficiary}. Examinez l’état de besoin puis approuvez ou rejetez l’OP.`,
         userId,
       );
       return transaction.paymentOrder.findUniqueOrThrow({
@@ -437,7 +521,9 @@ export class PaymentOrdersService {
       if (!header)
         throw new NotFoundException('Ordre de paiement introuvable.');
       if (header.status !== PaymentOrderStatus.APPROVED) {
-        throw new ConflictException('Seule une OP approuvée peut générer un bon de sortie.');
+        throw new ConflictException(
+          'Seule une OP approuvée peut générer un bon de sortie.',
+        );
       }
       if (
         header.cashVoucher &&
@@ -475,7 +561,10 @@ export class PaymentOrdersService {
           },
         },
       });
-      if (!currentOrder || currentOrder.status !== PaymentOrderStatus.APPROVED) {
+      if (
+        !currentOrder ||
+        currentOrder.status !== PaymentOrderStatus.APPROVED
+      ) {
         throw new ConflictException(
           'Cette OP a été traitée entre-temps. Actualisez le registre.',
         );
@@ -550,7 +639,9 @@ export class PaymentOrdersService {
           attachment: {
             select: { id: true, fileName: true, mimeType: true, size: true },
           },
-          cashVoucher: { select: { id: true, voucherNumber: true, date: true, status: true } },
+          cashVoucher: {
+            select: { id: true, voucherNumber: true, date: true, status: true },
+          },
         },
       });
     });

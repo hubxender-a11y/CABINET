@@ -622,19 +622,20 @@ model CashVoucher {
 }
 
 model CashAccount {
-  id        String         @id @default(uuid()) @db.Uuid
-  companyId String         @db.Uuid
-  currency  String
-  code      String
-  name      String
-  isActive  Boolean        @default(true)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  movements CashMovement[]
-  vouchers  CashVoucher[]
+  id          String         @id @default(uuid()) @db.Uuid
+  companyId   String         @db.Uuid
+  currency    String
+  accountType String         @default("CASH")
+  code        String
+  name        String
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  movements   CashMovement[]
+  vouchers    CashVoucher[]
 
-  @@unique([companyId, currency])
+  @@unique([companyId, currency, accountType])
   @@unique([companyId, code])
   @@index([companyId, isActive])
 }
@@ -646,6 +647,9 @@ model CashMovement {
   date          DateTime
   direction     CashMovementDirection
   amount        Decimal               @db.Decimal(18, 2)
+  sourceAmount  Decimal?              @db.Decimal(18, 2)
+  sourceCurrency String?
+  exchangeRate  Decimal?              @db.Decimal(18, 6)
   sourceType    String
   sourceId      String
   description   String

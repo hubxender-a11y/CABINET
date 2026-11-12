@@ -80,18 +80,28 @@ const maxSignatureDataUrlLength = 70_000;
 
 function optimizeSignatureImage(file: File) {
   if (!file.type.startsWith("image/")) {
-    return Promise.reject(new Error("Sélectionnez un fichier image pour la signature."));
+    return Promise.reject(
+      new Error("Sélectionnez un fichier image pour la signature."),
+    );
   }
   if (file.size > 5 * 1024 * 1024) {
-    return Promise.reject(new Error("L’image de signature ne peut pas dépasser 5 Mo."));
+    return Promise.reject(
+      new Error("L’image de signature ne peut pas dépasser 5 Mo."),
+    );
   }
 
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Impossible de lire l’image de signature."));
+    reader.onerror = () =>
+      reject(new Error("Impossible de lire l’image de signature."));
     reader.onload = () => {
       const image = new window.Image();
-      image.onerror = () => reject(new Error("Le fichier sélectionné ne peut pas être décodé comme une image."));
+      image.onerror = () =>
+        reject(
+          new Error(
+            "Le fichier sélectionné ne peut pas être décodé comme une image.",
+          ),
+        );
       image.onload = () => {
         const scale = Math.min(1, 900 / image.width, 360 / image.height);
         const canvas = document.createElement("canvas");
@@ -114,7 +124,11 @@ function optimizeSignatureImage(file: File) {
             return;
           }
         }
-        reject(new Error("Cette image est trop détaillée. Choisissez une signature plus simple."));
+        reject(
+          new Error(
+            "Cette image est trop détaillée. Choisissez une signature plus simple.",
+          ),
+        );
       };
       image.src = String(reader.result);
     };
@@ -135,7 +149,9 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [settingsSection, setSettingsSection] = useState<"identity" | "backups">("identity");
+  const [settingsSection, setSettingsSection] = useState<
+    "identity" | "backups"
+  >("identity");
 
   useEffect(() => {
     if (!profile) return;
@@ -143,7 +159,12 @@ export default function SettingsPage() {
   }, [profile]);
 
   const isDirty = useMemo(
-    () => Boolean(profile && draft && JSON.stringify(toChanges(profile)) !== JSON.stringify(draft)),
+    () =>
+      Boolean(
+        profile &&
+        draft &&
+        JSON.stringify(toChanges(profile)) !== JSON.stringify(draft),
+      ),
     [draft, profile],
   );
 
@@ -185,7 +206,8 @@ export default function SettingsPage() {
       notify({
         type: "success",
         title: "Paramètres enregistrés",
-        message: "Les informations du cabinet et la signature ont été confirmées en base.",
+        message:
+          "Les informations du cabinet et la signature ont été confirmées en base.",
       });
     } catch (caught) {
       const reason =
@@ -193,7 +215,11 @@ export default function SettingsPage() {
           ? caught.message
           : "Impossible d’enregistrer les paramètres.";
       setError(reason);
-      notify({ type: "error", title: "Paramètres non enregistrés", message: reason });
+      notify({
+        type: "error",
+        title: "Paramètres non enregistrés",
+        message: reason,
+      });
     } finally {
       setSaving(false);
     }
@@ -210,7 +236,8 @@ export default function SettingsPage() {
       notify({
         type: "info",
         title: "Signature prête",
-        message: "Pensez à enregistrer les modifications pour la sauvegarder dans le cabinet.",
+        message:
+          "Pensez à enregistrer les modifications pour la sauvegarder dans le cabinet.",
       });
     } catch (caught) {
       const reason =
@@ -218,16 +245,23 @@ export default function SettingsPage() {
           ? caught.message
           : "Impossible de préparer l’image de signature.";
       setError(reason);
-      notify({ type: "error", title: "Image de signature refusée", message: reason });
+      notify({
+        type: "error",
+        title: "Image de signature refusée",
+        message: reason,
+      });
     } finally {
       event.target.value = "";
     }
   }
 
-  function renderFields(fields: readonly (readonly [FieldKey, string, ...boolean[]])[]) {
+  function renderFields(
+    fields: readonly (readonly [FieldKey, string, ...boolean[]])[],
+  ) {
     return fields.map(([key, label, required]) => (
       <label key={key} className="space-y-2 text-sm font-medium text-slate-700">
-        {label}{required ? " *" : ""}
+        {label}
+        {required ? " *" : ""}
         <input
           required={Boolean(required)}
           type={key === "email" ? "email" : "text"}
@@ -240,7 +274,10 @@ export default function SettingsPage() {
     ));
   }
 
-  const displayName = draft?.tradeName?.trim() || draft?.legalName?.trim() || companyDisplayName(profile);
+  const displayName =
+    draft?.tradeName?.trim() ||
+    draft?.legalName?.trim() ||
+    companyDisplayName(profile);
   const displayLocation = draft
     ? [draft.commune, draft.city, draft.province]
         .map((part) => part?.trim())
@@ -252,45 +289,93 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <header className="workspace-page-heading flex flex-col justify-between gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end">
         <div>
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">Configuration du cabinet</p>
-          <h1 className="mt-2 text-3xl font-semibold text-slate-900">Identité & paramètres</h1>
+          <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-600">
+            Configuration du cabinet
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold text-slate-900">
+            Identité & paramètres
+          </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-500">
-            Une seule fiche de référence pour l’espace de travail, les tableaux de bord et les prochains documents.
+            Une seule fiche de référence pour l’espace de travail, les tableaux
+            de bord et les prochains documents.
           </p>
         </div>
-        {settingsSection === "identity" && <button
-          type="button"
-          onClick={() => void reload()}
-          disabled={loading || saving}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Actualiser
-        </button>}
+        {settingsSection === "identity" && (
+          <button
+            type="button"
+            onClick={() => void reload()}
+            disabled={loading || saving}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Actualiser
+          </button>
+        )}
       </header>
 
-      {message && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
+      {message && (
+        <p
+          role="status"
+          className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"
+        >
+          {message}
+        </p>
+      )}
       {(error || profileError) && (
-        <p role="alert" className="break-words rounded-xl bg-rose-50 p-3 text-sm text-rose-800">
+        <p
+          role="alert"
+          className="break-words rounded-xl bg-rose-50 p-3 text-sm text-rose-800"
+        >
           {error || profileError}
         </p>
       )}
 
-      <div role="tablist" aria-label="Configuration du cabinet" className="flex w-full gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1 sm:w-fit">
-        <button type="button" role="tab" aria-selected={settingsSection === "identity"} onClick={() => setSettingsSection("identity")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "identity" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>Identité & paramètres</button>
-        <button type="button" role="tab" aria-selected={settingsSection === "backups"} onClick={() => setSettingsSection("backups")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "backups" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>Sauvegardes</button>
+      <div
+        role="tablist"
+        aria-label="Configuration du cabinet"
+        className="flex w-full gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1 sm:w-fit"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={settingsSection === "identity"}
+          onClick={() => setSettingsSection("identity")}
+          className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "identity" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+        >
+          Identité & paramètres
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={settingsSection === "backups"}
+          onClick={() => setSettingsSection("backups")}
+          className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "backups" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+        >
+          Sauvegardes
+        </button>
       </div>
 
-      {settingsSection === "backups" ? <DatabaseBackupPanel /> : loading && !draft ? (
-        <p className="rounded-xl bg-slate-50 p-6 text-sm text-slate-500">Chargement du profil enregistré…</p>
+      {settingsSection === "backups" ? (
+        <DatabaseBackupPanel />
+      ) : loading && !draft ? (
+        <p className="rounded-xl bg-slate-50 p-6 text-sm text-slate-500">
+          Chargement du profil enregistré…
+        </p>
       ) : draft ? (
         <form onSubmit={submit} className="space-y-5">
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-5 flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Building2 className="h-5 w-5" /></span>
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                <Building2 className="h-5 w-5" />
+              </span>
               <div>
-                <h2 className="font-semibold text-slate-900">Identité professionnelle</h2>
-                <p className="text-sm text-slate-500">Le nom commercial est affiché dans l’application; la raison sociale reste la référence légale.</p>
+                <h2 className="font-semibold text-slate-900">
+                  Identité professionnelle
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Le nom commercial est affiché dans l’application; la raison
+                  sociale reste la référence légale.
+                </p>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -301,10 +386,17 @@ export default function SettingsPage() {
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-5 flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><MapPin className="h-5 w-5" /></span>
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                <MapPin className="h-5 w-5" />
+              </span>
               <div>
-                <h2 className="font-semibold text-slate-900">Adresse et coordonnées</h2>
-                <p className="text-sm text-slate-500">Utilisées dans l’espace de travail et les pieds des documents générés.</p>
+                <h2 className="font-semibold text-slate-900">
+                  Adresse et coordonnées
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Utilisées dans l’espace de travail et les pieds des documents
+                  générés.
+                </p>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -315,10 +407,17 @@ export default function SettingsPage() {
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-5 flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><ShieldCheck className="h-5 w-5" /></span>
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
+                <ShieldCheck className="h-5 w-5" />
+              </span>
               <div>
-                <h2 className="font-semibold text-slate-900">Signature des factures</h2>
-                <p className="text-sm text-slate-500">Configurez le signataire et son image. Le bloc de signature apparaît sur la facture et à l’impression.</p>
+                <h2 className="font-semibold text-slate-900">
+                  Signature des factures
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Configurez le signataire et son image. Le bloc de signature
+                  apparaît sur la facture et à l’impression.
+                </p>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -328,7 +427,9 @@ export default function SettingsPage() {
                   type="text"
                   maxLength={120}
                   value={draft.signatureName ?? ""}
-                  onChange={(event) => updateField("signatureName", event.target.value)}
+                  onChange={(event) =>
+                    updateField("signatureName", event.target.value)
+                  }
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   placeholder="Nom et prénom"
                 />
@@ -339,7 +440,9 @@ export default function SettingsPage() {
                   type="text"
                   maxLength={120}
                   value={draft.signatureTitle ?? ""}
-                  onChange={(event) => updateField("signatureTitle", event.target.value)}
+                  onChange={(event) =>
+                    updateField("signatureTitle", event.target.value)
+                  }
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   placeholder="Ex. Gérant, Associé"
                 />
@@ -353,7 +456,9 @@ export default function SettingsPage() {
                   className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:font-medium file:text-blue-700"
                 />
                 <span className="block text-xs font-normal leading-5 text-slate-500">
-                  Formats image courants acceptés, maximum 5 Mo. L’image est optimisée pour la facture et enregistrée avec les paramètres du cabinet.
+                  Formats image courants acceptés, maximum 5 Mo. L’image est
+                  optimisée pour la facture et enregistrée avec les paramètres
+                  du cabinet.
                 </span>
               </label>
               {draft.signatureDataUrl && (
@@ -375,7 +480,9 @@ export default function SettingsPage() {
                   </button>
                 </div>
               )}
-              {(draft.signatureName || draft.signatureTitle || draft.signatureDataUrl) && (
+              {(draft.signatureName ||
+                draft.signatureTitle ||
+                draft.signatureDataUrl) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -393,24 +500,38 @@ export default function SettingsPage() {
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-5 flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><ShieldCheck className="h-5 w-5" /></span>
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
+                <ShieldCheck className="h-5 w-5" />
+              </span>
               <div>
-                <h2 className="font-semibold text-slate-900">Paramètres comptables</h2>
-                <p className="text-sm text-slate-500">La devise principale est proposée par défaut aux prochaines saisies.</p>
+                <h2 className="font-semibold text-slate-900">
+                  Paramètres comptables
+                </h2>
+                <p className="text-sm text-slate-500">
+                  La devise principale est proposée par défaut aux prochaines
+                  saisies.
+                </p>
               </div>
             </div>
             <label className="block max-w-md space-y-2 text-sm font-medium text-slate-700">
               Devise principale du cabinet
               <select
                 value={draft.currencyCode}
-                onChange={(event) => updateField("currencyCode", event.target.value as CompanyProfileChanges["currencyCode"])}
+                onChange={(event) =>
+                  updateField(
+                    "currencyCode",
+                    event.target.value as CompanyProfileChanges["currencyCode"],
+                  )
+                }
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="CDF">Franc congolais (CDF)</option>
                 <option value="USD">Dollar américain (USD)</option>
               </select>
               <span className="block text-xs font-normal leading-5 text-slate-500">
-                Ce choix ne convertit ni ne modifie les factures, paiements ou charges déjà enregistrés. Le tableau de bord garde les montants séparés par devise.
+                Ce choix ne convertit ni ne modifie les factures, paiements ou
+                charges déjà enregistrés. Le tableau de bord garde les montants
+                séparés par devise.
               </span>
             </label>
             <label className="mt-5 block max-w-md space-y-2 text-sm font-medium text-slate-700">
@@ -436,7 +557,12 @@ export default function SettingsPage() {
                 <span className="shrink-0 text-slate-600">CDF</span>
               </span>
               <span className="block text-xs font-normal leading-5 text-slate-500">
-                Saisissez le taux appliqué par votre banque ou votre politique comptable; il n’est pas récupéré automatiquement. Les modifications sont historisées. Le taux de chaque facture sera figé à sa création pour afficher un équivalent indicatif sans modifier son montant comptable.
+                Saisissez le taux CDF pour 1 USD appliqué par votre banque ou
+                votre politique comptable; il n’est pas récupéré
+                automatiquement. Les modifications sont historisées. Il sert aux
+                équivalents indicatifs des factures et aux approvisionnements
+                reçus en USD puis crédités en CDF; chaque opération conserve le
+                taux effectivement appliqué.
               </span>
               {profile?.exchangeRateAppliedAt && (
                 <span className="block text-xs font-normal text-slate-500">
@@ -452,15 +578,25 @@ export default function SettingsPage() {
           </section>
 
           <section className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Aperçu de l’espace</p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">{displayName}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+              Aperçu de l’espace
+            </p>
+            <p className="mt-2 text-lg font-semibold text-slate-900">
+              {displayName}
+            </p>
             <p className="mt-1 text-sm text-slate-600">{displayLocation}</p>
-            <p className="mt-1 text-xs text-slate-500">Devise principale : {draft.currencyCode}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Devise principale : {draft.currencyCode}
+            </p>
           </section>
 
           <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur">
-            <p className={`text-sm ${isDirty ? "font-medium text-amber-800" : "text-slate-500"}`}>
-              {isDirty ? "Modifications non enregistrées" : "Toutes les modifications sont enregistrées"}
+            <p
+              className={`text-sm ${isDirty ? "font-medium text-amber-800" : "text-slate-500"}`}
+            >
+              {isDirty
+                ? "Modifications non enregistrées"
+                : "Toutes les modifications sont enregistrées"}
             </p>
             <div className="flex gap-2">
               <button
@@ -484,7 +620,8 @@ export default function SettingsPage() {
         </form>
       ) : (
         <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-600">
-          Le profil du cabinet n’a pas pu être chargé. Vérifiez votre connexion, puis actualisez cette page.
+          Le profil du cabinet n’a pas pu être chargé. Vérifiez votre connexion,
+          puis actualisez cette page.
         </div>
       )}
     </div>

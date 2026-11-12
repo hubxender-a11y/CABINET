@@ -8,7 +8,7 @@ import { PrismaService } from '../database/prisma.service';
 import { getCompanyId } from '../database/company-context';
 import {
   createCashMovement,
-  ensureCashAccount,
+  ensurePaymentMethodAccount,
   lockCashAccount,
 } from '../cash-vouchers/cash-ledger';
 import { CreatePaymentDto } from './payments.dto';
@@ -78,15 +78,13 @@ export class PaymentsService {
             );
           }
 
-          const cashAccount =
-            dto.method === 'CASH_CDF' || dto.method === 'CASH_USD'
-              ? await ensureCashAccount(
-                  transaction,
-                  companyId,
-                  invoice.currency as 'CDF' | 'USD',
-                )
-              : null;
-          if (cashAccount) await lockCashAccount(transaction, cashAccount.id);
+          const treasuryAccount = await ensurePaymentMethodAccount(
+            transaction,
+            companyId,
+            invoice.currency as 'CDF' | 'USD',
+            dto.method,
+          );
+          await lockCashAccount(transaction, treasuryAccount.id);
           if (amount.add(invoice.paidAmount).gt(invoice.totalAmount)) {
             throw new BadRequestException(
               'Le règlement dépasse le solde restant de cette facture.',
@@ -125,19 +123,19 @@ export class PaymentsService {
             where: { id: invoice.id },
             data: { paidAmount: { increment: amount } },
           });
-          if (cashAccount) {
-            await createCashMovement(transaction, {
-              companyId,
-              cashAccountId: cashAccount.id,
-              date: payment.createdAt,
-              direction: 'IN',
-              amount,
-              sourceType: 'INVOICE_PAYMENT',
-              sourceId: payment.id,
-              description: `Règlement facture ${payment.invoice?.invoiceNumber ?? invoice.id}`,
-              reference: payment.reference,
-            });
-          }
+          await createCashMovement(transaction, {
+            companyId,
+            cashAccountId: treasuryAccount.id,
+            date: payment.createdAt,
+            direction: 'IN',
+            amount,
+            sourceAmount: amount,
+            sourceCurrency: invoice.currency,
+            sourceType: 'INVOICE_PAYMENT',
+            sourceId: payment.id,
+            description: `Règlement facture ${payment.invoice?.invoiceNumber ?? invoice.id} · ${dto.method}`,
+            reference: payment.reference,
+          });
           await transaction.auditLog.create({
             data: {
               companyId,

@@ -16,6 +16,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import {
   CancelCashVoucherDto,
+  ConvertCashCurrencyDto,
   CreateCashVoucherDto,
   FundCashAccountDto,
   RejectCashVoucherDto,
@@ -60,11 +61,7 @@ export class CashVouchersController {
     @Query('to') to: string,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.vouchers.treasuryPeriod(
-      request.user!.companyId,
-      from,
-      to,
-    );
+    return this.vouchers.treasuryPeriod(request.user!.companyId, from, to);
   }
 
   @Post()
@@ -154,11 +151,18 @@ export class CashVouchersController {
   @Post('funding')
   @Roles(...cashVoucherIssuers)
   @ApiOperation({ summary: 'Record a cash opening balance or replenishment' })
-  fund(
-    @Body() dto: FundCashAccountDto,
+  fund(@Body() dto: FundCashAccountDto, @Req() request: AuthenticatedRequest) {
+    return this.vouchers.fund(dto, request.user!.companyId, request.user!.sub);
+  }
+
+  @Post('funding/convert')
+  @Roles(...cashVoucherIssuers)
+  @ApiOperation({ summary: 'Convert existing USD cash balance into CDF' })
+  convertFundingCurrency(
+    @Body() dto: ConvertCashCurrencyDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.vouchers.fund(
+    return this.vouchers.convertFundingCurrency(
       dto,
       request.user!.companyId,
       request.user!.sub,

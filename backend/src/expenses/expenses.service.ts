@@ -6,7 +6,7 @@ import {
   assertCashAvailable,
   createCashMovement,
   endOfDay,
-  ensureCashAccount,
+  ensurePaymentMethodAccount,
   lockCashAccount,
 } from '../cash-vouchers/cash-ledger';
 import { CreateExpenseDto } from './expenses.dto';
@@ -108,13 +108,12 @@ export class ExpensesService {
               isActive: true,
             },
           })
-        : isCash
-          ? await ensureCashAccount(
-              transaction,
-              companyId,
-              dto.currency as 'CDF' | 'USD',
-            )
-          : null;
+        : await ensurePaymentMethodAccount(
+            transaction,
+            companyId,
+            dto.currency,
+            dto.method,
+          );
       if (cashAccount) {
         await lockCashAccount(transaction, cashAccount.id);
         if (linkedVoucher) {

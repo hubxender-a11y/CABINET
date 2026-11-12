@@ -4,7 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PaymentMethod, PaymentOrderStatus, Prisma, UserRole } from '@prisma/client';
+import {
+  PaymentMethod,
+  PaymentOrderStatus,
+  Prisma,
+  UserRole,
+} from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -13,12 +18,15 @@ import {
   createCashMovement,
   endOfDay,
   ensureCashAccount,
+  ensureTreasuryAccount,
   getPaymentOrderFundingBalance,
   getCashBalance,
   lockCashAccount,
+  TreasuryAccountType,
 } from './cash-ledger';
 import {
   CancelCashVoucherDto,
+  ConvertCashCurrencyDto,
   CreateCashVoucherDto,
   FundCashAccountDto,
   RejectCashVoucherDto,
@@ -29,7 +37,9 @@ import { NotificationsService } from '../notifications/notifications.service';
 function isIsoDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  return (
+    Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
 }
 
 @Injectable()
@@ -59,7 +69,7 @@ export class CashVouchersService {
       ]);
       const accounts = await transaction.cashAccount.findMany({
         where: { companyId },
-        orderBy: { currency: 'asc' },
+        orderBy: [{ currency: 'asc' }, { accountType: 'asc' }],
       });
       const balances = await Promise.all(
         accounts.map(async (account) => {
@@ -74,20 +84,31 @@ export class CashVouchersService {
       const movements = await transaction.cashMovement.findMany({
         where: { companyId },
         include: {
-          cashAccount: { select: { code: true, name: true, currency: true } },
+          cashAccount: {
+            select: {
+              code: true,
+              name: true,
+              currency: true,
+              accountType: true,
+            },
+          },
         },
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
         take: 150,
       });
       return {
-        accounts: balances.map(({ account, balance, paymentOrderAvailable }) => ({
-          ...account,
-          balance: balance.toString(),
-          paymentOrderAvailable: paymentOrderAvailable.toString(),
-        })),
+        accounts: balances.map(
+          ({ account, balance, paymentOrderAvailable }) => ({
+            ...account,
+            balance: balance.toString(),
+            paymentOrderAvailable: paymentOrderAvailable.toString(),
+          }),
+        ),
         movements: movements.map((movement) => ({
           ...movement,
           amount: movement.amount.toString(),
+          sourceAmount: movement.sourceAmount?.toString() ?? null,
+          exchangeRate: movement.exchangeRate?.toString() ?? null,
         })),
       };
     });
@@ -116,7 +137,7 @@ export class CashVouchersService {
       ]);
       const accounts = await transaction.cashAccount.findMany({
         where: { companyId },
-        orderBy: { currency: 'asc' },
+        orderBy: [{ currency: 'asc' }, { accountType: 'asc' }],
       });
       const balances = await Promise.all(
         accounts.map(async (account) => {
@@ -152,7 +173,14 @@ export class CashVouchersService {
           date: { gte: rangeStart, lte: rangeEnd },
         },
         include: {
-          cashAccount: { select: { code: true, name: true, currency: true } },
+          cashAccount: {
+            select: {
+              code: true,
+              name: true,
+              currency: true,
+              accountType: true,
+            },
+          },
         },
         orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
       });
@@ -161,17 +189,27 @@ export class CashVouchersService {
         from,
         to,
         accounts: balances.map(
-          ({ account, openingBalance, closingBalance, openingFunds, closingFunds }) => ({
+          ({
+            account,
+            openingBalance,
+            closingBalance,
+            openingFunds,
+            closingFunds,
+          }) => ({
             ...account,
             openingBalance: openingBalance.toString(),
             closingBalance: closingBalance.toString(),
-            openingPaymentOrderAvailable: openingFunds.toString(),
-            closingPaymentOrderAvailable: closingFunds.toString(),
+            openingPaymentOrderAvailable:
+              account.accountType === 'CASH' ? openingFunds.toString() : '0',
+            closingPaymentOrderAvailable:
+              account.accountType === 'CASH' ? closingFunds.toString() : '0',
           }),
         ),
         movements: movements.map((movement) => ({
           ...movement,
           amount: movement.amount.toString(),
+          sourceAmount: movement.sourceAmount?.toString() ?? null,
+          exchangeRate: movement.exchangeRate?.toString() ?? null,
         })),
       };
     });
@@ -245,20 +283,21 @@ export class CashVouchersService {
     });
   }
 
-  async fund(
-    dto: FundCashAccountDto,
-    companyId: string,
-    userId: string,
-  ) {
-    const amount = new Prisma.Decimal(dto.amount);
+  async fund(dto: FundCashAccountDto, companyId: string, userId: string) {
+    const receivedAmount = new Prisma.Decimal(dto.amount);
+    const receivedCurrency = dto.receivedCurrency ?? dto.currency;
     const source = 'Associé-Gérant';
-    if (amount.lte(0) || dto.source !== 'ASSOCIE_GERANT')
+    if (receivedAmount.lte(0) || dto.source !== 'ASSOCIE_GERANT')
       throw new BadRequestException(
         'L’approvisionnement réservé aux OP doit provenir de l’Associé-Gérant.',
       );
-    if (dto.currency === 'CDF' && !amount.isInteger())
+    if (receivedCurrency === 'CDF' && !receivedAmount.isInteger())
       throw new BadRequestException(
-        'Un approvisionnement en CDF doit être un nombre entier.',
+        'Un montant reçu en CDF doit être un nombre entier.',
+      );
+    if (receivedCurrency === 'CDF' && dto.currency === 'USD')
+      throw new BadRequestException(
+        'La conversion CDF vers USD n’est pas configurée. Choisissez une caisse CDF.',
       );
     const date = new Date(`${dto.date.slice(0, 10)}T12:00:00.000Z`);
     if (
@@ -271,6 +310,23 @@ export class CashVouchersService {
       );
 
     return this.prisma.$transaction(async (transaction) => {
+      let exchangeRate: Prisma.Decimal | null = null;
+      let creditedAmount = receivedAmount;
+      if (receivedCurrency === 'USD' && dto.currency === 'CDF') {
+        const company = await transaction.company.findUnique({
+          where: { id: companyId },
+          select: { exchangeRateCdfPerUsd: true },
+        });
+        if (!company?.exchangeRateCdfPerUsd?.gt(0)) {
+          throw new BadRequestException(
+            'Configurez le taux USD/CDF dans les paramètres avant cette conversion.',
+          );
+        }
+        exchangeRate = company.exchangeRateCdfPerUsd;
+        creditedAmount = receivedAmount
+          .mul(exchangeRate)
+          .toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP);
+      }
       const account = await ensureCashAccount(
         transaction,
         companyId,
@@ -282,17 +338,19 @@ export class CashVouchersService {
         cashAccountId: account.id,
         date,
         direction: 'IN',
-        amount,
+        amount: creditedAmount,
+        sourceAmount: receivedAmount,
+        sourceCurrency: receivedCurrency,
+        exchangeRate,
         sourceType: 'CASH_FUNDING',
         sourceId: randomUUID(),
-        description: `Approvisionnement caisse · ${source}`,
+        description:
+          receivedCurrency === dto.currency
+            ? `Approvisionnement caisse · ${source}`
+            : `Approvisionnement caisse · ${source} · ${receivedAmount.toString()} USD × ${exchangeRate?.toString()} CDF/USD`,
         reference: dto.reference?.trim() || null,
       });
-      const balance = await getCashBalance(
-        transaction,
-        companyId,
-        account.id,
-      );
+      const balance = await getCashBalance(transaction, companyId, account.id);
       const provisionedFunds = await getPaymentOrderFundingBalance(
         transaction,
         companyId,
@@ -307,7 +365,10 @@ export class CashVouchersService {
           details: {
             cashAccountId: account.id,
             currency: dto.currency,
-            amount: amount.toString(),
+            receivedCurrency,
+            receivedAmount: receivedAmount.toString(),
+            amount: creditedAmount.toString(),
+            exchangeRate: exchangeRate?.toString() ?? null,
             balanceAfter: balance.toString(),
             source,
             reference: dto.reference?.trim() || null,
@@ -319,13 +380,170 @@ export class CashVouchersService {
         companyId,
         [UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER],
         `Approvisionnement reçu · ${dto.currency}`,
-        `${amount.toString()} ${dto.currency} remis par l’Associé-Gérant et saisi par ${(await transaction.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? 'un membre du cabinet'}. Vérifiez le mouvement dans la caisse.`,
+        `${receivedAmount.toString()} ${receivedCurrency}${exchangeRate ? ` convertis à ${exchangeRate.toString()} CDF/USD` : ''} · crédité ${creditedAmount.toString()} ${dto.currency}, remis par l’Associé-Gérant et saisi par ${(await transaction.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? 'un membre du cabinet'}. Vérifiez le mouvement dans la caisse.`,
         userId,
       );
       return {
-        movement: { ...movement, amount: movement.amount.toString() },
+        movement: {
+          ...movement,
+          amount: movement.amount.toString(),
+          sourceAmount: movement.sourceAmount?.toString() ?? null,
+          exchangeRate: movement.exchangeRate?.toString() ?? null,
+        },
         balance: balance.toString(),
         paymentOrderAvailable: paymentOrderAvailable.toString(),
+      };
+    });
+  }
+
+  async convertFundingCurrency(
+    dto: ConvertCashCurrencyDto,
+    companyId: string,
+    userId: string,
+  ) {
+    const amountUsd = new Prisma.Decimal(dto.amountUsd);
+    if (amountUsd.lte(0)) {
+      throw new BadRequestException(
+        'Saisissez un montant USD supérieur à zéro.',
+      );
+    }
+    const date = new Date(`${dto.date.slice(0, 10)}T12:00:00.000Z`);
+    if (
+      Number.isNaN(date.getTime()) ||
+      date.toISOString().slice(0, 10) !== dto.date.slice(0, 10) ||
+      date.getTime() > endOfDay(new Date()).getTime()
+    ) {
+      throw new BadRequestException(
+        'La date du transfert doit être valide et ne peut pas être future.',
+      );
+    }
+
+    return this.prisma.$transaction(async (transaction) => {
+      const company = await transaction.company.findUnique({
+        where: { id: companyId },
+        select: { exchangeRateCdfPerUsd: true },
+      });
+      const exchangeRate = company?.exchangeRateCdfPerUsd;
+      if (!exchangeRate?.gt(0)) {
+        throw new BadRequestException(
+          'Configurez le taux USD/CDF dans les paramètres avant le transfert.',
+        );
+      }
+
+      const usdAccount = await transaction.cashAccount.findFirst({
+        where: {
+          id: dto.sourceAccountId,
+          companyId,
+          currency: 'USD',
+          isActive: true,
+        },
+      });
+      if (!usdAccount) {
+        throw new NotFoundException('Le compte USD source est introuvable.');
+      }
+      const accountTypes: TreasuryAccountType[] = [
+        'CASH',
+        'BANK_TRANSFER',
+        'CARD',
+        'MOBILE_MONEY',
+        'OTHER',
+      ];
+      if (
+        !accountTypes.includes(usdAccount.accountType as TreasuryAccountType)
+      ) {
+        throw new BadRequestException(
+          'Le type du compte USD ne permet pas ce transfert.',
+        );
+      }
+      const cdfAccount = await ensureTreasuryAccount(
+        transaction,
+        companyId,
+        'CDF',
+        usdAccount.accountType as TreasuryAccountType,
+      );
+      for (const accountId of [usdAccount.id, cdfAccount.id].sort()) {
+        await lockCashAccount(transaction, accountId);
+      }
+      await assertCashAvailable(
+        transaction,
+        companyId,
+        usdAccount.id,
+        amountUsd,
+        endOfDay(date),
+      );
+
+      const amountCdf = amountUsd
+        .mul(exchangeRate)
+        .toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP);
+      if (amountCdf.lte(0)) {
+        throw new BadRequestException(
+          'Le montant converti est trop faible pour créditer un franc congolais.',
+        );
+      }
+      const transferId = randomUUID();
+      const reference =
+        dto.reference?.trim() || `TRF-${transferId.slice(0, 8).toUpperCase()}`;
+      await Promise.all([
+        createCashMovement(transaction, {
+          companyId,
+          cashAccountId: usdAccount.id,
+          date,
+          direction: 'OUT',
+          amount: amountUsd,
+          sourceAmount: amountUsd,
+          sourceCurrency: 'USD',
+          exchangeRate,
+          sourceType: 'CURRENCY_TRANSFER_OUT',
+          sourceId: transferId,
+          description: `Conversion de fonds · ${usdAccount.name} vers ${cdfAccount.name} · taux ${exchangeRate.toString()} CDF/USD`,
+          reference,
+        }),
+        createCashMovement(transaction, {
+          companyId,
+          cashAccountId: cdfAccount.id,
+          date,
+          direction: 'IN',
+          amount: amountCdf,
+          sourceAmount: amountUsd,
+          sourceCurrency: 'USD',
+          exchangeRate,
+          sourceType: 'CURRENCY_TRANSFER_IN',
+          sourceId: transferId,
+          description: `Fonds convertis · ${usdAccount.name} vers ${cdfAccount.name} · taux ${exchangeRate.toString()} CDF/USD`,
+          reference,
+        }),
+      ]);
+
+      const [usdBalance, cdfBalance] = await Promise.all([
+        getCashBalance(transaction, companyId, usdAccount.id),
+        getCashBalance(transaction, companyId, cdfAccount.id),
+      ]);
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'CASH_CURRENCY_CONVERTED',
+          details: {
+            reference,
+            from: 'USD',
+            to: 'CDF',
+            sourceAccount: usdAccount.name,
+            targetAccount: cdfAccount.name,
+            amountUsd: amountUsd.toString(),
+            exchangeRate: exchangeRate.toString(),
+            amountCdf: amountCdf.toString(),
+            usdBalanceAfter: usdBalance.toString(),
+            cdfBalanceAfter: cdfBalance.toString(),
+          },
+        },
+      });
+      return {
+        reference,
+        amountUsd: amountUsd.toString(),
+        exchangeRate: exchangeRate.toString(),
+        amountCdf: amountCdf.toString(),
+        usdBalance: usdBalance.toString(),
+        cdfBalance: cdfBalance.toString(),
       };
     });
   }
@@ -617,9 +835,7 @@ export class CashVouchersService {
         });
         if (!existing)
           throw new NotFoundException('Bon de sortie introuvable.');
-        throw new ConflictException(
-          'Seul un bon en attente peut être rejeté.',
-        );
+        throw new ConflictException('Seul un bon en attente peut être rejeté.');
       }
       await transaction.auditLog.create({
         data: {
