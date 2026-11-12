@@ -5,7 +5,7 @@ services:
     plan: free
     rootDir: backend
     autoDeployTrigger: off
-    buildCommand: npm install --include=dev --no-audit --no-fund && npm run db:generate && npm run build && npm prune --omit=dev
+    buildCommand: npm install --include=dev --no-audit --no-fund && npm run db:generate && npm run db:deploy && npm run build && npm prune --omit=dev
     startCommand: npm run start:prod
     healthCheckPath: /api/auth/health
     envVars:
