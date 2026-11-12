@@ -30,6 +30,7 @@ export class NotificationsController {
     return this.notifications.list(
       request.user!.companyId,
       request.user!.sub,
+      request.user!.role,
     );
   }
 

@@ -70,8 +70,50 @@ export class NotificationsService {
     return notification;
   }
 
-  async list(companyId: string, userId: string) {
+  async list(companyId: string, userId: string, role: UserRole) {
     await this.syncUnpaidInvoiceNotifications(companyId);
+    if (role === UserRole.COMPANY_ADMIN) {
+      const rows = await this.prisma.notification.findMany({
+        where: { companyId },
+        include: { user: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      });
+      const groups = new Map<string, typeof rows>();
+      for (const row of rows) {
+        const key = JSON.stringify([
+          row.title,
+          row.message,
+          row.createdAt.toISOString(),
+        ]);
+        const group = groups.get(key) ?? [];
+        group.push(row);
+        groups.set(key, group);
+      }
+      const notifications = Array.from(groups.values())
+        .slice(0, 100)
+        .map((group) => {
+          const adminCopy = group.find((item) => item.userId === userId);
+          return {
+            id: adminCopy?.id ?? group[0].id,
+            title: group[0].title,
+            message: group[0].message,
+            read: adminCopy ? adminCopy.read : true,
+            createdAt: group[0].createdAt,
+            recipients: Array.from(
+              new Set(group.map((item) => item.user?.name ?? 'Compte désactivé')),
+            ),
+            isAdminCopy: Boolean(adminCopy),
+          };
+        });
+      return {
+        notifications,
+        unreadCount: notifications.filter(
+          (item) => item.isAdminCopy && !item.read,
+        ).length,
+        teamWide: true,
+      };
+    }
     const notifications = await this.prisma.notification.findMany({
       where: { companyId, userId },
       orderBy: { createdAt: 'desc' },
@@ -80,6 +122,7 @@ export class NotificationsService {
     return {
       notifications,
       unreadCount: notifications.filter((item) => !item.read).length,
+      teamWide: false,
     };
   }
 

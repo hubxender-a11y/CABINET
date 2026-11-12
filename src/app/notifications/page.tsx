@@ -12,9 +12,10 @@ type NotificationItem = {
   message: string;
   read: boolean;
   createdAt: string;
+  recipients?: string[];
 };
 
-type NotificationResponse = { notifications: NotificationItem[]; unreadCount: number };
+type NotificationResponse = { notifications: NotificationItem[]; unreadCount: number; teamWide?: boolean };
 
 function destination(title: string) {
   if (title.startsWith("État du patrimoine")) {
@@ -118,7 +119,7 @@ export default function NotificationsPage() {
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" aria-label="Historique des notifications">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h2 className="font-semibold text-slate-900">Historique récent</h2>
-          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">{data?.unreadCount ?? 0} non lue(s)</span>
+          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">{data?.unreadCount ?? 0} {data?.teamWide ? "non lue(s) dans la boîte admin" : "non lue(s)"}</span>
         </div>
         {!data ? (
           <p className="px-5 py-10 text-center text-sm text-slate-500">Chargement des notifications…</p>
@@ -141,6 +142,7 @@ export default function NotificationsPage() {
                       {!item.read && <span className="rounded-full bg-amber-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Nouvelle</span>}
                     </div>
                     <p className="mt-1 text-sm leading-6 text-slate-600">{item.message}</p>
+                    {item.recipients && item.recipients.length > 0 && <p className="mt-2 text-xs font-medium text-slate-500">Destinataires : {item.recipients.slice(0, 3).join(", ")}{item.recipients.length > 3 ? ` et ${item.recipients.length - 3} autre(s)` : ""}</p>}
                     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500">
                       <time dateTime={item.createdAt}>{dateLabel(item.createdAt)}</time>
                       <Link href={destination(item.title)} onClick={(event) => void openNotification(event, item)} className="font-semibold text-blue-800 hover:underline">Ouvrir le dossier</Link>

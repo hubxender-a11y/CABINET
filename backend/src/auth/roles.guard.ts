@@ -25,6 +25,7 @@ export class RolesGuard implements CanActivate {
     if (!request.user) {
       throw new UnauthorizedException('Authentification requise.');
     }
+    if (request.user.role === UserRole.COMPANY_ADMIN) return true;
     if (!requiredRoles.includes(request.user.role)) {
       throw new ForbiddenException('Votre rôle ne permet pas cette opération.');
     }
