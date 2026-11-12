@@ -1,12 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal, flushSync } from "react-dom";
 import Link from "next/link";
+import Image from "next/image";
 import {
   Check,
   CircleAlert,
-  CircleDollarSign,
   FileText,
   Printer,
   Search,
@@ -98,6 +98,14 @@ function kinshasaToday() {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+function subscribeToClient() {
+  return () => {};
+}
+
+function orderNumberFromLocation() {
+  return new URLSearchParams(window.location.search).get("order") ?? "";
 }
 
 function wordsUnder100(n: number): string {
@@ -228,14 +236,19 @@ function statusClass(status: Status) {
 
 export default function PaymentOrdersPage() {
   const { databaseConnected } = useWorkspaceStore();
+  const clientToday = useSyncExternalStore(subscribeToClient, kinshasaToday, () => "");
+  const orderNumberFromUrl = useSyncExternalStore(subscribeToClient, orderNumberFromLocation, () => "");
   const [orders, setOrders] = useState<PaymentOrder[]>([]);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const isLoading = databaseConnected && loading;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [search, setSearch] = useState("");
+  const [searchOverride, setSearchOverride] = useState<string | null>(null);
+  const search = searchOverride ?? orderNumberFromUrl;
   const [filter, setFilter] = useState("ALL");
+  const activeFilter = orderNumberFromUrl && searchOverride === null ? "ALL" : filter;
   const [activeSection, setActiveSection] = useState<"new" | "register">("new");
   const [printOrder, setPrintOrder] = useState<PaymentOrder | null>(null);
   const [printDraft, setPrintDraft] = useState(false);
@@ -253,47 +266,37 @@ export default function PaymentOrdersPage() {
     mimeType: string;
     data: string;
   } | null>(null);
-  const [attachmentLoadingId, setAttachmentLoadingId] = useState<string | null>(
-    null,
-  );
-  const [attachmentPreviewError, setAttachmentPreviewError] = useState("");
+  const [attachmentPreviewError, setAttachmentPreviewError] = useState<{ orderId: string; message: string } | null>(null);
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [fundingSummary, setFundingSummary] = useState<FundingSummary>({
     initialForecast: "0", paid: "0", available: "0", outstanding: "0",
   });
   const [cashAccounts, setCashAccounts] = useState<CashAccountSummary[]>([]);
-  const [configurationLoading, setConfigurationLoading] = useState(false);
-  const [date, setDate] = useState("");
+  const [configurationLoadKey, setConfigurationLoadKey] = useState("");
+  const [dateOverride, setDateOverride] = useState<string | null>(null);
+  const date = dateOverride ?? clientToday;
   const [requestingService, setRequestingService] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>("CDF");
   const [reason, setReason] = useState("");
   const [beneficiary, setBeneficiary] = useState("");
 
-  useEffect(() => {
-    setDate(kinshasaToday());
-  }, []);
-  useEffect(() => {
-    const orderNumber = new URLSearchParams(window.location.search).get("order");
-    if (orderNumber) {
-      setSearch(orderNumber);
-      setFilter("ALL");
-    }
-  }, []);
+  const configurationKey = databaseConnected && date && user
+    ? `${user.id}:${date.slice(0, 4)}:${currency}`
+    : "";
+  const configurationLoading = Boolean(configurationKey && configurationLoadKey !== configurationKey);
+  const attachmentLoading = Boolean(
+    detailOrder?.attachment &&
+      attachmentPreview?.orderId !== detailOrder.id &&
+      attachmentPreviewError?.orderId !== detailOrder.id,
+  );
   useEffect(() => {
     const order = detailOrder;
-    if (!order?.attachment) {
-      setAttachmentPreview(null);
-      setAttachmentLoadingId(null);
-      setAttachmentPreviewError("");
-      return;
-    }
+    if (!order?.attachment) return;
     if (attachmentPreview?.orderId === order.id) return;
 
     let active = true;
-    setAttachmentLoadingId(order.id);
-    setAttachmentPreviewError("");
     void apiRequest<{
       fileName: string;
       mimeType: string;
@@ -305,24 +308,19 @@ export default function PaymentOrdersPage() {
       })
       .catch((caught: unknown) => {
         if (active)
-          setAttachmentPreviewError(
-            caught instanceof Error
+          setAttachmentPreviewError({
+            orderId: order.id,
+            message: caught instanceof Error
               ? caught.message
               : "Aperçu de la pièce justificative impossible.",
-          );
-      })
-      .finally(() => {
-        if (active) setAttachmentLoadingId(null);
+          });
       });
     return () => {
       active = false;
     };
   }, [attachmentPreview?.orderId, detailOrder]);
   useEffect(() => {
-    if (!databaseConnected) {
-      setLoading(false);
-      return;
-    }
+    if (!databaseConnected) return;
     let active = true;
     void Promise.all([
       apiRequest<PaymentOrder[]>("/payment-orders"),
@@ -351,9 +349,8 @@ export default function PaymentOrdersPage() {
   }, [databaseConnected]);
 
   useEffect(() => {
-    if (!databaseConnected || !date || !user) return;
+    if (!configurationKey) return;
     let active = true;
-    setConfigurationLoading(true);
     const query = new URLSearchParams({
       year: date.slice(0, 4),
       currency,
@@ -378,21 +375,21 @@ export default function PaymentOrdersPage() {
           );
       })
       .finally(() => {
-        if (active) setConfigurationLoading(false);
+        if (active) setConfigurationLoadKey(configurationKey);
       });
     return () => {
       active = false;
     };
-  }, [currency, databaseConnected, date, user]);
+  }, [configurationKey, currency, date]);
 
   const filteredOrders = useMemo(
     () =>
       orders.filter((order) => {
         const matchesStatus =
-          filter === "ALL" ||
-          (filter === "PENDING"
+          activeFilter === "ALL" ||
+          (activeFilter === "PENDING"
             ? ["SUBMITTED", "FINANCE_APPROVED"].includes(order.status)
-            : order.status === filter);
+            : order.status === activeFilter);
         const term = search.trim().toLocaleLowerCase("fr");
         const matchesSearch =
           !term ||
@@ -405,7 +402,7 @@ export default function PaymentOrdersPage() {
           ].some((value) => value.toLocaleLowerCase("fr").includes(term));
         return matchesStatus && matchesSearch;
       }),
-    [filter, orders, search],
+    [activeFilter, orders, search],
   );
 
   const targetYear = Number(date.slice(0, 4));
@@ -799,7 +796,7 @@ export default function PaymentOrdersPage() {
                 <div className="overflow-x-auto rounded-xl border border-slate-300">
                   <table className="payment-order-entry-table min-w-[560px] w-full border-collapse text-sm">
                     <tbody>
-                      <tr><th scope="row">Date de la demande</th><td><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} className={inputClass} /></td></tr>
+                      <tr><th scope="row">Date de la demande</th><td><input required type="date" value={date} onChange={(event) => setDateOverride(event.target.value)} className={inputClass} /></td></tr>
                       <tr><th scope="row">Service demandeur</th><td><input required maxLength={100} value={requestingService} onChange={(event) => setRequestingService(event.target.value)} placeholder="Ex. Secrétariat" className={inputClass} /></td></tr>
                       <tr><th scope="row">Bénéficiaire</th><td><input required maxLength={160} value={beneficiary} onChange={(event) => setBeneficiary(event.target.value)} placeholder="Nom de la personne ou du fournisseur" className={inputClass} /></td></tr>
                       <tr><th scope="row">Devise de la demande</th><td><select value={currency} onChange={(event) => setCurrency(event.target.value as Currency)} className={inputClass}><option value="CDF">CDF · Franc congolais</option><option value="USD">USD · Dollar américain</option></select></td></tr>
@@ -889,7 +886,7 @@ export default function PaymentOrdersPage() {
                   Registre des OP
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  {loading
+                  {isLoading
                     ? "Chargement…"
                     : `${filteredOrders.length} ordre(s)`}
                 </p>
@@ -913,8 +910,8 @@ export default function PaymentOrdersPage() {
                   type="button"
                   role="tab"
                   aria-selected={filter === tab.key}
-                  onClick={() => setFilter(tab.key)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${filter === tab.key ? "border-[#0b4778] bg-[#0b4778] text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
+                  onClick={() => { setSearchOverride(search); setFilter(tab.key); }}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${activeFilter === tab.key ? "border-[#0b4778] bg-[#0b4778] text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
                 >
                   {tab.label}
                 </button>
@@ -925,7 +922,7 @@ export default function PaymentOrdersPage() {
               <input
                 aria-label="Rechercher une OP"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => setSearchOverride(e.target.value)}
                 placeholder="Numéro, bénéficiaire, motif…"
                 className={`${inputClass} pl-9`}
               />
@@ -1172,7 +1169,7 @@ export default function PaymentOrdersPage() {
             <strong>{printOrder.orderNumber} · {printAttachment.fileName}</strong>
           </header>
           {printAttachment.mimeType.startsWith("image/") ? (
-            <img className="payment-order-attachment-image" src={`data:${printAttachment.mimeType};base64,${printAttachment.data}`} alt={`État de besoin : ${printAttachment.fileName}`} />
+            <Image width={1600} height={1200} unoptimized className="payment-order-attachment-image" src={`data:${printAttachment.mimeType};base64,${printAttachment.data}`} alt={`État de besoin : ${printAttachment.fileName}`} />
           ) : printAttachment.mimeType === "application/pdf" ? (
             <iframe className="payment-order-attachment-pdf" title={`État de besoin : ${printAttachment.fileName}`} src={`data:application/pdf;base64,${printAttachment.data}`} />
           ) : (
@@ -1354,15 +1351,16 @@ export default function PaymentOrdersPage() {
                     </span>
                   )}
                 </div>
-                {attachmentLoadingId === detailOrder.id ? (
+                {attachmentLoading ? (
                   <p className="rounded-lg bg-white px-3 py-4 text-sm text-slate-600">
                     Chargement de la pièce justificative…
                   </p>
                 ) : attachmentPreview?.orderId === detailOrder.id ? (
                   attachmentPreview.mimeType.startsWith("image/") ? (
-                    // The data URL is fetched from the authenticated attachment endpoint.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <Image
+                      width={900}
+                      height={700}
+                      unoptimized
                       src={`data:${attachmentPreview.mimeType};base64,${attachmentPreview.data}`}
                       alt={`Justificatif ${attachmentPreview.fileName}`}
                       className="max-h-[50vh] w-full rounded-lg border border-amber-200 bg-white object-contain"
@@ -1381,7 +1379,7 @@ export default function PaymentOrdersPage() {
                   )
                 ) : (
                   <p className="rounded-lg bg-white px-3 py-4 text-sm text-rose-700">
-                    {attachmentPreviewError ||
+                    {(attachmentPreviewError?.orderId === detailOrder.id && attachmentPreviewError.message) ||
                       "La pièce justificative n’a pas pu être chargée."}
                   </p>
                 )}
@@ -1425,7 +1423,7 @@ export default function PaymentOrdersPage() {
                   <button
                     type="button"
                     onClick={() => void act(detailOrder, "pay")}
-                    disabled={!detailOrder.attachment || attachmentLoadingId === detailOrder.id || attachmentPreview?.orderId !== detailOrder.id}
+                    disabled={!detailOrder.attachment || attachmentLoading || attachmentPreview?.orderId !== detailOrder.id}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-[#0b4778] px-3 py-2 text-xs font-semibold text-white"
                   >
                     <Wallet className="h-3.5 w-3.5" />
@@ -1444,15 +1442,6 @@ const inputClass =
   "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 const actionClass =
   "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50";
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
 
 function BudgetValue({ label, value }: { label: string; value: string }) {
   return (

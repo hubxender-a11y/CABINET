@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createPortal, flushSync } from "react-dom";
 import Link from "next/link";
 import {
@@ -170,24 +170,28 @@ function kinshasaDate() {
   }).format(new Date());
 }
 
+function subscribeToClient() {
+  return () => {};
+}
+
 export default function CashVouchersPage() {
   const { databaseConnected } = useWorkspaceStore();
   const { profile } = useCompanyProfile();
+  const clientToday = useSyncExternalStore(subscribeToClient, kinshasaDate, () => "");
   const [vouchers, setVouchers] = useState<CashVoucher[]>([]);
   const [accounts, setAccounts] = useState<CashAccount[]>([]);
-  const [movements, setMovements] = useState<CashMovement[]>([]);
   const [selectedVoucher, setSelectedVoucher] = useState<CashVoucher | null>(
     null,
   );
-  const [printReady, setPrintReady] = useState(false);
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
   const [periodData, setPeriodData] = useState<TreasuryPeriod | null>(null);
-  const [periodLoading, setPeriodLoading] = useState(false);
+  const [periodCompletedKey, setPeriodCompletedKey] = useState("");
   const [printData, setPrintData] = useState<(TreasuryPeriod & { printedAt: string }) | null>(null);
   const [printDocument, setPrintDocument] = useState<"ledger" | "treasury" | null>(null);
   const [printSaving, setPrintSaving] = useState(false);
-  const [date, setDate] = useState("");
+  const [dateOverride, setDateOverride] = useState<string | null>(null);
+  const date = dateOverride ?? clientToday;
   const [beneficiary, setBeneficiary] = useState("");
   const [category, setCategory] = useState("");
   const [reason, setReason] = useState("");
@@ -196,17 +200,14 @@ export default function CashVouchersPage() {
   const [reference, setReference] = useState("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const isLoading = databaseConnected && loading;
   const [userRole, setUserRole] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [cashVoucherTab, setCashVoucherTab] = useState<"issue" | "register">("issue");
 
-  useEffect(() => {
-    const today = kinshasaDate();
-    setDate(today);
-    setPrintReady(true);
-  }, []);
+  const printReady = Boolean(clientToday);
 
   useEffect(() => {
     const printModes = [
@@ -236,16 +237,11 @@ export default function CashVouchersPage() {
   const refreshTreasury = useCallback(async () => {
     const data = await apiRequest<Treasury>("/cash-vouchers/treasury");
     setAccounts(data.accounts);
-    setMovements(data.movements);
   }, []);
 
   useEffect(() => {
     let active = true;
-    if (!databaseConnected) {
-      setVouchers([]);
-      setLoading(false);
-      return;
-    }
+    if (!databaseConnected) return;
     void Promise.all([
       apiRequest<CashVoucher[]>("/cash-vouchers"),
       apiRequest<Treasury>("/cash-vouchers/treasury"),
@@ -254,7 +250,6 @@ export default function CashVouchersPage() {
         if (active) {
           setVouchers(rows);
           setAccounts(treasury.accounts);
-          setMovements(treasury.movements);
         }
       })
       .catch((caught: unknown) => {
@@ -274,14 +269,9 @@ export default function CashVouchersPage() {
   }, [databaseConnected]);
 
   useEffect(() => {
-    if (!databaseConnected || !periodStart || !periodEnd || periodStart > periodEnd) {
-      setPeriodData(null);
-      setPeriodLoading(false);
-      return;
-    }
+    if (!databaseConnected || !periodStart || !periodEnd || periodStart > periodEnd) return;
+    const selectionKey = `${periodStart}:${periodEnd}`;
     const controller = new AbortController();
-    setPeriodLoading(true);
-    setError("");
     void apiRequest<TreasuryPeriod>(
       `/cash-vouchers/treasury/period?from=${encodeURIComponent(periodStart)}&to=${encodeURIComponent(periodEnd)}`,
       { signal: controller.signal },
@@ -293,7 +283,7 @@ export default function CashVouchersPage() {
         setError(caught instanceof Error ? caught.message : "Impossible de charger cette période.");
       })
       .finally(() => {
-        if (!controller.signal.aborted) setPeriodLoading(false);
+        if (!controller.signal.aborted) setPeriodCompletedKey(selectionKey);
       });
     return () => controller.abort();
   }, [databaseConnected, periodStart, periodEnd]);
@@ -305,24 +295,11 @@ export default function CashVouchersPage() {
     "CASHIER",
   ].includes(userRole);
   const showIssueView = canIssueVoucher && cashVoucherTab === "issue";
-  const movementBalances = useMemo(() => {
-    const remainingByAccount = new Map(
-      accounts.map((account) => [account.id, Number(account.balance)]),
-    );
-    return movements.map((movement) => {
-      const balanceAfter = remainingByAccount.get(movement.cashAccountId) ?? 0;
-      const amount = Number(movement.amount);
-      remainingByAccount.set(
-        movement.cashAccountId,
-        balanceAfter + (movement.direction === "IN" ? -amount : amount),
-      );
-      return { ...movement, balanceAfter };
-    });
-  }, [accounts, movements]);
   const visibleVouchers = useMemo(() => {
+    const availableVouchers = databaseConnected ? vouchers : [];
     const term = query.trim().toLocaleLowerCase("fr");
-    if (!term) return vouchers;
-    return vouchers.filter((voucher) =>
+    if (!term) return availableVouchers;
+    return availableVouchers.filter((voucher) =>
       [
         voucher.voucherNumber,
         voucher.beneficiary,
@@ -330,28 +307,34 @@ export default function CashVouchersPage() {
         voucher.reason,
       ].some((value) => value.toLocaleLowerCase("fr").includes(term)),
     );
-  }, [query, vouchers]);
+  }, [databaseConnected, query, vouchers]);
   const pendingVouchers = useMemo(
-    () => vouchers.filter((voucher) => voucher.status === "PENDING_APPROVAL"),
-    [vouchers],
+    () => (databaseConnected ? vouchers : []).filter((voucher) => voucher.status === "PENDING_APPROVAL"),
+    [databaseConnected, vouchers],
   );
   const selectedPeriodValid = Boolean(
     periodStart && periodEnd && periodStart <= periodEnd,
   );
+  const periodSelectionKey = databaseConnected && selectedPeriodValid
+    ? `${periodStart}:${periodEnd}`
+    : "";
+  const periodLoading = Boolean(periodSelectionKey && periodCompletedKey !== periodSelectionKey);
   const periodLoadedForSelection = Boolean(
-    selectedPeriodValid &&
+    periodSelectionKey && periodCompletedKey === periodSelectionKey &&
       periodData?.from === periodStart &&
       periodData?.to === periodEnd,
   );
+  const selectedPeriodData = periodLoadedForSelection ? periodData : null;
+  const selectedPeriodLoading = databaseConnected && selectedPeriodValid && periodLoading;
   const periodMovementBalances = useMemo(() => {
-    if (!periodData) return [];
+    if (!selectedPeriodData) return [];
     const remainingByAccount = new Map(
-      periodData.accounts.map((account) => [
+      selectedPeriodData.accounts.map((account) => [
         account.id,
         Number(account.openingBalance),
       ]),
     );
-    return periodData.movements.map((movement) => {
+    return selectedPeriodData.movements.map((movement) => {
       const balanceBefore = remainingByAccount.get(movement.cashAccountId) ?? 0;
       const amount = Number(movement.amount);
       const balanceAfter =
@@ -359,19 +342,19 @@ export default function CashVouchersPage() {
       remainingByAccount.set(movement.cashAccountId, balanceAfter);
       return { ...movement, balanceAfter };
     });
-  }, [periodData]);
+  }, [selectedPeriodData]);
   const periodTotals = useMemo(() => {
     const totals: Record<Currency, { entries: number; exits: number }> = {
       CDF: { entries: 0, exits: 0 },
       USD: { entries: 0, exits: 0 },
     };
-    for (const movement of periodData?.movements ?? []) {
+    for (const movement of selectedPeriodData?.movements ?? []) {
       const currency = movement.cashAccount.currency;
       totals[currency][movement.direction === "IN" ? "entries" : "exits"] += Number(movement.amount);
     }
     return totals;
-  }, [periodData]);
-  const displayedMovements = selectedPeriodValid ? periodMovementBalances : [];
+  }, [selectedPeriodData]);
+  const displayedMovements = selectedPeriodData ? periodMovementBalances : [];
 
   async function submitVoucher(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -448,14 +431,14 @@ export default function CashVouchersPage() {
   }
 
   function printTreasuryDocument(kind: "ledger" | "treasury") {
-    if (!periodLoadedForSelection || !periodData || periodLoading || printSaving) {
+    if (!periodLoadedForSelection || !selectedPeriodData || selectedPeriodLoading || printSaving) {
       setError("Choisissez une période valide et attendez le chargement avant l’impression.");
       return;
     }
     setError("");
     setPrintSaving(true);
     flushSync(() => {
-      setPrintData({ ...periodData, printedAt: new Date().toISOString() });
+      setPrintData({ ...selectedPeriodData, printedAt: new Date().toISOString() });
       setPrintDocument(kind);
     });
     const mode =
@@ -605,7 +588,7 @@ export default function CashVouchersPage() {
           <button
             type="button"
             onClick={() => printTreasuryDocument("ledger")}
-            disabled={!printReady || loading || periodLoading || !periodLoadedForSelection || printSaving}
+            disabled={!printReady || isLoading || selectedPeriodLoading || !periodLoadedForSelection || printSaving}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Printer className="h-4 w-4" /> Imprimer le livre de caisse
@@ -613,7 +596,7 @@ export default function CashVouchersPage() {
           <button
             type="button"
             onClick={() => printTreasuryDocument("treasury")}
-            disabled={!printReady || loading || periodLoading || !periodLoadedForSelection || printSaving}
+            disabled={!printReady || isLoading || selectedPeriodLoading || !periodLoadedForSelection || printSaving}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Printer className="h-4 w-4" /> Imprimer la trésorerie
@@ -724,7 +707,7 @@ export default function CashVouchersPage() {
                 required
                 type="date"
                 value={date}
-                onChange={(event) => setDate(event.target.value)}
+                onChange={(event) => setDateOverride(event.target.value)}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
               />
             </label>
@@ -837,7 +820,7 @@ export default function CashVouchersPage() {
                 Registre des bons
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                {loading ? "Chargement…" : `${visibleVouchers.length} bon(s)`}
+                {isLoading ? "Chargement…" : `${visibleVouchers.length} bon(s)`}
               </p>
             </div>
             <label className="relative min-w-44 flex-1 sm:max-w-56">
@@ -954,7 +937,7 @@ export default function CashVouchersPage() {
             </div>
           ) : (
             <p className="px-5 py-12 text-center text-sm text-slate-500">
-              {loading
+              {isLoading
                 ? "Chargement des données…"
                 : query
                   ? "Aucun bon ne correspond à cette recherche."
@@ -977,7 +960,7 @@ export default function CashVouchersPage() {
           <button
             type="button"
             onClick={() => printTreasuryDocument("ledger")}
-            disabled={!printReady || loading || periodLoading || !periodLoadedForSelection || printSaving}
+            disabled={!printReady || isLoading || selectedPeriodLoading || !periodLoadedForSelection || printSaving}
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Printer className="h-4 w-4" /> Imprimer le livre
@@ -993,10 +976,10 @@ export default function CashVouchersPage() {
             <input type="date" value={periodEnd} min={periodStart || undefined} onChange={(event) => setPeriodEnd(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
           </label>
           <div className="pb-2 text-sm text-slate-500" aria-live="polite">
-            {!periodStart || !periodEnd ? "Sélectionnez les deux dates pour consulter ou imprimer." : periodStart > periodEnd ? "La date de début doit précéder la date de fin." : periodLoading ? "Chargement de la période…" : periodData ? `${periodData.movements.length} mouvement${periodData.movements.length > 1 ? "s" : ""} sur la période` : "Aucune donnée de période disponible."}
+            {!periodStart || !periodEnd ? "Sélectionnez les deux dates pour consulter ou imprimer." : periodStart > periodEnd ? "La date de début doit précéder la date de fin." : selectedPeriodLoading ? "Chargement de la période…" : selectedPeriodData ? `${selectedPeriodData.movements.length} mouvement${selectedPeriodData.movements.length > 1 ? "s" : ""} sur la période` : "Aucune donnée de période disponible."}
           </div>
         </div>
-        {periodLoadedForSelection && periodData?.movements.length ? (
+        {periodLoadedForSelection && selectedPeriodData?.movements.length ? (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -1059,7 +1042,7 @@ export default function CashVouchersPage() {
           </div>
         ) : (
           <p className="px-5 py-10 text-center text-sm text-slate-500">
-            {periodLoading ? "Chargement des mouvements…" : selectedPeriodValid ? "Aucun mouvement de caisse sur cette période." : "Sélectionnez une période pour afficher le livre de caisse."}
+            {selectedPeriodLoading ? "Chargement des mouvements…" : selectedPeriodValid ? "Aucun mouvement de caisse sur cette période." : "Sélectionnez une période pour afficher le livre de caisse."}
           </p>
         )}
       </section>

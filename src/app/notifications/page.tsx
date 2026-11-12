@@ -54,15 +54,15 @@ export default function NotificationsPage() {
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    setError("");
     try {
       setData(await apiRequest<NotificationResponse>("/notifications"));
+      setError("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Impossible de charger les notifications.");
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void Promise.resolve().then(refresh); }, [refresh]);
 
   async function markAllRead() {
     setBusy(true);

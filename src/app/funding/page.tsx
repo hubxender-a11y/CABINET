@@ -5,6 +5,7 @@ import { Banknote, Check, CircleAlert, RefreshCw, Wallet } from "lucide-react";
 import { useWorkspaceStore } from "@/components/workspace-store";
 import { apiRequest } from "@/lib/api";
 import { formatDate, formatMoney } from "@/lib/formatting";
+import { useKinshasaDate } from "@/lib/use-kinshasa-date";
 
 type Currency = "CDF" | "USD";
 type CashAccount = {
@@ -26,20 +27,13 @@ type CashMovement = {
 };
 type Treasury = { accounts: CashAccount[]; movements: CashMovement[] };
 
-function kinshasaToday() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Kinshasa",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-
 export default function FundingPage() {
   const { databaseConnected } = useWorkspaceStore();
+  const today = useKinshasaDate() ?? "";
   const [treasury, setTreasury] = useState<Treasury>({ accounts: [], movements: [] });
   const [userRole, setUserRole] = useState("");
-  const [date, setDate] = useState("");
+  const [dateOverride, setDateOverride] = useState<string | null>(null);
+  const date = dateOverride ?? today;
   const [currency, setCurrency] = useState<Currency>("USD");
   const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
@@ -54,7 +48,6 @@ export default function FundingPage() {
   }, []);
 
   useEffect(() => {
-    setDate(kinshasaToday());
     let active = true;
     void Promise.all([
       apiRequest<Treasury>("/cash-vouchers/treasury"),
@@ -176,7 +169,7 @@ export default function FundingPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="space-y-1.5 text-sm font-medium text-slate-700">
                 Date de réception
-                <input required type="date" value={date} onChange={(event) => setDate(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5" />
+                <input required type="date" value={date} onChange={(event) => setDateOverride(event.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5" />
               </label>
               <label className="space-y-1.5 text-sm font-medium text-slate-700">
                 Devise

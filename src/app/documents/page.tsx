@@ -139,7 +139,7 @@ export default function DocumentsPage() {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterYear, setFilterYear] = useState("");
   const [filterPinned, setFilterPinned] = useState(false);
-  const [documentPage, setDocumentPage] = useState(1);
+  const [documentPageState, setDocumentPageState] = useState({ filterKey: "", page: 1 });
   const documentsPerPage = 10;
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
   const [showTrash, setShowTrash] = useState(false);
@@ -243,6 +243,21 @@ export default function DocumentsPage() {
     [documents, filterCategory],
   );
   const pageCount = Math.max(1, Math.ceil(visibleDocuments.length / documentsPerPage));
+  const pageFilterKey = JSON.stringify([
+    filterCategory,
+    filterYear,
+    filterBinderId,
+    filterPinned,
+    search,
+    showTrash,
+  ]);
+  const documentPage = documentPageState.filterKey === pageFilterKey
+    ? Math.min(documentPageState.page, pageCount)
+    : 1;
+  function setDocumentPage(nextPage: number | ((current: number) => number)) {
+    const page = typeof nextPage === "function" ? nextPage(documentPage) : nextPage;
+    setDocumentPageState({ filterKey: pageFilterKey, page: Math.min(page, pageCount) });
+  }
   const pageDocuments = useMemo(
     () =>
       visibleDocuments.slice(
@@ -289,14 +304,6 @@ export default function DocumentsPage() {
   const selectedVisibleDocuments = pageDocuments.filter((document) =>
     selectedDocumentIds.includes(document.id),
   );
-
-  useEffect(() => {
-    setDocumentPage(1);
-  }, [filterCategory, filterYear, filterBinderId, filterPinned, search, showTrash]);
-
-  useEffect(() => {
-    if (documentPage > pageCount) setDocumentPage(pageCount);
-  }, [documentPage, pageCount]);
 
   async function saveBinder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

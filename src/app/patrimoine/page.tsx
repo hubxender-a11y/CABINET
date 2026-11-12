@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import {
   Archive,
   BadgeCheck,
@@ -89,6 +89,15 @@ const movementOptions: { value: MovementType; label: string }[] = [
   { value: "DISPOSAL", label: "Sortie du patrimoine" },
 ];
 
+function subscribeToLocation(onChange: () => void) {
+  window.addEventListener("popstate", onChange);
+  return () => window.removeEventListener("popstate", onChange);
+}
+
+function requestedPeriodFromLocation() {
+  return new URLSearchParams(window.location.search).get("period") ?? "";
+}
+
 function formatAmount(value: string | number, currency: string) {
   return new Intl.NumberFormat("fr-CD", {
     style: "currency",
@@ -125,6 +134,10 @@ function movementTypeLabel(type: string) {
 
 export default function PatrimoinePage() {
   const today = useKinshasaDate() ?? "";
+  const requestedPeriod = useSyncExternalStore(subscribeToLocation, requestedPeriodFromLocation, () => "");
+  const defaultPeriod = requestedPeriod && /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedPeriod) && requestedPeriod <= today.slice(0, 7)
+    ? requestedPeriod
+    : today.slice(0, 7);
   const [assets, setAssets] = useState<FixedAsset[]>([]);
   const [assetSearch, setAssetSearch] = useState("");
   const [assetStatus, setAssetStatus] = useState("");
@@ -151,10 +164,12 @@ export default function PatrimoinePage() {
   const [movementDate, setMovementDate] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [reportPeriod, setReportPeriod] = useState("");
+  const [reportPeriodOverride, setReportPeriodOverride] = useState<string | null>(null);
+  const reportPeriod = reportPeriodOverride ?? defaultPeriod;
   const [periodReport, setPeriodReport] = useState<PeriodReport | null>(null);
   const [periodNote, setPeriodNote] = useState("");
-  const [periodLoading, setPeriodLoading] = useState(false);
+  const [loadedReportPeriod, setLoadedReportPeriod] = useState("");
+  const periodLoading = Boolean(reportPeriod && loadedReportPeriod !== reportPeriod);
   const [sendingPeriodReport, setSendingPeriodReport] = useState(false);
   const [periodError, setPeriodError] = useState("");
   const [periodMessage, setPeriodMessage] = useState("");
@@ -180,21 +195,8 @@ export default function PatrimoinePage() {
   }, [loadAssets]);
 
   useEffect(() => {
-    if (!today) return;
-    const requestedPeriod = new URLSearchParams(window.location.search).get("period");
-    setReportPeriod(
-      requestedPeriod && /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedPeriod) && requestedPeriod <= today.slice(0, 7)
-        ? requestedPeriod
-        : today.slice(0, 7),
-    );
-  }, [today]);
-
-  useEffect(() => {
     if (!reportPeriod) return;
     let active = true;
-    setPeriodLoading(true);
-    setPeriodError("");
-    setPeriodMessage("");
     apiRequest<PeriodReport>(`/fixed-assets/report?period=${encodeURIComponent(reportPeriod)}`)
       .then((report) => { if (active) setPeriodReport(report); })
       .catch((requestError: unknown) => {
@@ -203,7 +205,7 @@ export default function PatrimoinePage() {
           setPeriodError(requestError instanceof Error ? requestError.message : "Impossible de préparer l’état périodique.");
         }
       })
-      .finally(() => { if (active) setPeriodLoading(false); });
+      .finally(() => { if (active) setLoadedReportPeriod(reportPeriod); });
     return () => { active = false; };
   }, [reportPeriod]);
 
@@ -471,7 +473,7 @@ export default function PatrimoinePage() {
           <label className="asset-period-selector">
             <CalendarDays className="h-4 w-4" />
             <span>Période</span>
-            <input type="month" max={today.slice(0, 7) || undefined} value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value)} />
+            <input type="month" max={today.slice(0, 7) || undefined} value={reportPeriod} onChange={(event) => { setReportPeriodOverride(event.target.value); setPeriodError(""); setPeriodMessage(""); }} />
           </label>
         </div>
         <div className="asset-period-print-heading">
