@@ -83,11 +83,12 @@ const navigationGroups = [
 ];
 
 const allNavigationItems = navigationGroups.flatMap((group) => group.items);
-const managingPartnerPaths = ["/payment-orders", "/funding", "/cash-vouchers", "/reports"];
+const managingPartnerPaths = ["/payment-orders", "/funding", "/cash-vouchers", "/documents", "/reports"];
 const managingPartnerNavigation = [
   { href: "/payment-orders", label: "Ordres de paiement", icon: ScrollText, paths: ["/payment-orders"] },
   { href: "/funding", label: "Approvisionnements", icon: Wallet, paths: ["/funding"] },
   { href: "/cash-vouchers", label: "Bons de sortie", icon: Receipt, paths: ["/cash-vouchers"] },
+  { href: "/documents", label: "Archivage", icon: Archive, paths: ["/documents"] },
   { href: "/reports", label: "Rapports", icon: BarChart3, paths: ["/reports"] },
 ];
 

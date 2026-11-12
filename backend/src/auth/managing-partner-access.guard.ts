@@ -12,6 +12,7 @@ const managingPartnerRoutes = new Map<string, Set<string>>([
     'CashVouchersController',
     new Set(['list', 'treasury', 'treasuryPeriod', 'approve', 'reject']),
   ],
+  ['ArchivesController', new Set(['listBinders', 'list', 'content'])],
   [
     'NotificationsController',
     new Set(['list', 'markRead', 'markAllRead']),
