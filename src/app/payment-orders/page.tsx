@@ -285,7 +285,8 @@ export default function PaymentOrdersPage() {
   const configurationKey = databaseConnected && date && user
     ? `${user.id}:${date.slice(0, 4)}:${currency}`
     : "";
-  const configurationLoading = Boolean(configurationKey && configurationLoadKey !== configurationKey);
+  const configurationLoading = user?.role !== "MANAGING_PARTNER" &&
+    Boolean(configurationKey && configurationLoadKey !== configurationKey);
   const attachmentLoading = Boolean(
     detailOrder?.attachment &&
       attachmentPreview?.orderId !== detailOrder.id &&
@@ -349,7 +350,10 @@ export default function PaymentOrdersPage() {
   }, [databaseConnected]);
 
   useEffect(() => {
-    if (!configurationKey) return;
+    if (!configurationKey || user?.role === "MANAGING_PARTNER") return;
+    // The managing partner only uses the register and approval actions. The
+    // finance configuration endpoint is for the OP entry form and is not part
+    // of this role's access.
     let active = true;
     const query = new URLSearchParams({
       year: date.slice(0, 4),
@@ -380,7 +384,7 @@ export default function PaymentOrdersPage() {
     return () => {
       active = false;
     };
-  }, [configurationKey, currency, date]);
+  }, [configurationKey, currency, date, user?.role]);
 
   const filteredOrders = useMemo(
     () =>
