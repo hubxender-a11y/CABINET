@@ -26,7 +26,8 @@ async function request<T>(
   const publicRequest = path === "/auth/login" || path === "/auth/health";
   const token = typeof window === "undefined" || publicRequest ? null : getSessionToken();
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (init.body && !isFormData && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const timeout = AbortSignal.timeout(85_000);
   const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
@@ -65,6 +66,15 @@ async function request<T>(
 export function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   return request(path, init, (response) => {
     if (response.status === 204) return Promise.resolve(undefined as T);
+    if (!response.headers.get("content-type")?.includes("application/json")) {
+      throw new ApiRequestError(serverUnavailable, 503, path);
+    }
+    return response.json();
+  });
+}
+
+export function apiRequestForm<T>(path: string, formData: FormData): Promise<T> {
+  return request(path, { method: "POST", body: formData }, (response) => {
     if (!response.headers.get("content-type")?.includes("application/json")) {
       throw new ApiRequestError(serverUnavailable, 503, path);
     }

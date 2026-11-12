@@ -16,6 +16,7 @@ import { CompanyModule } from './company/company.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { ArchivesModule } from './archives/archives.module';
+import { BackupsModule } from './backups/backups.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -31,6 +32,7 @@ import { APP_GUARD } from '@nestjs/core';
     InventoryModule,
     FixedAssetsModule,
     ArchivesModule,
+    BackupsModule,
     CustomersModule,
     DashboardModule,
     InvoicesModule,

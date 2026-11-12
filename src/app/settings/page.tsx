@@ -19,6 +19,7 @@ import {
 } from "@/components/company-profile";
 import { useNotifications } from "@/components/notification-provider";
 import { normalizeInvoiceTemplate } from "@/lib/invoice-template";
+import { DatabaseBackupPanel } from "@/components/database-backup-panel";
 
 const identityFields = [
   ["legalName", "Raison sociale", true],
@@ -134,6 +135,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [settingsSection, setSettingsSection] = useState<"identity" | "backups">("identity");
 
   useEffect(() => {
     if (!profile) return;
@@ -256,7 +258,7 @@ export default function SettingsPage() {
             Une seule fiche de référence pour l’espace de travail, les tableaux de bord et les prochains documents.
           </p>
         </div>
-        <button
+        {settingsSection === "identity" && <button
           type="button"
           onClick={() => void reload()}
           disabled={loading || saving}
@@ -264,7 +266,7 @@ export default function SettingsPage() {
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           Actualiser
-        </button>
+        </button>}
       </header>
 
       {message && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
@@ -274,7 +276,12 @@ export default function SettingsPage() {
         </p>
       )}
 
-      {loading && !draft ? (
+      <div role="tablist" aria-label="Configuration du cabinet" className="flex w-full gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1 sm:w-fit">
+        <button type="button" role="tab" aria-selected={settingsSection === "identity"} onClick={() => setSettingsSection("identity")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "identity" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>Identité & paramètres</button>
+        <button type="button" role="tab" aria-selected={settingsSection === "backups"} onClick={() => setSettingsSection("backups")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "backups" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>Sauvegardes</button>
+      </div>
+
+      {settingsSection === "backups" ? <DatabaseBackupPanel /> : loading && !draft ? (
         <p className="rounded-xl bg-slate-50 p-6 text-sm text-slate-500">Chargement du profil enregistré…</p>
       ) : draft ? (
         <form onSubmit={submit} className="space-y-5">
