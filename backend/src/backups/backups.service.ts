@@ -104,6 +104,7 @@ const clearableModules = {
   stock: 'Stocks et achats · produits, fournisseurs et mouvements',
   clients: 'Dossiers clients · coordonnées et pièces du dossier',
   facturation: 'Facturation · factures, règlements et pièces fiscales',
+  cashVouchers: 'Bons de sortie caisse · bons et mouvements associés',
   tresorerie: 'Trésorerie · approvisionnements, OP et bons de caisse',
 } as const;
 
@@ -283,6 +284,39 @@ export class BackupsService {
         await remove('invoiceItem', { invoice: { companyId } });
         await remove('invoiceTax', { invoice: { companyId } });
         await remove('invoice');
+      } else if (moduleKey === 'cashVouchers') {
+        const vouchers = await transaction.cashVoucher.findMany({
+          where: { companyId },
+          select: { id: true },
+        });
+        const voucherIds = vouchers.map(({ id }) => id);
+        if (voucherIds.length) {
+          const linkedOrders = await transaction.paymentOrder.count({
+            where: { companyId, cashVoucherId: { in: voucherIds } },
+          });
+          if (linkedOrders) {
+            throw new ConflictException(
+              'Des bons sont encore liés à des OP. Leur suppression est bloquée pour préserver le registre des OP.',
+            );
+          }
+          await remove('expense', {
+            companyId,
+            cashVoucherId: { in: voucherIds },
+          });
+          await remove('cashMovement', {
+            companyId,
+            sourceType: { in: ['CASH_VOUCHER', 'CASH_VOUCHER_REVERSAL'] },
+            sourceId: { in: voucherIds },
+          });
+          await remove('cashVoucher', {
+            companyId,
+            id: { in: voucherIds },
+          });
+        } else {
+          counts.expense = 0;
+          counts.cashMovement = 0;
+          counts.cashVoucher = 0;
+        }
       } else {
         const vouchers = await transaction.cashVoucher.findMany({ where: { companyId }, select: { id: true } });
         await remove('paymentOrderAttachment');
