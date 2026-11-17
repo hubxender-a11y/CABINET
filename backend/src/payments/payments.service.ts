@@ -213,15 +213,13 @@ export class PaymentsService {
           await transaction.invoice.updateMany({ where: { id: payment.invoiceId, companyId }, data: { paidAmount } });
         }
 
-        if (originalMovement) {
-          await transaction.cashMovement.deleteMany({
-            where: {
-              companyId,
-              sourceType: 'INVOICE_PAYMENT',
-              sourceId: payment.id,
-            },
-          });
-        }
+        await transaction.cashMovement.deleteMany({
+          where: {
+            companyId,
+            sourceId: payment.id,
+            sourceType: { in: ['INVOICE_PAYMENT', 'INVOICE_PAYMENT_REVERSAL'] },
+          },
+        });
 
         await transaction.auditLog.create({
           data: { companyId, action: 'INVOICE_PAYMENT_CANCELLED', details: { paymentId: payment.id, invoiceId: payment.invoiceId, amount: payment.amount.toString(), currency: payment.currency, reason: cancellationReason } },
