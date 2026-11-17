@@ -6937,6 +6937,17 @@ summary:focus-visible {
   text-align: center;
 }
 
+.payment-order-created-by {
+  margin: 0.55rem 0 0;
+  color: #334155;
+  font-size: 0.72rem;
+  text-align: right;
+}
+
+.payment-order-created-by strong {
+  color: #102d4c;
+}
+
 .payment-order-print .document-footer {
   margin-top: auto;
   padding-top: 0.6rem;
@@ -7227,6 +7238,10 @@ summary:focus-visible {
 
   .payment-order-print .payment-order-visas {
     margin-top: 4mm;
+  }
+
+  .payment-order-created-by {
+    margin-top: 2mm;
   }
 
   .payment-order-print .document-footer {

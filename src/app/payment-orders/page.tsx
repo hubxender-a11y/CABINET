@@ -46,6 +46,7 @@ type PaymentOrder = {
   outstanding: string;
   availableAfter: string;
   status: Status;
+  creatorName?: string | null;
   financeVisaName?: string | null;
   financeVisaAt?: string | null;
   managerVisaName?: string | null;
@@ -518,16 +519,23 @@ export default function PaymentOrdersPage() {
         `/payment-orders/${order.id}/${action}`,
         { method: "POST", ...(body ? { body } : {}) },
       );
+      const updatedOrder = {
+        ...order,
+        ...updated,
+        creatorName: order.creatorName,
+      };
       setOrders((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)),
+        current.map((item) =>
+          item.id === updated.id ? updatedOrder : item,
+        ),
       );
       setSuccess(action === "manager-visa" && updated.cashVoucher
         ? `${updated.orderNumber} approuvée et signée par l’Associé-Gérant. Le bon ${updated.cashVoucher.voucherNumber} est ajouté à la caisse en attente du visa final; aucun montant n’a été débité.`
         : action === "pay" && updated.cashVoucher
           ? `${updated.orderNumber} : bon ${updated.cashVoucher.voucherNumber} transmis à la caisse pour approbation. Aucun décaissement n’a encore été enregistré.`
           : `${updated.orderNumber} : ${statusLabel[updated.status]}.`);
-      if (printOrder?.id === updated.id) setPrintOrder(updated);
-      if (detailOrder?.id === updated.id) setDetailOrder(updated);
+      if (printOrder?.id === updated.id) setPrintOrder(updatedOrder);
+      if (detailOrder?.id === updated.id) setDetailOrder(updatedOrder);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Action impossible.");
     }
@@ -656,6 +664,7 @@ export default function PaymentOrdersPage() {
       availableAfter: String(budgetLeft),
       status: "SUBMITTED",
       createdBy: user?.id ?? "preview",
+      creatorName: user?.name ?? null,
       attachment: attachmentFile
         ? {
             id: "preview-attachment",
@@ -1162,6 +1171,15 @@ export default function PaymentOrdersPage() {
               <p>Visa de l’Associé-Gérant</p>
             </div>
           </section>
+          <p className="payment-order-created-by">
+            Établie par :{" "}
+            <strong>
+              {printOrder.creatorName ||
+                (user && printOrder.createdBy === user.id
+                  ? user.name
+                  : "Utilisateur du cabinet")}
+            </strong>
+          </p>
         </article>,
         document.body,
       )}

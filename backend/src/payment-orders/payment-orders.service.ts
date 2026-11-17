@@ -28,8 +28,8 @@ export class PaymentOrdersService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  list(companyId: string) {
-    return this.prisma.paymentOrder.findMany({
+  async list(companyId: string) {
+    const orders = await this.prisma.paymentOrder.findMany({
       where: { companyId },
       include: {
         attachment: {
@@ -42,6 +42,20 @@ export class PaymentOrdersService {
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       take: 500,
     });
+    const creatorIds = [...new Set(orders.map((order) => order.createdBy))];
+    const creators = creatorIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: creatorIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const creatorNames = new Map(
+      creators.map((creator) => [creator.id, creator.name]),
+    );
+    return orders.map((order) => ({
+      ...order,
+      creatorName: creatorNames.get(order.createdBy) ?? null,
+    }));
   }
 
   async configuration(
@@ -380,22 +394,21 @@ export class PaymentOrdersService {
           },
         },
       });
+      const creatorName = (
+        await transaction.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        })
+      )?.name ?? null;
       await this.notifications.notifyRoles(
         transaction,
         companyId,
         [UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER],
         `OP à examiner · ${orderNumber}`,
-        `${order.requestingService} · demande saisie par ${
-          (
-            await transaction.user.findUnique({
-              where: { id: userId },
-              select: { name: true },
-            })
-          )?.name ?? 'un membre du cabinet'
-        }. ${amount.toString()} ${dto.currency} pour ${order.beneficiary}. Examinez l’état de besoin puis approuvez ou rejetez l’OP.`,
+        `${order.requestingService} · demande saisie par ${creatorName ?? 'un membre du cabinet'}. ${amount.toString()} ${dto.currency} pour ${order.beneficiary}. Examinez l’état de besoin puis approuvez ou rejetez l’OP.`,
         userId,
       );
-      return transaction.paymentOrder.findUniqueOrThrow({
+      const savedOrder = await transaction.paymentOrder.findUniqueOrThrow({
         where: { id: order.id },
         include: {
           attachment: {
@@ -403,6 +416,7 @@ export class PaymentOrdersService {
           },
         },
       });
+      return { ...savedOrder, creatorName };
     }, {
       maxWait: 10_000,
       timeout: 30_000,
