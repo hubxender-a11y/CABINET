@@ -214,18 +214,12 @@ export class PaymentsService {
         }
 
         if (originalMovement) {
-          await createCashMovement(transaction, {
-            companyId,
-            cashAccountId: originalMovement.cashAccountId,
-            date: new Date(),
-            direction: 'OUT',
-            amount: originalMovement.amount,
-            sourceAmount: payment.amount,
-            sourceCurrency: payment.currency,
-            sourceType: 'INVOICE_PAYMENT_REVERSAL',
-            sourceId: payment.id,
-            description: `Annulation du règlement facture ${payment.invoice?.invoiceNumber ?? payment.invoiceId ?? payment.id}`,
-            reference: payment.reference,
+          await transaction.cashMovement.deleteMany({
+            where: {
+              companyId,
+              sourceType: 'INVOICE_PAYMENT',
+              sourceId: payment.id,
+            },
           });
         }
 

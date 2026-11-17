@@ -102,7 +102,7 @@ function PaymentsRegister() {
     setCancelError("");
     try {
       await cancelPayment(paymentToCancel.id, reason);
-      notify({ type: "success", title: "Règlement annulé", message: "Le solde de la facture et le mouvement de caisse ont été corrigés. La trace reste au registre." });
+      notify({ type: "success", title: "Règlement annulé", message: "Le solde et le livre de caisse ont été mis à jour. La trace d’annulation reste au registre." });
       if (selectedReceipt?.id === paymentToCancel.id) setSelectedReceipt(null);
       setPaymentToCancel(null);
       setCancelReason("");
@@ -625,7 +625,7 @@ function PaymentsRegister() {
               <div className="min-w-0 flex-1"><h2 id="cancel-payment-title" className="text-lg font-semibold text-slate-900">Annuler ce règlement ?</h2><p className="mt-1 text-sm text-slate-600">{paymentToCancel.invoiceNumber} · {formatMoney(Number(paymentToCancel.amount), paymentToCancel.currency)}</p></div>
               <button type="button" onClick={() => setPaymentToCancel(null)} disabled={cancelling} aria-label="Fermer" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X className="h-4 w-4" /></button>
             </div>
-            <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm leading-5 text-amber-900">Le solde de la facture sera recalculé. Un mouvement inverse sera ajouté à la caisse. L’annulation restera visible au registre.</div>
+            <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm leading-5 text-amber-900">Le solde sera recalculé et l’encaissement d’origine retiré du livre de caisse. L’annulation restera visible au registre.</div>
             <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="payment-cancellation-reason">Motif obligatoire</label>
             <textarea id="payment-cancellation-reason" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} maxLength={500} rows={3} placeholder="Ex. erreur de saisie ou paiement rejeté par la banque…" className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-100" />
             {cancelError && <p role="alert" className="mt-2 text-sm font-medium text-rose-700">{cancelError}</p>}
