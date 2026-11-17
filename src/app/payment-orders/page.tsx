@@ -261,6 +261,10 @@ export default function PaymentOrdersPage() {
   const [printVoucherOrder, setPrintVoucherOrder] =
     useState<PaymentOrder | null>(null);
   const [detailOrder, setDetailOrder] = useState<PaymentOrder | null>(null);
+  const [pendingManagerApproval, setPendingManagerApproval] = useState<
+    string | null
+  >(null);
+  const [actingOrderId, setActingOrderId] = useState("");
   const [attachmentPreview, setAttachmentPreview] = useState<{
     orderId: string;
     fileName: string;
@@ -505,16 +509,16 @@ export default function PaymentOrdersPage() {
       if (!rejectionReason?.trim()) return;
       body = JSON.stringify({ reason: rejectionReason.trim() });
     } else if (
+      action !== "manager-visa" &&
       !window.confirm(
         action === "finance-visa"
           ? `Enregistrer votre visa des Finances sur ${order.orderNumber} ?`
-          : action === "manager-visa"
-            ? `Approuver et signer ${order.orderNumber} au nom de l’Associé-Gérant ?`
-            : `Émettre un bon de sortie caisse pour ${order.orderNumber} ? Le bon restera en attente du contrôle et du visa de l’Associé-Gérant. Aucun argent ne sera débité avant ce second visa.`,
+          : `Émettre un bon de sortie caisse pour ${order.orderNumber} ? Le bon restera en attente du contrôle et du visa de l’Associé-Gérant. Aucun argent ne sera débité avant ce second visa.`,
       )
     )
       return;
     try {
+      setActingOrderId(order.id);
       const updated = await apiRequest<PaymentOrder>(
         `/payment-orders/${order.id}/${action}`,
         { method: "POST", ...(body ? { body } : {}) },
@@ -534,10 +538,13 @@ export default function PaymentOrdersPage() {
         : action === "pay" && updated.cashVoucher
           ? `${updated.orderNumber} : bon ${updated.cashVoucher.voucherNumber} transmis à la caisse pour approbation. Aucun décaissement n’a encore été enregistré.`
           : `${updated.orderNumber} : ${statusLabel[updated.status]}.`);
+      if (action === "manager-visa") setPendingManagerApproval(null);
       if (printOrder?.id === updated.id) setPrintOrder(updatedOrder);
       if (detailOrder?.id === updated.id) setDetailOrder(updatedOrder);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Action impossible.");
+    } finally {
+      setActingOrderId("");
     }
   }
 
@@ -1040,8 +1047,13 @@ export default function PaymentOrdersPage() {
                       {canManager && (
                         <button
                           type="button"
-                          onClick={() => void act(order, "manager-visa")}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
+                          onClick={() => {
+                            setError("");
+                            setSuccess("");
+                            setPendingManagerApproval(order.id);
+                          }}
+                          disabled={actingOrderId === order.id}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-60"
                         >
                           <Check className="h-3.5 w-3.5" />
                           Approuver et signer
@@ -1069,6 +1081,50 @@ export default function PaymentOrdersPage() {
                         </button>
                       )}
                     </div>
+                    {pendingManagerApproval === order.id && (
+                      <section
+                        aria-label={`Confirmation de l’approbation de ${order.orderNumber}`}
+                        className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+                      >
+                        <h3 className="text-sm font-semibold text-emerald-950">
+                          Confirmer l’approbation et la signature
+                        </h3>
+                        <p className="mt-1 text-xs leading-5 text-emerald-900">
+                          Cette action signe {order.orderNumber} et crée un bon
+                          de sortie en attente de validation par la caisse. Elle
+                          ne déclenche pas le paiement.
+                        </p>
+                        {error && (
+                          <p
+                            role="alert"
+                            className="mt-3 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs text-rose-800"
+                          >
+                            {error}
+                          </p>
+                        )}
+                        <div className="mt-3 flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setPendingManagerApproval(null)}
+                            disabled={actingOrderId === order.id}
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+                          >
+                            Annuler
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void act(order, "manager-visa")}
+                            disabled={actingOrderId === order.id}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                            {actingOrderId === order.id
+                              ? "Signature en cours…"
+                              : "Confirmer et signer"}
+                          </button>
+                        </div>
+                      </section>
+                    )}
                   </article>
                 );
               })}
