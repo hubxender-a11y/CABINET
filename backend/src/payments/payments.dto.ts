@@ -1,5 +1,5 @@
 import { PaymentMethod } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class CreatePaymentDto {
   @IsUUID()
@@ -16,4 +16,11 @@ export class CreatePaymentDto {
   @IsString()
   @MaxLength(120)
   reference?: string;
+}
+
+export class CancelPaymentDto {
+  @IsString()
+  @MinLength(3)
+  @MaxLength(500)
+  reason: string;
 }

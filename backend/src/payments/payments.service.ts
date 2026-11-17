@@ -173,4 +173,80 @@ export class PaymentsService {
       throw error;
     }
   }
+  async cancel(id: string, reason: string) {
+    const companyId = getCompanyId();
+    const cancellationReason = reason.trim();
+    if (cancellationReason.length < 3) throw new BadRequestException('Indiquez un motif d’annulation (3 caractères minimum).');
+
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        const payment = await transaction.payment.findFirst({
+          where: { id, companyId },
+          include: { invoice: { select: { id: true, invoiceNumber: true, currency: true, totalAmount: true, paidAmount: true } } },
+        });
+        if (!payment) throw new NotFoundException('Règlement introuvable.');
+        if (payment.status !== 'RECEIVED') throw new BadRequestException('Ce règlement est déjà annulé ou n’est plus actif.');
+
+        const originalMovement = await transaction.cashMovement.findFirst({
+          where: { companyId, sourceType: 'INVOICE_PAYMENT', sourceId: payment.id },
+          select: { cashAccountId: true, amount: true },
+        });
+        if (originalMovement) await lockCashAccount(transaction, originalMovement.cashAccountId);
+
+        const updated = await transaction.payment.updateMany({
+          where: { id: payment.id, companyId, status: 'RECEIVED' },
+          data: { status: 'CANCELLED' },
+        });
+        if (updated.count !== 1) throw new BadRequestException('Ce règlement a déjà été annulé. Actualisez le registre.');
+
+        if (payment.invoiceId) {
+          const activePayments = await transaction.payment.findMany({
+            where: { companyId, invoiceId: payment.invoiceId, status: 'RECEIVED' },
+            select: { id: true, amount: true },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          });
+          let paidAmount = new Prisma.Decimal(0);
+          for (const activePayment of activePayments) {
+            paidAmount = paidAmount.add(activePayment.amount);
+            await transaction.payment.update({ where: { id: activePayment.id }, data: { invoicePaidAmountAfter: paidAmount } });
+          }
+          await transaction.invoice.updateMany({ where: { id: payment.invoiceId, companyId }, data: { paidAmount } });
+        }
+
+        if (originalMovement) {
+          await createCashMovement(transaction, {
+            companyId,
+            cashAccountId: originalMovement.cashAccountId,
+            date: new Date(),
+            direction: 'OUT',
+            amount: originalMovement.amount,
+            sourceAmount: payment.amount,
+            sourceCurrency: payment.currency,
+            sourceType: 'INVOICE_PAYMENT_REVERSAL',
+            sourceId: payment.id,
+            description: `Annulation du règlement facture ${payment.invoice?.invoiceNumber ?? payment.invoiceId ?? payment.id}`,
+            reference: payment.reference,
+          });
+        }
+
+        await transaction.auditLog.create({
+          data: { companyId, action: 'INVOICE_PAYMENT_CANCELLED', details: { paymentId: payment.id, invoiceId: payment.invoiceId, amount: payment.amount.toString(), currency: payment.currency, reason: cancellationReason } },
+        });
+
+        return transaction.payment.findFirstOrThrow({
+          where: { id: payment.id, companyId },
+          include: {
+            invoice: { select: { id: true, invoiceNumber: true, currency: true, totalAmount: true, paidAmount: true } },
+            customer: { select: { name: true } },
+          },
+        });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw new BadRequestException('Le règlement a changé pendant l’opération. Actualisez puis réessayez.');
+      }
+      throw error;
+    }
+  }
+
 }

@@ -91,6 +91,7 @@ type PaymentApiRecord = {
     invoiceNumber: string;
     currency: "CDF" | "USD";
     totalAmount: string;
+    paidAmount?: string;
   } | null;
   customer: { name: string } | null;
 };
@@ -195,6 +196,7 @@ type WorkspaceStore = {
     method: WorkspacePayment["method"];
     reference?: string;
   }) => Promise<WorkspacePayment>;
+  cancelPayment: (paymentId: string, reason: string) => Promise<WorkspacePayment>;
 };
 
 const WorkspaceContext = createContext<WorkspaceStore | null>(null);
@@ -607,6 +609,21 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
         }),
       );
       setPayments((current) => [savedPayment, ...current].slice(0, 200));
+      return savedPayment;
+    },
+    cancelPayment: async (paymentId, reason) => {
+      if (!hasConfiguredApi) throw new Error("API du cabinet non configurée. Le règlement n’a pas été annulé.");
+      if (!databaseConnected) throw new Error("Le serveur du cabinet est indisponible. Réessayez plus tard.");
+      const cancelled = await apiRequest<PaymentApiRecord>(`/payments/${paymentId}/cancel`, { method: "POST", body: JSON.stringify({ reason }) });
+      const savedPayment = mapPayment(cancelled);
+      setPayments((current) => current.map((payment) => payment.id === paymentId ? savedPayment : payment));
+      if (cancelled.invoice?.id && cancelled.invoice.paidAmount !== undefined) {
+        const paidAmount = Number(cancelled.invoice.paidAmount);
+        setInvoices((current) => current.map((invoice) => {
+          if (invoice.databaseId !== cancelled.invoice?.id) return invoice;
+          return { ...invoice, paidAmount, status: paidAmount >= invoice.amount ? "Payée" : invoice.fiscalStatus === "CERTIFIED" ? "Certifiée" : invoice.fiscalStatus === "PENDING_FISCALIZATION" ? "En attente" : invoice.fiscalStatus === "REJECTED" || invoice.fiscalStatus === "CANCELLED" ? "Rejetée" : "Brouillon" };
+        }));
+      }
       return savedPayment;
     },
   };

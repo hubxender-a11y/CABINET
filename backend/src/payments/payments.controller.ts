@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { CreatePaymentDto } from './payments.dto';
+import { CancelPaymentDto, CreatePaymentDto } from './payments.dto';
 import { PaymentsService } from './payments.service';
 
 @ApiTags('payments')
@@ -18,5 +18,11 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Register a payment against an invoice' })
   create(@Body() dto: CreatePaymentDto) {
     return this.payments.create(dto);
+  }
+
+  @Post(':id/cancel')
+  @ApiOperation({ summary: 'Cancel a received payment and preserve its audit trail' })
+  cancel(@Param('id') id: string, @Body() dto: CancelPaymentDto) {
+    return this.payments.cancel(id, dto.reason);
   }
 }

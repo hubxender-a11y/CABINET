@@ -2,7 +2,7 @@
 
 import { Fragment, FormEvent, Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, Download, Printer, X } from "lucide-react";
+import { Ban, ChevronDown, Download, Printer, X } from "lucide-react";
 import { useWorkspaceStore, type WorkspacePayment } from "@/components/workspace-store";
 import {
   DocumentFooter,
@@ -32,7 +32,7 @@ export default function PaymentsPage() {
 }
 
 function PaymentsRegister() {
-  const { invoices, payments, addPayment, databaseConnected } = useWorkspaceStore();
+  const { invoices, payments, addPayment, cancelPayment, databaseConnected } = useWorkspaceStore();
   const requestedInvoiceId = useSearchParams().get("facture");
   const { profile } = useCompanyProfile();
   const { notify } = useNotifications();
@@ -49,6 +49,10 @@ function PaymentsRegister() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
+  const [paymentToCancel, setPaymentToCancel] = useState<WorkspacePayment | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelError, setCancelError] = useState("");
+  const [cancelling, setCancelling] = useState(false);
 
   const selectedInvoice = payableInvoices.find(
     (invoice) => (invoice.databaseId ?? invoice.id) === (invoiceId ?? requestedInvoiceId),
@@ -86,6 +90,30 @@ function PaymentsRegister() {
           0,
         )
       : null;
+
+  async function confirmCancelPayment() {
+    if (!paymentToCancel) return;
+    const reason = cancelReason.trim();
+    if (reason.length < 3) {
+      setCancelError("Saisissez le motif de l’annulation (3 caractères minimum).");
+      return;
+    }
+    setCancelling(true);
+    setCancelError("");
+    try {
+      await cancelPayment(paymentToCancel.id, reason);
+      notify({ type: "success", title: "Règlement annulé", message: "Le solde de la facture et le mouvement de caisse ont été corrigés. La trace reste au registre." });
+      if (selectedReceipt?.id === paymentToCancel.id) setSelectedReceipt(null);
+      setPaymentToCancel(null);
+      setCancelReason("");
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Impossible d’annuler ce règlement.";
+      setCancelError(message);
+      notify({ type: "error", title: "Annulation impossible", message });
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   async function submitPayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -486,8 +514,9 @@ function PaymentsRegister() {
                             {methodLabels[payment.method]}
                             {payment.reference && <span className="block text-xs text-slate-400">{payment.reference}</span>}
                           </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-900">
+                          <td className={`whitespace-nowrap px-4 py-3 text-right font-semibold ${payment.status === "CANCELLED" ? "text-rose-700 line-through" : "text-slate-900"}`}>
                             {formatMoney(Number(payment.amount), payment.currency)}
+                            {payment.status === "CANCELLED" && <span className="mt-1 block text-xs font-medium not-italic no-underline text-rose-600">Annulé</span>}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-center">
                             <button
@@ -506,15 +535,18 @@ function PaymentsRegister() {
                             </button>
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedReceipt(payment)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                              aria-label={`Afficher le reçu du paiement ${payment.invoiceNumber}`}
-                            >
-                              <Printer className="h-3.5 w-3.5" />
-                              Imprimer
-                            </button>
+                            <div className="flex flex-col items-end gap-1">
+                              {payment.status === "RECEIVED" && (
+                                <>
+                                  <button type="button" onClick={() => setSelectedReceipt(payment)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50" aria-label={`Afficher le reçu du paiement ${payment.invoiceNumber}`}>
+                                    <Printer className="h-3.5 w-3.5" /> Imprimer
+                                  </button>
+                                  <button type="button" onClick={() => { setPaymentToCancel(payment); setCancelReason(""); setCancelError(""); }} disabled={!databaseConnected} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50" aria-label={`Annuler le règlement ${payment.invoiceNumber}`}>
+                                    <Ban className="h-3.5 w-3.5" /> Annuler
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                         {isExpanded && (
@@ -530,7 +562,9 @@ function PaymentsRegister() {
                                   <dd className="mt-1 font-medium text-slate-800">
                                     {payment.status === "RECEIVED"
                                       ? "Reçu et enregistré"
-                                      : payment.status || "À vérifier"}
+                                      : payment.status === "CANCELLED"
+                                        ? "Annulé · conservé dans l’historique"
+                                        : payment.status || "À vérifier"}
                                   </dd>
                                 </div>
                                 <div>
@@ -582,6 +616,23 @@ function PaymentsRegister() {
           )}
         </section>
       </section>
+
+      {paymentToCancel && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="cancel-payment-title">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-rose-50 p-2.5 text-rose-700"><Ban className="h-5 w-5" /></div>
+              <div className="min-w-0 flex-1"><h2 id="cancel-payment-title" className="text-lg font-semibold text-slate-900">Annuler ce règlement ?</h2><p className="mt-1 text-sm text-slate-600">{paymentToCancel.invoiceNumber} · {formatMoney(Number(paymentToCancel.amount), paymentToCancel.currency)}</p></div>
+              <button type="button" onClick={() => setPaymentToCancel(null)} disabled={cancelling} aria-label="Fermer" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm leading-5 text-amber-900">Le solde de la facture sera recalculé. Un mouvement inverse sera ajouté à la caisse. L’annulation restera visible au registre.</div>
+            <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="payment-cancellation-reason">Motif obligatoire</label>
+            <textarea id="payment-cancellation-reason" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} maxLength={500} rows={3} placeholder="Ex. erreur de saisie ou paiement rejeté par la banque…" className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-100" />
+            {cancelError && <p role="alert" className="mt-2 text-sm font-medium text-rose-700">{cancelError}</p>}
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button type="button" onClick={() => setPaymentToCancel(null)} disabled={cancelling} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Conserver le règlement</button><button type="button" onClick={() => void confirmCancelPayment()} disabled={cancelling || cancelReason.trim().length < 3} className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50">{cancelling ? "Annulation…" : "Confirmer l’annulation"}</button></div>
+          </div>
+        </div>
+      )}
 
       {selectedReceipt && (
         <div
