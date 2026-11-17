@@ -35,6 +35,7 @@ type CashVoucher = {
   id: string;
   voucherNumber: string;
   date: string;
+  createdAt?: string;
   beneficiary: string;
   category: string;
   reason: string;
@@ -70,6 +71,7 @@ type CashMovement = {
   id: string;
   cashAccountId: string;
   date: string;
+  createdAt?: string;
   direction: "IN" | "OUT";
   amount: string;
   description: string;
@@ -339,14 +341,21 @@ export default function CashVouchersPage() {
   const visibleVouchers = useMemo(() => {
     const availableVouchers = databaseConnected ? vouchers : [];
     const term = query.trim().toLocaleLowerCase("fr");
-    if (!term) return availableVouchers;
-    return availableVouchers.filter((voucher) =>
-      [
-        voucher.voucherNumber,
-        voucher.beneficiary,
-        voucher.category,
-        voucher.reason,
-      ].some((value) => value.toLocaleLowerCase("fr").includes(term)),
+    const filtered = term
+      ? availableVouchers.filter((voucher) =>
+          [
+            voucher.voucherNumber,
+            voucher.beneficiary,
+            voucher.category,
+            voucher.reason,
+          ].some((value) => value.toLocaleLowerCase("fr").includes(term)),
+        )
+      : availableVouchers;
+    return [...filtered].sort(
+      (left, right) =>
+        Date.parse(right.date) - Date.parse(left.date) ||
+        Date.parse(right.createdAt ?? right.date) -
+          Date.parse(left.createdAt ?? left.date),
     );
   }, [databaseConnected, query, vouchers]);
   const pendingVouchers = useMemo(
@@ -383,7 +392,13 @@ export default function CashVouchersPage() {
         Number(account.openingBalance),
       ]),
     );
-    return selectedPeriodData.movements.map((movement) => {
+    const chronologicalMovements = [...selectedPeriodData.movements].sort(
+      (left, right) =>
+        Date.parse(left.date) - Date.parse(right.date) ||
+        Date.parse(left.createdAt ?? left.date) -
+          Date.parse(right.createdAt ?? right.date),
+    );
+    return chronologicalMovements.map((movement) => {
       const balanceBefore = remainingByAccount.get(movement.cashAccountId) ?? 0;
       const amount = Number(movement.amount);
       const balanceAfter =
