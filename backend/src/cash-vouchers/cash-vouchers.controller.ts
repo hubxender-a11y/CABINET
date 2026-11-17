@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   Param,
   ParseUUIDPipe,
   Post,
@@ -21,6 +22,7 @@ import {
   FundCashAccountDto,
   RejectCashVoucherDto,
   ReconcileCashAccountDto,
+  UpdateCashVoucherDto,
 } from './cash-vouchers.dto';
 import { CashVouchersService } from './cash-vouchers.service';
 
@@ -72,6 +74,22 @@ export class CashVouchersController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.vouchers.create(
+      dto,
+      request.user!.companyId,
+      request.user!.sub,
+    );
+  }
+
+  @Patch(':id')
+  @Roles(...cashVoucherIssuers)
+  @ApiOperation({ summary: 'Edit a cash voucher awaiting manager approval' })
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateCashVoucherDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.vouchers.update(
+      id,
       dto,
       request.user!.companyId,
       request.user!.sub,

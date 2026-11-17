@@ -45,6 +45,8 @@ export class CreateCashVoucherDto {
   reference?: string;
 }
 
+export class UpdateCashVoucherDto extends CreateCashVoucherDto {}
+
 export class CancelCashVoucherDto {
   @IsString()
   @MaxLength(300)

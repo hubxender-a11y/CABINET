@@ -31,6 +31,7 @@ import {
   FundCashAccountDto,
   RejectCashVoucherDto,
   ReconcileCashAccountDto,
+  UpdateCashVoucherDto,
 } from './cash-vouchers.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -653,6 +654,178 @@ export class CashVouchersService {
         userId,
       );
 
+      return voucher;
+    });
+  }
+
+  async update(
+    id: string,
+    dto: UpdateCashVoucherDto,
+    companyId: string,
+    userId: string,
+  ) {
+    const amount = new Prisma.Decimal(dto.amount);
+    if (amount.lte(0)) {
+      throw new BadRequestException(
+        'Le montant du bon doit être supérieur à zéro.',
+      );
+    }
+    if (dto.currency === 'CDF' && !amount.isInteger()) {
+      throw new BadRequestException(
+        'Le montant en CDF doit être un nombre entier.',
+      );
+    }
+    if (
+      (dto.method === PaymentMethod.CASH_CDF && dto.currency !== 'CDF') ||
+      (dto.method === PaymentMethod.CASH_USD && dto.currency !== 'USD')
+    ) {
+      throw new BadRequestException(
+        'La devise de la caisse doit correspondre à celle du bon.',
+      );
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dto.date)) {
+      throw new BadRequestException('La date du bon est invalide.');
+    }
+    const date = new Date(`${dto.date}T12:00:00.000Z`);
+    if (
+      Number.isNaN(date.getTime()) ||
+      date.toISOString().slice(0, 10) !== dto.date
+    ) {
+      throw new BadRequestException('La date du bon est invalide.');
+    }
+    if (date.getTime() > endOfDay(new Date()).getTime()) {
+      throw new BadRequestException(
+        'La date d’un décaissement ne peut pas être future.',
+      );
+    }
+    const beneficiary = dto.beneficiary.trim();
+    const category = dto.category.trim();
+    const reason = dto.reason.trim();
+    if (!beneficiary || !category || !reason) {
+      throw new BadRequestException(
+        'Le bénéficiaire, la rubrique et le motif sont obligatoires.',
+      );
+    }
+
+    return this.prisma.$transaction(async (transaction) => {
+      const current = await transaction.cashVoucher.findFirst({
+        where: { id, companyId },
+        select: {
+          id: true,
+          voucherNumber: true,
+          cashAccountId: true,
+          status: true,
+          beneficiary: true,
+          category: true,
+          reason: true,
+          date: true,
+          amount: true,
+          currency: true,
+          method: true,
+          reference: true,
+        },
+      });
+      if (!current) throw new NotFoundException('Bon de sortie introuvable.');
+      if (!['PENDING_APPROVAL', 'REJECTED'].includes(current.status)) {
+        throw new ConflictException(
+          'Seuls les bons en attente ou rejetés peuvent être modifiés.',
+        );
+      }
+
+      const linkedOrder = await transaction.paymentOrder.findFirst({
+        where: { companyId, cashVoucherId: id },
+        select: { orderNumber: true },
+      });
+      if (linkedOrder) {
+        throw new ConflictException(
+          'Ce bon est lié à une OP. Modifiez le dossier OP avant de créer son bon de sortie.',
+        );
+      }
+
+      if (current.cashAccountId) {
+        await lockCashAccount(transaction, current.cashAccountId);
+      }
+      const cashAccount = await ensureCashAccount(
+        transaction,
+        companyId,
+        dto.currency,
+      );
+      if (cashAccount.id !== current.cashAccountId) {
+        await lockCashAccount(transaction, cashAccount.id);
+      }
+
+      const updated = await transaction.cashVoucher.updateMany({
+        where: {
+          id,
+          companyId,
+          status: { in: ['PENDING_APPROVAL', 'REJECTED'] },
+        },
+        data: {
+          date,
+          beneficiary,
+          category,
+          reason,
+          amount,
+          currency: dto.currency,
+          method: dto.method,
+          cashAccountId: cashAccount.id,
+          accountCode: cashAccount.code,
+          reference: dto.reference?.trim() || null,
+          status: 'PENDING_APPROVAL',
+          rejectionReason: null,
+          managerApprovalName: null,
+          managerApprovalBy: null,
+          managerApprovedAt: null,
+          managerRejectedAt: null,
+        },
+      });
+      if (!updated.count) {
+        throw new ConflictException(
+          'Le statut du bon a changé. Actualisez le registre avant de le modifier.',
+        );
+      }
+
+      const voucher = await transaction.cashVoucher.findUniqueOrThrow({
+        where: { id },
+      });
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'CASH_VOUCHER_UPDATED',
+          details: {
+            voucherId: id,
+            voucherNumber: voucher.voucherNumber,
+            previousStatus: current.status,
+            before: {
+              date: current.date.toISOString(),
+              beneficiary: current.beneficiary,
+              category: current.category,
+              reason: current.reason,
+              amount: current.amount.toString(),
+              currency: current.currency,
+              reference: current.reference,
+            },
+            after: {
+              date: voucher.date.toISOString(),
+              beneficiary: voucher.beneficiary,
+              category: voucher.category,
+              reason: voucher.reason,
+              amount: voucher.amount.toString(),
+              currency: voucher.currency,
+              reference: voucher.reference,
+            },
+          },
+        },
+      });
+      await this.notifications.notifyRoles(
+        transaction,
+        companyId,
+        [UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER],
+        `Bon de sortie modifié · ${voucher.voucherNumber}`,
+        `${voucher.beneficiary} · ${voucher.amount.toString()} ${voucher.currency}. Le bon a été modifié et attend un nouveau visa.`,
+        userId,
+      );
       return voucher;
     });
   }

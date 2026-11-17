@@ -14,6 +14,7 @@ import {
   Check,
   CircleAlert,
   FileText,
+  Pencil,
   Printer,
   Search,
   Wallet,
@@ -232,6 +233,10 @@ export default function CashVouchersPage() {
   const [cashVoucherTab, setCashVoucherTab] = useState<"issue" | "register">(
     "issue",
   );
+  const [editingVoucherId, setEditingVoucherId] = useState<string | null>(null);
+  const editingVoucher = vouchers.find(
+    (voucher) => voucher.id === editingVoucherId,
+  );
 
   const printReady = Boolean(clientToday);
 
@@ -419,37 +424,83 @@ export default function CashVouchersPage() {
     }
     setSaving(true);
     try {
-      const created = await apiRequest<CashVoucher>("/cash-vouchers", {
-        method: "POST",
-        body: JSON.stringify({
-          date,
-          beneficiary: beneficiary.trim(),
-          category: categoryValue,
-          reason: reason.trim(),
-          amount,
-          currency,
-          method: currency === "USD" ? "CASH_USD" : "CASH_CDF",
-          reference: reference.trim() || undefined,
-        }),
-      });
-      setVouchers((current) => [created, ...current]);
+      const payload = {
+        date,
+        beneficiary: beneficiary.trim(),
+        category: categoryValue,
+        reason: reason.trim(),
+        amount,
+        currency,
+        method: currency === "USD" ? "CASH_USD" : "CASH_CDF",
+        reference: reference.trim() || undefined,
+      };
+      const saved = await apiRequest<CashVoucher>(
+        editingVoucherId
+          ? `/cash-vouchers/${editingVoucherId}`
+          : "/cash-vouchers",
+        {
+          method: editingVoucherId ? "PATCH" : "POST",
+          body: JSON.stringify(payload),
+        },
+      );
+      if (editingVoucherId) {
+        setVouchers((current) =>
+          current.map((item) => (item.id === saved.id ? saved : item)),
+        );
+      } else {
+        setVouchers((current) => [saved, ...current]);
+      }
       setSelectedVoucher(null);
-      setBeneficiary("");
-      setReason("");
-      setAmount("");
-      setReference("");
+      resetVoucherForm();
       setCashVoucherTab("register");
       void refreshTreasury().catch(() => undefined);
-      setSuccess(`Bon ${created.voucherNumber} · en attente du visa.`);
+      setSuccess(
+        editingVoucherId
+          ? `Bon ${saved.voucherNumber} modifié · nouveau visa demandé.`
+          : `Bon ${saved.voucherNumber} · en attente du visa.`,
+      );
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Impossible d’enregistrer le bon.",
+          : editingVoucherId
+            ? "Impossible de modifier le bon."
+            : "Impossible d’enregistrer le bon.",
       );
     } finally {
       setSaving(false);
     }
+  }
+
+  function resetVoucherForm() {
+    setEditingVoucherId(null);
+    setDateOverride(null);
+    setBeneficiary("");
+    setCategory("");
+    setReason("");
+    setAmount("");
+    setCurrency("CDF");
+    setReference("");
+  }
+
+  function editVoucher(voucher: CashVoucher) {
+    if (
+      !["PENDING_APPROVAL", "REJECTED"].includes(voucher.status) ||
+      (voucher.reference && /^OP\/\d{4}\/\d+$/.test(voucher.reference))
+    ) {
+      return;
+    }
+    setEditingVoucherId(voucher.id);
+    setDateOverride(voucher.date.slice(0, 10));
+    setBeneficiary(voucher.beneficiary);
+    setCategory(voucher.category);
+    setReason(voucher.reason);
+    setAmount(voucher.amount);
+    setCurrency(voucher.currency);
+    setReference(voucher.reference ?? "");
+    setError("");
+    setSuccess("");
+    setCashVoucherTab("issue");
   }
 
   function printVoucher(voucher: CashVoucher) {
@@ -826,6 +877,25 @@ export default function CashVouchersPage() {
               onSubmit={submitVoucher}
               className="cash-voucher-form space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
             >
+              {editingVoucher && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-blue-950">
+                      Modifier {editingVoucher.voucherNumber}
+                    </p>
+                    <p className="text-xs text-blue-800">
+                      Le bon sera renvoyé pour visa après l’enregistrement.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={resetVoucherForm}
+                    className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              )}
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block space-y-1.5 text-sm font-medium text-slate-700">
                   Date de sortie
@@ -932,7 +1002,11 @@ export default function CashVouchersPage() {
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
               >
                 <FileText className="h-4 w-4" />
-                {saving ? "Enregistrement…" : "Enregistrer le bon"}
+                {saving
+                  ? "Enregistrement…"
+                  : editingVoucherId
+                    ? "Enregistrer les modifications"
+                    : "Enregistrer le bon"}
               </button>
             </form>
           </div>
@@ -1045,6 +1119,19 @@ export default function CashVouchersPage() {
                             )}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right">
+                            {canIssueVoucher &&
+                              ["PENDING_APPROVAL", "REJECTED"].includes(
+                                voucher.status,
+                              ) &&
+                              !(voucher.reference && /^OP\/\d{4}\/\d+$/.test(voucher.reference)) && (
+                                <button
+                                  type="button"
+                                  onClick={() => editVoucher(voucher)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" /> Modifier
+                                </button>
+                              )}
                             {voucher.status === "PENDING_APPROVAL" &&
                               ["COMPANY_ADMIN", "MANAGING_PARTNER"].includes(
                                 userRole,
