@@ -7035,6 +7035,10 @@ summary:focus-visible {
   color: #111827;
 }
 
+.payment-order-document .payment-order-visas {
+  grid-template-columns: 1fr;
+}
+
 .payment-order-document .payment-order-visas > div > p {
   font-family: "Book Antiqua", Georgia, serif;
   font-size: 9pt;

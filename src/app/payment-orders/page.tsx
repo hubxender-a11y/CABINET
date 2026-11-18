@@ -978,9 +978,6 @@ export default function PaymentOrdersPage() {
                       </span>
                     </div>
                     <div className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
-                      {order.financeVisaName && (
-                        <span>Visa Finances : {order.financeVisaName}</span>
-                      )}
                       {order.managerVisaName && (
                         <span>Associé-Gérant : {order.managerVisaName}</span>
                       )}
@@ -1178,24 +1175,6 @@ export default function PaymentOrdersPage() {
             </p>
           )}
           <section className="payment-order-visas">
-            <div>
-              <h3>VISA</h3>
-              <div className="payment-order-signature-line">
-                {printOrder.financeVisaName ? (
-                  <>
-                    <strong>{printOrder.financeVisaName}</strong>
-                    <span>
-                      {printOrder.financeVisaAt
-                        ? formatDate(printOrder.financeVisaAt)
-                        : "Visa enregistré"}
-                    </span>
-                  </>
-                ) : (
-                  <span />
-                )}
-              </div>
-              <p>Visa chargée des Finances</p>
-            </div>
             <div>
               <h3>VISA</h3>
               <div className="payment-order-signature-line">
