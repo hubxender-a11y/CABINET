@@ -1389,10 +1389,10 @@ export default function PaymentOrdersPage() {
                 <tbody>
                   <tr className="border-t border-slate-100 font-semibold text-slate-800">
                     <td className="px-3 py-3">Associé-Gérant</td>
-                    <td className="px-3 py-3 text-right">{formatMoney(detailOrder.initialForecast, detailOrder.currency)}</td>
-                    <td className="px-3 py-3 text-right">{formatMoney(detailOrder.availableBefore, detailOrder.currency)}</td>
-                    <td className="px-3 py-3 text-right">{formatMoney(Number(detailOrder.outstanding) + Number(detailOrder.amount), detailOrder.currency)}</td>
-                    <td className="px-3 py-3 text-right">{formatMoney(detailOrder.availableAfter, detailOrder.currency)}</td>
+                    <td className="px-3 py-3 text-right"></td>
+                    <td className="px-3 py-3 text-right"></td>
+                    <td className="px-3 py-3 text-right"></td>
+                    <td className="px-3 py-3 text-right"></td>
                   </tr>
                 </tbody>
               </table>
