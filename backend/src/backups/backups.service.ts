@@ -416,7 +416,7 @@ export class BackupsService {
         await remove('cashMovement', {
           companyId,
           cashAccountId: { in: cashAccounts.map(({ id }) => id) },
-          sourceType: 'CASH_FUNDING',
+          sourceType: { in: ['CASH_FUNDING', 'CURRENCY_TRANSFER_OUT', 'CURRENCY_TRANSFER_IN'] },
         });
       } else if (moduleKey === 'cashVouchers') {
         const vouchers = await transaction.cashVoucher.findMany({
