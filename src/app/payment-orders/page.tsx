@@ -1176,10 +1176,7 @@ export default function PaymentOrdersPage() {
                 <tr><th>SOURCE DES FONDS</th><th>APPROVISIONNÉ</th><th>SOLDE DISPO (1)</th><th>ENCOURS</th><th>SOLDE DISPO (2)</th></tr>
                 <tr>
                   <td>Associé-Gérant · {printOrder.currency}</td>
-                  <td>{printOrder.initialForecast.trim() ? printableMoney(printOrder.initialForecast, printOrder.currency) : "À définir"}</td>
-                  <td>{printOrder.availableBefore.trim() ? printableMoney(printOrder.availableBefore, printOrder.currency) : "À calculer"}</td>
-                  <td>{printOrder.outstanding.trim() ? printableMoney(String(Number(printOrder.outstanding) + Number(printOrder.amount)), printOrder.currency) : "À calculer"}</td>
-                  <td>{printOrder.availableAfter.trim() ? printableMoney(printOrder.availableAfter, printOrder.currency) : "À calculer"}</td>
+                  <td></td><td></td><td></td><td></td>
                 </tr>
               </tbody>
             </table>
