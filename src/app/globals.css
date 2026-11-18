@@ -7184,6 +7184,10 @@ summary:focus-visible {
     visibility: hidden !important;
   }
 
+  body.print-payment-order-mode > :not(.payment-order-print) {
+    display: none !important;
+  }
+
   body.print-payment-order-mode .payment-order-print,
   body.print-payment-order-mode .payment-order-print * {
     visibility: visible !important;
@@ -7192,15 +7196,16 @@ summary:focus-visible {
   body.print-payment-order-mode .payment-order-print {
     page: payment-voucher-document;
     display: flex !important;
-    position: fixed !important;
-    inset: 12mm !important;
-    z-index: 2147483647 !important;
+    position: relative !important;
+    inset: auto !important;
+    z-index: auto !important;
     box-sizing: border-box !important;
-    width: auto !important;
-    min-height: auto !important;
+    width: 100% !important;
+    min-height: 273mm !important;
     flex-direction: column !important;
     overflow: visible !important;
     padding: 0 !important;
+    margin: 0 !important;
     background: #fff !important;
     color: #0f172a !important;
     -webkit-print-color-adjust: exact;
@@ -7252,16 +7257,12 @@ summary:focus-visible {
 
   body.print-payment-order-mode .payment-order-document {
     page: payment-order-document;
-    position: fixed !important;
-    top: 5mm !important;
-    right: 25mm !important;
-    bottom: 25mm !important;
-    left: 25mm !important;
-    z-index: 2147483647 !important;
-    width: auto !important;
-    min-height: auto !important;
+    position: relative !important;
+    inset: auto !important;
+    width: 100% !important;
+    min-height: 297mm !important;
     overflow: visible !important;
-    padding: 0 !important;
+    padding: 5mm 25mm 25mm !important;
   }
 
   body.print-payment-order-mode .payment-order-attachment-print {
