@@ -278,7 +278,6 @@ export default function PaymentOrdersPage() {
     initialForecast: "0", paid: "0", available: "0", outstanding: "0",
   });
   const [cashAccounts, setCashAccounts] = useState<CashAccountSummary[]>([]);
-  const [configurationLoadKey, setConfigurationLoadKey] = useState("");
   const [dateOverride, setDateOverride] = useState<string | null>(null);
   const date = dateOverride ?? clientToday;
   const [requestingService, setRequestingService] = useState("");
@@ -290,8 +289,6 @@ export default function PaymentOrdersPage() {
   const configurationKey = databaseConnected && date && user
     ? `${user.id}:${date.slice(0, 4)}:${currency}`
     : "";
-  const configurationLoading = user?.role !== "MANAGING_PARTNER" &&
-    Boolean(configurationKey && configurationLoadKey !== configurationKey);
   const attachmentLoading = Boolean(
     detailOrder?.attachment &&
       attachmentPreview?.orderId !== detailOrder.id &&
@@ -382,9 +379,6 @@ export default function PaymentOrdersPage() {
               ? caught.message
               : "Chargement du budget ou de la caisse impossible.",
           );
-      })
-      .finally(() => {
-        if (active) setConfigurationLoadKey(configurationKey);
       });
     return () => {
       active = false;
@@ -841,10 +835,7 @@ export default function PaymentOrdersPage() {
                     <tbody>
                       <tr>
                         <td>Associé-Gérant · {currency}</td>
-                        <td>{configurationLoading ? "Calcul…" : formatMoney(initialForecast, currency)}</td>
-                        <td>{configurationLoading ? "Calcul…" : formatMoney(availableBefore, currency)}</td>
-                        <td>{formatMoney(outstandingBudget + Number(amount || 0), currency)}</td>
-                        <td className={budgetLeft < 0 ? "text-rose-700" : "text-emerald-700"}>{formatMoney(budgetLeft, currency)}</td>
+                        <td></td><td></td><td></td><td></td>
                       </tr>
                     </tbody>
                   </table>
