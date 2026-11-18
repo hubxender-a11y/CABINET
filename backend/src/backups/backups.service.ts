@@ -469,7 +469,7 @@ export class BackupsService {
         },
       });
       return { module: moduleKey, counts, protectedInvoices };
-    });
+    }, { maxWait: 10_000, timeout: 60_000 });
   }
 
   async restore(fileName: string, fileData: Buffer, confirmation: string, companyId: string, userId: string) {
