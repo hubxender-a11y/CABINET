@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, FormEvent, Suspense, useMemo, useState } from "react";
+import { Fragment, FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { Ban, ChevronDown, Download, Printer, X } from "lucide-react";
 import { useWorkspaceStore, type WorkspacePayment } from "@/components/workspace-store";
@@ -37,6 +38,7 @@ function PaymentsRegister() {
   const { profile } = useCompanyProfile();
   const { notify } = useNotifications();
   const [selectedReceipt, setSelectedReceipt] = useState<WorkspacePayment | null>(null);
+  const [receiptPortalRoot, setReceiptPortalRoot] = useState<HTMLElement | null>(null);
   const [expandedPaymentId, setExpandedPaymentId] = useState<string | null>(null);
   const payableInvoices = useMemo(
     () => invoices.filter((invoice) => invoiceBalance(invoice) > 0),
@@ -53,6 +55,10 @@ function PaymentsRegister() {
   const [cancelReason, setCancelReason] = useState("");
   const [cancelError, setCancelError] = useState("");
   const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => {
+    setReceiptPortalRoot(document.body);
+  }, []);
 
   const selectedInvoice = payableInvoices.find(
     (invoice) => (invoice.databaseId ?? invoice.id) === (invoiceId ?? requestedInvoiceId),
@@ -634,7 +640,7 @@ function PaymentsRegister() {
         </div>
       )}
 
-      {selectedReceipt && (
+      {selectedReceipt && receiptPortalRoot && createPortal((
         <div
           className="payment-receipt-dialog fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-6"
           role="dialog"
@@ -676,7 +682,7 @@ function PaymentsRegister() {
             </div>
           </div>
         </div>
-      )}
+      ), receiptPortalRoot)}
     </div>
   );
 }

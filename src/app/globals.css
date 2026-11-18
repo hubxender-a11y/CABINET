@@ -3749,8 +3749,12 @@ summary:focus-visible {
     visibility: hidden !important;
   }
 
-  body.print-payment-receipt-mode .payment-receipt-print,
-  body.print-payment-receipt-mode .payment-receipt-print * {
+  body.print-payment-receipt-mode > :not(.payment-receipt-dialog) {
+    display: none !important;
+  }
+
+  body.print-payment-receipt-mode .payment-receipt-dialog,
+  body.print-payment-receipt-mode .payment-receipt-dialog * {
     visibility: visible !important;
   }
 
@@ -3773,7 +3777,6 @@ summary:focus-visible {
   body.print-payment-receipt-mode .payment-receipt-dialog,
   body.print-payment-receipt-mode .payment-receipt-preview-scroll,
   body.print-payment-receipt-mode .payment-receipt-copies {
-    position: static !important;
     display: block !important;
     width: 180mm !important;
     max-width: none !important;
@@ -3786,6 +3789,11 @@ summary:focus-visible {
     box-shadow: none !important;
   }
 
+  body.print-payment-receipt-mode .payment-receipt-dialog {
+    position: static !important;
+    inset: auto !important;
+  }
+
   body.print-payment-receipt-mode .payment-receipt-copy {
     min-height: 267mm;
     break-after: page;
@@ -3795,6 +3803,10 @@ summary:focus-visible {
   body.print-payment-receipt-mode .payment-receipt-copy:last-child {
     break-after: auto;
     page-break-after: auto;
+  }
+
+  body.print-payment-receipt-mode .payment-receipt-copy + .payment-receipt-copy {
+    margin-top: 0 !important;
   }
 
   @page {
