@@ -66,6 +66,21 @@ async function main() {
       role: UserRole.COMPANY_ADMIN,
     },
   });
+  const platformAdminEmail = process.env.PLATFORM_ADMIN_EMAIL?.trim().toLowerCase();
+  if (platformAdminEmail) {
+    const platformAdmin = await prisma.user.findUnique({
+      where: { email: platformAdminEmail },
+      select: { id: true },
+    });
+    if (!platformAdmin) {
+      throw new Error('PLATFORM_ADMIN_EMAIL doit correspondre à un compte utilisateur existant.');
+    }
+    await prisma.user.update({
+      where: { id: platformAdmin.id },
+      data: { isPlatformAdmin: true },
+    });
+    console.log(`Administrateur de plateforme initialisé (${platformAdminEmail}).`);
+  }
   console.log(`Compte administrateur initialisé (${adminEmail}).`);
 }
 

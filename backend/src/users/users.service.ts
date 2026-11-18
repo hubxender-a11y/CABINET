@@ -22,6 +22,7 @@ export class UsersService {
         where: { companyId: getCompanyId() },
         select: {
           role: true,
+          isActive: true,
           createdAt: true,
           user: {
             select: {
@@ -29,6 +30,7 @@ export class UsersService {
               email: true,
               name: true,
               isActive: true,
+              isPlatformAdmin: true,
               createdAt: true,
             },
           },
@@ -36,8 +38,9 @@ export class UsersService {
         orderBy: { user: { name: 'asc' } },
       })
       .then((memberships) =>
-        memberships.map(({ user, role, createdAt }) => ({
+        memberships.map(({ user, role, isActive, createdAt }) => ({
           ...user,
+          isActive: isActive && user.isActive,
           role,
           joinedAt: createdAt,
         })),
@@ -132,17 +135,22 @@ export class UsersService {
               email: true,
               name: true,
               isActive: true,
+              isPlatformAdmin: true,
               createdAt: true,
             },
           },
         },
       });
       if (!membership) throw new NotFoundException('Membre introuvable.');
+      if (membership.user.isPlatformAdmin) {
+        throw new BadRequestException('Le rôle super-admin se gère uniquement dans les paramètres de la plateforme.');
+      }
 
       const nextRole = dto.role ?? membership.role;
-      const nextActive = dto.isActive ?? membership.user.isActive;
+      const nextActive = dto.isActive ?? membership.isActive;
       if (
         membership.role === UserRole.COMPANY_ADMIN &&
+        membership.isActive &&
         membership.user.isActive &&
         (nextRole !== UserRole.COMPANY_ADMIN || !nextActive)
       ) {
@@ -150,6 +158,7 @@ export class UsersService {
           where: {
             companyId,
             role: UserRole.COMPANY_ADMIN,
+            isActive: true,
             userId: { not: id },
             user: { isActive: true },
           },
@@ -163,19 +172,14 @@ export class UsersService {
 
       const updatedMembership = await transaction.companyMembership.update({
         where: { id: membership.id },
-        data: { role: nextRole },
+        data: { role: nextRole, isActive: nextActive },
       });
-      const updatedUser = await transaction.user.update({
-        where: { id },
-        data: { isActive: nextActive },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          isActive: true,
-          createdAt: true,
-        },
-      });
+      if (dto.isActive === true && !membership.user.isActive) {
+        await transaction.user.update({
+          where: { id },
+          data: { isActive: true },
+        });
+      }
       await transaction.auditLog.create({
         data: {
           companyId,
@@ -184,18 +188,27 @@ export class UsersService {
           details: {
             userId: id,
             role: updatedMembership.role,
-            isActive: updatedUser.isActive,
+            isActive: updatedMembership.isActive,
           },
         },
       });
-      return { ...updatedUser, role: updatedMembership.role };
+      return {
+        id: membership.user.id,
+        email: membership.user.email,
+        name: membership.user.name,
+        isActive:
+          updatedMembership.isActive &&
+          (membership.user.isActive || dto.isActive === true),
+        createdAt: membership.user.createdAt,
+        role: updatedMembership.role,
+      };
     });
   }
 
   async resetPassword(id: string, dto: ResetUserPasswordDto, actorId: string) {
     const companyId = getCompanyId();
     const membership = await this.prisma.companyMembership.findFirst({
-      where: { userId: id, companyId },
+      where: { userId: id, companyId, isActive: true },
       select: { user: { select: { id: true, email: true } } },
     });
     if (!membership) throw new NotFoundException('Membre introuvable.');

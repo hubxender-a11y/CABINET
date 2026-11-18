@@ -9,7 +9,8 @@ import {
   type FormEvent,
 } from "react";
 import Image from "next/image";
-import { Building2, MapPin, RefreshCw, Save, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Building2, MapPin, Plus, RefreshCw, Save, ShieldCheck, Trash2 } from "lucide-react";
 import {
   companyDisplayName,
   companyLocation,
@@ -20,6 +21,8 @@ import {
 import { useNotifications } from "@/components/notification-provider";
 import { normalizeInvoiceTemplate } from "@/lib/invoice-template";
 import { DatabaseBackupPanel } from "@/components/database-backup-panel";
+import { apiRequest } from "@/lib/api";
+import { setSessionToken } from "@/lib/session";
 
 const identityFields = [
   ["legalName", "Raison sociale", true],
@@ -74,6 +77,196 @@ function toChanges(profile: CompanyProfile): CompanyProfileChanges {
     exchangeRateCdfPerUsd: profile.exchangeRateCdfPerUsd,
     invoiceTemplate: normalizeInvoiceTemplate(profile.invoiceTemplate),
   };
+}
+
+type PlatformCompany = {
+  id: string;
+  legalName: string;
+  tradeName: string | null;
+  email: string | null;
+  city: string | null;
+  _count: { memberships: number; invoices: number; customers: number };
+};
+
+type PlatformAdmin = { id: string; email: string; name: string; isActive: boolean };
+
+function PlatformCompaniesPanel({ refreshProfile }: { refreshProfile: () => Promise<CompanyProfile> }) {
+  const router = useRouter();
+  const [companies, setCompanies] = useState<PlatformCompany[]>([]);
+  const [admins, setAdmins] = useState<PlatformAdmin[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savingAdmin, setSavingAdmin] = useState(false);
+  const [error, setError] = useState("");
+  const [legalName, setLegalName] = useState("");
+  const [tradeName, setTradeName] = useState("");
+  const [email, setEmail] = useState("");
+  const [city, setCity] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [companyRows, adminRows] = await Promise.all([
+        apiRequest<PlatformCompany[]>("/company/platform/companies"),
+        apiRequest<PlatformAdmin[]>("/company/platform/admins"),
+      ]);
+      setCompanies(companyRows);
+      setAdmins(adminRows);
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Impossible de charger les entreprises.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void Promise.resolve().then(refresh); }, [refresh]);
+
+  async function createCompany(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const created = await apiRequest<PlatformCompany>("/company/platform/companies", {
+        method: "POST",
+        body: JSON.stringify({
+          legalName,
+          tradeName: tradeName || undefined,
+          email: email || undefined,
+          city: city || undefined,
+        }),
+      });
+      setLegalName("");
+      setTradeName("");
+      setEmail("");
+      setCity("");
+      const session = await apiRequest<{ accessToken: string }>("/auth/switch-company", {
+        method: "POST",
+        body: JSON.stringify({ companyId: created.id }),
+      });
+      setSessionToken(session.accessToken);
+      await refreshProfile();
+      router.replace("/");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Impossible de créer l’entreprise.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openCompany(companyId: string) {
+    setError("");
+    try {
+      const result = await apiRequest<{ accessToken: string }>("/auth/switch-company", {
+        method: "POST",
+        body: JSON.stringify({ companyId }),
+      });
+      setSessionToken(result.accessToken);
+      await refreshProfile();
+      router.replace("/");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Impossible d’ouvrir cet espace.");
+    }
+  }
+
+  async function grantPlatformAdmin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingAdmin(true);
+    setError("");
+    try {
+      await apiRequest<PlatformAdmin>("/company/platform/admins", {
+        method: "POST",
+        body: JSON.stringify({ email: adminEmail }),
+      });
+      setAdminEmail("");
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Impossible d’ajouter ce super-admin.");
+    } finally {
+      setSavingAdmin(false);
+    }
+  }
+
+  async function revokePlatformAdmin(admin: PlatformAdmin) {
+    if (!window.confirm(`Retirer l’accès super-admin de ${admin.name} (${admin.email}) ?`)) return;
+    setError("");
+    try {
+      await apiRequest(`/company/platform/admins/${admin.id}`, { method: "DELETE" });
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Impossible de retirer ce super-admin.");
+    }
+  }
+
+  return (
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="mb-5 flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Building2 className="h-5 w-5" /></span>
+          <div>
+            <h2 className="font-semibold text-slate-900">Entreprises enregistrées</h2>
+            <p className="text-sm text-slate-500">Chaque entreprise possède son espace et ses propres paramètres.</p>
+          </div>
+        </div>
+        {loading ? <p className="text-sm text-slate-500">Chargement…</p> : companies.length === 0 ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Aucune entreprise enregistrée.</p> : (
+          <ul className="divide-y divide-slate-100">
+            {companies.map((company) => (
+              <li key={company.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-slate-900">{company.tradeName || company.legalName}</p>
+                  <p className="text-sm text-slate-500">{[company.city, company.email].filter(Boolean).join(" · ") || company.legalName}</p>
+                  <p className="mt-1 text-xs text-slate-400">{company._count.memberships} utilisateur(s) · {company._count.customers} client(s) · {company._count.invoices} facture(s)</p>
+                </div>
+                <button type="button" onClick={() => void openCompany(company.id)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50">Ouvrir l’espace</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="mb-5 flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Plus className="h-5 w-5" /></span>
+          <div>
+            <h2 className="font-semibold text-slate-900">Ajouter une entreprise</h2>
+            <p className="text-sm text-slate-500">Les autres informations se personnalisent dans ses paramètres.</p>
+          </div>
+        </div>
+        <form onSubmit={createCompany} className="space-y-3">
+          <label className="block space-y-1 text-sm font-medium text-slate-700">Raison sociale *<input required minLength={2} maxLength={180} value={legalName} onChange={(event) => setLegalName(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5" /></label>
+          <label className="block space-y-1 text-sm font-medium text-slate-700">Nom commercial<input maxLength={180} value={tradeName} onChange={(event) => setTradeName(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5" /></label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block space-y-1 text-sm font-medium text-slate-700">E-mail<input type="email" maxLength={160} value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5" /></label>
+            <label className="block space-y-1 text-sm font-medium text-slate-700">Ville<input maxLength={100} value={city} onChange={(event) => setCity(event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5" /></label>
+          </div>
+          <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"><Plus className="h-4 w-4" />{saving ? "Création…" : "Créer l’espace"}</button>
+        </form>
+      </section>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 xl:col-span-2">
+        <div className="mb-5 flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><ShieldCheck className="h-5 w-5" /></span>
+          <div>
+            <h2 className="font-semibold text-slate-900">Super-administrateurs</h2>
+            <p className="text-sm text-slate-500">Ils peuvent accéder à toutes les entreprises et à tous les modules. Un compte utilisateur existant est requis.</p>
+          </div>
+        </div>
+        <form onSubmit={grantPlatformAdmin} className="mb-4 flex flex-col gap-2 sm:flex-row">
+          <label className="sr-only" htmlFor="platform-admin-email">E-mail du compte à promouvoir</label>
+          <input id="platform-admin-email" required type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="E-mail d’un utilisateur existant" className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+          <button type="submit" disabled={savingAdmin} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"><Plus className="h-4 w-4" />{savingAdmin ? "Attribution…" : "Ajouter super-admin"}</button>
+        </form>
+        <ul className="divide-y divide-slate-100">
+          {admins.map((admin) => (
+            <li key={admin.id} className="flex items-center gap-3 py-3">
+              <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{admin.name}</p><p className="truncate text-sm text-slate-500">{admin.email}{!admin.isActive && " · compte désactivé"}</p></div>
+              <button type="button" onClick={() => void revokePlatformAdmin(admin)} aria-label={`Retirer les droits de ${admin.name}`} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-700"><Trash2 className="h-4 w-4" /></button>
+            </li>
+          ))}
+        </ul>
+      </section>
+      {error && <p role="alert" className="xl:col-span-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
+    </div>
+  );
 }
 
 const maxSignatureDataUrlLength = 70_000;
@@ -150,8 +343,17 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [settingsSection, setSettingsSection] = useState<
-    "identity" | "backups"
+    "identity" | "companies" | "backups"
   >("identity");
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+
+  useEffect(() => {
+    void apiRequest<{ role: string; platformAdmin?: boolean }>("/auth/me")
+      .then((user) => {
+        setIsPlatformAdmin(Boolean(user.platformAdmin));
+      })
+      .catch(() => setIsPlatformAdmin(false));
+  }, []);
 
   useEffect(() => {
     if (!profile) return;
@@ -353,9 +555,22 @@ export default function SettingsPage() {
         >
           Sauvegardes
         </button>
+        {isPlatformAdmin && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={settingsSection === "companies"}
+            onClick={() => setSettingsSection("companies")}
+            className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "companies" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+          >
+            Entreprises
+          </button>
+        )}
       </div>
 
-      {settingsSection === "backups" ? (
+      {settingsSection === "companies" && isPlatformAdmin ? (
+        <PlatformCompaniesPanel refreshProfile={refreshProfile} />
+      ) : settingsSection === "backups" ? (
         <DatabaseBackupPanel />
       ) : loading && !draft ? (
         <p className="rounded-xl bg-slate-50 p-6 text-sm text-slate-500">

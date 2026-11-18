@@ -2,12 +2,19 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
+import { runWithDefaultCompany } from './database/company-context';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
   });
+  app.use((
+    _request: Request,
+    _response: Response,
+    next: NextFunction,
+  ) => runWithDefaultCompany(next));
   app.useBodyParser('json', { limit: '15mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '7mb' });
   const frontendOrigins = (

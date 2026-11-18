@@ -25,7 +25,16 @@ export class RolesGuard implements CanActivate {
     if (!request.user) {
       throw new UnauthorizedException('Authentification requise.');
     }
-    if (request.user.role === UserRole.COMPANY_ADMIN) return true;
+    if (requiredRoles.includes(UserRole.PLATFORM_SUPER_ADMIN)) {
+      if (request.user.role !== UserRole.PLATFORM_SUPER_ADMIN) {
+        throw new ForbiddenException('Cette opération est réservée à l’administrateur de la plateforme.');
+      }
+      return true;
+    }
+    if (
+      request.user.role === UserRole.COMPANY_ADMIN ||
+      request.user.role === UserRole.PLATFORM_SUPER_ADMIN
+    ) return true;
     if (!requiredRoles.includes(request.user.role)) {
       throw new ForbiddenException('Votre rôle ne permet pas cette opération.');
     }

@@ -31,5 +31,7 @@ services:
         sync: false
       - key: ADMIN_EMAIL
         value: service@ctrs.cd
+      - key: PLATFORM_ADMIN_EMAIL
+        value: contact@ctrs.cd
       - key: ADMIN_PASSWORD
         generateValue: true

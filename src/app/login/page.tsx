@@ -7,7 +7,9 @@ import { apiRequest } from "@/lib/api";
 import { setSessionToken } from "@/lib/session";
 
 type LoginResponse = {
-  accessToken: string;
+  accessToken?: string;
+  requiresCompanySelection?: boolean;
+  companies?: { id: string; name: string; role: string }[];
 };
 
 export default function LoginPage() {
@@ -16,6 +18,8 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [companies, setCompanies] = useState<LoginResponse["companies"]>([]);
+  const [companyId, setCompanyId] = useState("");
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -40,9 +44,16 @@ export default function LoginPage() {
     try {
       const result = await apiRequest<LoginResponse>("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, ...(companyId ? { companyId } : {}) }),
       });
-      setSessionToken(result.accessToken);
+      if (result.requiresCompanySelection) {
+        setCompanies(result.companies ?? []);
+        setCompanyId(result.companies?.[0]?.id ?? "");
+      } else if (result.accessToken) {
+        setSessionToken(result.accessToken);
+      } else {
+        throw new Error("La session de travail n’a pas été créée.");
+      }
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -108,6 +119,22 @@ export default function LoginPage() {
             className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
           />
         </label>
+        {companies && companies.length > 0 && (
+          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+            Espace de travail
+            <select
+              required
+              value={companyId}
+              onChange={(event) => setCompanyId(event.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+            >
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>{company.name}</option>
+              ))}
+            </select>
+            <span className="block text-xs font-normal text-slate-500">Vos données resteront séparées dans chaque entreprise.</span>
+          </label>
+        )}
         <label className="block space-y-1.5 text-sm font-medium text-slate-700">
           Mot de passe
           <input

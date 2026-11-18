@@ -1,0 +1,2 @@
+ALTER TABLE "CompanyMembership"
+ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT true;

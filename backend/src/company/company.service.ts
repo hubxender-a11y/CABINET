@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -175,6 +176,142 @@ function validateInvoiceTemplate(value: Record<string, unknown>) {
 @Injectable()
 export class CompanyService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async listPlatformCompanies() {
+    return this.prisma.company.findMany({
+      select: {
+        id: true,
+        legalName: true,
+        tradeName: true,
+        email: true,
+        city: true,
+        createdAt: true,
+        _count: { select: { memberships: true, invoices: true, customers: true } },
+      },
+      orderBy: { legalName: 'asc' },
+    });
+  }
+
+  async createPlatformCompany(
+    dto: import('./company.dto').CreateCompanyDto,
+    actorId: string,
+  ) {
+    const company = await this.prisma.$transaction(async (transaction) => {
+      const created = await transaction.company.create({
+        data: {
+          legalName: dto.legalName.trim(),
+          tradeName: dto.tradeName?.trim() || null,
+          address: dto.address?.trim() || null,
+          city: dto.city?.trim() || null,
+          province: dto.province?.trim() || null,
+          phone: dto.phone?.trim() || null,
+          email: dto.email?.trim().toLowerCase() || null,
+          currencyCode: 'CDF',
+          currencies: {
+            create: [
+              { code: 'CDF', name: 'Franc congolais', symbol: 'CDF' },
+              { code: 'USD', name: 'Dollar américain', symbol: 'USD' },
+            ],
+          },
+        },
+        select: {
+          id: true,
+          legalName: true,
+          tradeName: true,
+          email: true,
+          city: true,
+          createdAt: true,
+        },
+      });
+      await transaction.auditLog.create({
+        data: {
+          companyId: created.id,
+          userId: actorId,
+          action: 'PLATFORM_COMPANY_CREATED',
+          details: { legalName: created.legalName, tradeName: created.tradeName },
+        },
+      });
+      return created;
+    });
+    return company;
+  }
+
+  async listPlatformAdmins() {
+    return this.prisma.user.findMany({
+      where: { isPlatformAdmin: true },
+      select: { id: true, email: true, name: true, isActive: true, createdAt: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async addPlatformAdmin(emailInput: string, actorId: string) {
+    const email = emailInput.trim().toLowerCase();
+    return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('platform-admin-roster'), 0)`;
+      const target = await transaction.user.findUnique({
+        where: { email },
+        select: { id: true, email: true, isActive: true, isPlatformAdmin: true },
+      });
+      if (!target) {
+        throw new NotFoundException('Aucun compte ne correspond à cet e-mail. Créez d’abord son compte utilisateur dans une entreprise.');
+      }
+      if (!target.isActive) {
+        throw new BadRequestException('Réactivez ce compte avant de lui attribuer le rôle super-admin.');
+      }
+      if (target.isPlatformAdmin) {
+        throw new ConflictException('Ce compte est déjà super-admin de la plateforme.');
+      }
+      const updated = await transaction.user.update({
+        where: { id: target.id },
+        data: { isPlatformAdmin: true },
+        select: { id: true, email: true, name: true, isActive: true, createdAt: true },
+      });
+      await transaction.auditLog.create({
+        data: {
+          companyId: getCompanyId(),
+          userId: actorId,
+          action: 'PLATFORM_ADMIN_GRANTED',
+          details: { userId: target.id, email: target.email },
+        },
+      });
+      return updated;
+    });
+  }
+
+  async removePlatformAdmin(id: string, actorId: string) {
+    if (id === actorId) {
+      throw new BadRequestException('Un super-admin ne peut pas retirer son propre accès.');
+    }
+    return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('platform-admin-roster'), 0)`;
+      const target = await transaction.user.findUnique({
+        where: { id },
+        select: { id: true, email: true, isActive: true, isPlatformAdmin: true },
+      });
+      if (!target?.isPlatformAdmin) {
+        throw new NotFoundException('Super-admin introuvable.');
+      }
+      const activeAdmins = await transaction.user.count({
+        where: { isPlatformAdmin: true, isActive: true },
+      });
+      if (target.isActive && activeAdmins <= 1) {
+        throw new BadRequestException('La plateforme doit conserver au moins un super-admin actif.');
+      }
+      await transaction.user.update({
+        where: { id },
+        data: { isPlatformAdmin: false },
+      });
+      await transaction.auditLog.create({
+        data: {
+          companyId: getCompanyId(),
+          userId: actorId,
+          action: 'PLATFORM_ADMIN_REVOKED',
+          details: { userId: id, email: target.email },
+        },
+      });
+      return { id, isPlatformAdmin: false };
+    });
+  }
 
   async get() {
     const company = await this.prisma.company.findUnique({

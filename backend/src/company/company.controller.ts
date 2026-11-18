@@ -1,16 +1,65 @@
-import { Body, Controller, Get, Patch, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/authenticated-user';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
-import { UpdateCompanyDto, UpdateInvoiceTemplateDto } from './company.dto';
+import { CreateCompanyDto, CreatePlatformAdminDto, UpdateCompanyDto, UpdateInvoiceTemplateDto } from './company.dto';
 import { CompanyService } from './company.service';
 
 @ApiTags('cabinet-settings')
 @Controller('company')
 export class CompanyController {
   constructor(private readonly company: CompanyService) {}
+
+  @Get('platform/companies')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PLATFORM_SUPER_ADMIN)
+  @ApiOperation({ summary: 'List all companies on the platform' })
+  listPlatformCompanies() {
+    return this.company.listPlatformCompanies();
+  }
+
+  @Post('platform/companies')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PLATFORM_SUPER_ADMIN)
+  @ApiOperation({ summary: 'Create an isolated company workspace' })
+  createPlatformCompany(
+    @Body() dto: CreateCompanyDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.company.createPlatformCompany(dto, request.user!.sub);
+  }
+
+  @Get('platform/admins')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PLATFORM_SUPER_ADMIN)
+  @ApiOperation({ summary: 'List platform super-administrators' })
+  listPlatformAdmins() {
+    return this.company.listPlatformAdmins();
+  }
+
+  @Post('platform/admins')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PLATFORM_SUPER_ADMIN)
+  @ApiOperation({ summary: 'Grant platform super-administrator access to an existing user' })
+  addPlatformAdmin(
+    @Body() dto: CreatePlatformAdminDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.company.addPlatformAdmin(dto.email, request.user!.sub);
+  }
+
+  @Delete('platform/admins/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PLATFORM_SUPER_ADMIN)
+  @ApiOperation({ summary: 'Revoke platform super-administrator access' })
+  removePlatformAdmin(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.company.removePlatformAdmin(id, request.user!.sub);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Read cabinet identity and contact details' })

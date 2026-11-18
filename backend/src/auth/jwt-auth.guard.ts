@@ -13,6 +13,7 @@ import { IS_PUBLIC_KEY } from './public.decorator';
 import { PrismaService } from '../database/prisma.service';
 import { isManagingPartnerRouteAllowed } from './managing-partner-access.guard';
 import { UserRole } from '@prisma/client';
+import { setRequestCompanyId } from '../database/company-context';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -42,41 +43,56 @@ export class JwtAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException('Session expirée ou invalide.');
     }
-    if (
-      !payload.sub ||
-      payload.companyId !==
-        (process.env.DEFAULT_COMPANY_ID ??
-          '5eecf1f8-a90e-4e8f-a01b-6eaa7a7c8e20')
-    ) {
+    if (!payload.sub || !payload.companyId) {
       throw new UnauthorizedException('Session invalide.');
     }
 
-    const membership = await this.prisma.companyMembership.findFirst({
-      where: {
-        userId: payload.sub,
-        companyId: payload.companyId,
-        user: { isActive: true },
-      },
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
       select: {
-        role: true,
-        user: { select: { email: true, name: true, passwordChangedAt: true } },
+        email: true,
+        name: true,
+        isActive: true,
+        isPlatformAdmin: true,
+        passwordChangedAt: true,
+        memberships: {
+          where: { companyId: payload.companyId, isActive: true },
+          select: { role: true },
+          take: 1,
+        },
       },
     });
-    if (!membership) throw new UnauthorizedException('Session invalide.');
+    if (!user?.isActive) throw new UnauthorizedException('Session invalide.');
+    const membership = user.memberships[0];
+    if (!membership && !user.isPlatformAdmin) {
+      throw new UnauthorizedException('Session invalide.');
+    }
+    if (user.isPlatformAdmin) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: payload.companyId },
+        select: { id: true },
+      });
+      if (!company) throw new UnauthorizedException('Session invalide.');
+    }
+    setRequestCompanyId(payload.companyId);
     if (
       !payload.iat ||
-      membership.user.passwordChangedAt.getTime() > payload.iat * 1000 + 1000
+      user.passwordChangedAt.getTime() > payload.iat * 1000 + 1000
     ) {
       throw new UnauthorizedException('Le mot de passe a changé. Reconnectez-vous.');
     }
     (request as AuthenticatedRequest).user = {
       ...payload,
-      email: membership.user.email,
-      name: membership.user.name,
-      role: membership.role,
+      email: user.email,
+      name: user.name,
+      role: user.isPlatformAdmin
+        ? UserRole.PLATFORM_SUPER_ADMIN
+        : membership!.role,
+      platformAdmin: user.isPlatformAdmin,
     };
     if (
-      membership.role === UserRole.MANAGING_PARTNER &&
+      !user.isPlatformAdmin &&
+      membership!.role === UserRole.MANAGING_PARTNER &&
       !isManagingPartnerRouteAllowed(
         context.getClass().name,
         context.getHandler().name,

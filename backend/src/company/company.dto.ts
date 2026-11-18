@@ -119,3 +119,46 @@ export class UpdateInvoiceTemplateDto {
   @IsObject()
   invoiceTemplate: Record<string, unknown>;
 }
+
+export class CreateCompanyDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(180)
+  legalName: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  tradeName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  province?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  phone?: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(160)
+  email?: string;
+}
+
+export class CreatePlatformAdminDto {
+  @IsEmail()
+  @MaxLength(160)
+  email: string;
+}

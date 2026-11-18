@@ -132,13 +132,16 @@ function isActiveModule(pathname: string, paths: string[]) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { profile } = useCompanyProfile();
+  const { profile, refreshProfile } = useCompanyProfile();
   const [mobileMenuPath, setMobileMenuPath] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
     {},
   );
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [userRole, setUserRole] = useState("");
+  const [companies, setCompanies] = useState<{ id: string; name: string; role: string }[]>([]);
+  const [switchingCompany, setSwitchingCompany] = useState(false);
+  const [companySwitchError, setCompanySwitchError] = useState("");
   const mobileMenuOpen = mobileMenuPath === pathname;
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuCloseButtonRef = useRef<HTMLButtonElement>(null);
@@ -176,6 +179,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
     void apiRequest<{ role: string }>("/auth/me")
       .then((user) => { if (active) setUserRole(user.role); })
+      .catch(() => undefined);
+    void apiRequest<{ id: string; name: string; role: string }[]>("/auth/companies")
+      .then((available) => { if (active) setCompanies(available); })
       .catch(() => undefined);
     refreshNotifications();
     const timer = window.setInterval(refreshNotifications, 30_000);
@@ -217,6 +223,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
+  async function switchCompany(companyId: string) {
+    if (!companyId || switchingCompany) return;
+    setSwitchingCompany(true);
+    setCompanySwitchError("");
+    try {
+      const session = await apiRequest<{ accessToken: string }>("/auth/switch-company", {
+        method: "POST",
+        body: JSON.stringify({ companyId }),
+      });
+      setSessionToken(session.accessToken);
+      await refreshProfile();
+      router.replace("/");
+    } catch (caught) {
+      setCompanySwitchError(caught instanceof Error ? caught.message : "Changement d’entreprise impossible.");
+      setSwitchingCompany(false);
+    }
+  }
+
   function handleMobileMenuKeyDown(event: React.KeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
       setMobileMenuPath(null);
@@ -248,6 +272,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-frame">
       <div className="app-layout">
         <aside className="app-sidebar print:hidden">
+          {companies.length > 1 && (
+            <div className="px-3 pt-3">
+              <label className="sr-only" htmlFor="active-company">Entreprise active</label>
+              <select
+                id="active-company"
+                value={profile?.id ?? ""}
+                disabled={switchingCompany}
+                onChange={(event) => void switchCompany(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-blue-500 disabled:opacity-60"
+              >
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>{company.name}</option>
+                ))}
+              </select>
+              {companySwitchError && <p role="alert" className="px-1 pt-1 text-xs text-rose-700">{companySwitchError}</p>}
+            </div>
+          )}
           <Link href="/settings" className="app-workspace-card">
             <span className="app-workspace-avatar">
               {companyName.slice(0, 1).toLocaleUpperCase("fr")}

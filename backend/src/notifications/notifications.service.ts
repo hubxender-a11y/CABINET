@@ -16,30 +16,38 @@ export class NotificationsService {
     message: string,
     excludeUserId?: string,
   ) {
-    const memberships = await transaction.companyMembership.findMany({
+    const recipients = await transaction.user.findMany({
       where: {
-        companyId,
-        role: {
-          in: [
-            ...new Set([
-              ...roles,
-              UserRole.COMPANY_ADMIN,
-              UserRole.MANAGING_PARTNER,
-              UserRole.CASHIER,
-            ]),
-          ],
-        },
-        user: {
-          isActive: true,
-          ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
-        },
+        isActive: true,
+        ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+        OR: [
+          { isPlatformAdmin: true },
+          {
+            memberships: {
+              some: {
+                companyId,
+                isActive: true,
+                role: {
+                  in: [
+                    ...new Set([
+                      ...roles,
+                      UserRole.COMPANY_ADMIN,
+                      UserRole.MANAGING_PARTNER,
+                      UserRole.CASHIER,
+                    ]),
+                  ],
+                },
+              },
+            },
+          },
+        ],
       },
-      select: { userId: true },
+      select: { id: true },
     });
-    if (!memberships.length) return 0;
+    if (!recipients.length) return 0;
 
     const result = await transaction.notification.createMany({
-      data: memberships.map(({ userId }) => ({
+      data: recipients.map(({ id: userId }) => ({
         companyId,
         userId,
         title,
@@ -72,7 +80,10 @@ export class NotificationsService {
 
   async list(companyId: string, userId: string, role: UserRole) {
     await this.syncUnpaidInvoiceNotifications(companyId);
-    if (role === UserRole.COMPANY_ADMIN) {
+    if (
+      role === UserRole.COMPANY_ADMIN ||
+      role === UserRole.PLATFORM_SUPER_ADMIN
+    ) {
       const rows = await this.prisma.notification.findMany({
         where: { companyId },
         include: { user: { select: { name: true } } },
@@ -135,10 +146,16 @@ export class NotificationsService {
         )
         SELECT 1 FROM advisory_lock
       `;
-      const [memberships, invoices, existing] = await Promise.all([
-        transaction.companyMembership.findMany({
-          where: { companyId, user: { isActive: true } },
-          select: { userId: true },
+      const [recipients, invoices, existing] = await Promise.all([
+        transaction.user.findMany({
+          where: {
+            isActive: true,
+            OR: [
+              { isPlatformAdmin: true },
+              { memberships: { some: { companyId, isActive: true } } },
+            ],
+          },
+          select: { id: true },
         }),
         transaction.invoice.findMany({
           where: {
@@ -184,13 +201,13 @@ export class NotificationsService {
       );
       const createData: Prisma.NotificationCreateManyInput[] = [];
 
-      for (const membership of memberships) {
+      for (const recipient of recipients) {
         for (const invoice of openInvoices) {
-          const existingItem = currentByKey.get(`${membership.userId}:${invoice.title}`);
+          const existingItem = currentByKey.get(`${recipient.id}:${invoice.title}`);
           if (!existingItem) {
             createData.push({
               companyId,
-              userId: membership.userId,
+              userId: recipient.id,
               title: invoice.title,
               message: invoice.message,
             });
@@ -305,13 +322,24 @@ export class NotificationsService {
       'Ouvrez le module Patrimoine pour consulter et imprimer le détail de l’état.',
     ].join(' ');
 
-    const recipients = await this.prisma.companyMembership.findMany({
+    const recipients = await this.prisma.user.findMany({
       where: {
-        companyId,
-        role: { in: [UserRole.MANAGING_PARTNER, UserRole.COMPANY_ADMIN] },
-        user: { isActive: true, id: { not: senderId } },
+        isActive: true,
+        id: { not: senderId },
+        OR: [
+          { isPlatformAdmin: true },
+          {
+            memberships: {
+              some: {
+                companyId,
+                isActive: true,
+                role: { in: [UserRole.MANAGING_PARTNER, UserRole.COMPANY_ADMIN] },
+              },
+            },
+          },
+        ],
       },
-      select: { userId: true },
+      select: { id: true },
     });
     if (!recipients.length) {
       throw new NotFoundException(
@@ -319,7 +347,7 @@ export class NotificationsService {
       );
     }
     await this.prisma.notification.createMany({
-      data: recipients.map(({ userId }) => ({
+      data: recipients.map(({ id: userId }) => ({
         companyId,
         userId,
         title: `État du patrimoine à examiner · ${report.period}`,
