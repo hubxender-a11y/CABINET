@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Bell, Check, CheckCheck, ClipboardList, FileText, Receipt, RefreshCw } from "lucide-react";
+import { Bell, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, FileText, Receipt, RefreshCw } from "lucide-react";
 import { apiRequest } from "@/lib/api";
+
+const NOTIFICATIONS_PER_PAGE = 10;
 
 type NotificationItem = {
   id: string;
@@ -53,10 +55,12 @@ export default function NotificationsPage() {
   const [data, setData] = useState<NotificationResponse | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [page, setPage] = useState(1);
 
   const refresh = useCallback(async () => {
     try {
       setData(await apiRequest<NotificationResponse>("/notifications"));
+      setPage(1);
       setError("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Impossible de charger les notifications.");
@@ -64,6 +68,46 @@ export default function NotificationsPage() {
   }, []);
 
   useEffect(() => { void Promise.resolve().then(refresh); }, [refresh]);
+
+  const notificationCount = data?.notifications.length ?? 0;
+  const pageCount = Math.max(1, Math.ceil(notificationCount / NOTIFICATIONS_PER_PAGE));
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * NOTIFICATIONS_PER_PAGE;
+  const visibleNotifications = data?.notifications.slice(pageStart, pageStart + NOTIFICATIONS_PER_PAGE) ?? [];
+
+  function paginationControls() {
+    if (notificationCount <= NOTIFICATIONS_PER_PAGE) return null;
+    const firstVisible = pageStart + 1;
+    const lastVisible = Math.min(pageStart + NOTIFICATIONS_PER_PAGE, notificationCount);
+    return (
+      <nav aria-label="Pagination des notifications" className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
+        <p className="text-xs font-medium text-slate-500">
+          Notifications {firstVisible}–{lastVisible} sur {notificationCount}
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={currentPage === 1}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronLeft className="h-4 w-4" /> Précédent
+          </button>
+          <span aria-live="polite" className="min-w-20 text-center text-sm font-semibold text-slate-700">
+            Page {currentPage} / {pageCount}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+            disabled={currentPage === pageCount}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Suivant <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </nav>
+    );
+  }
 
   async function markAllRead() {
     setBusy(true);
@@ -131,7 +175,7 @@ export default function NotificationsPage() {
           </div>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {data.notifications.map((item) => {
+            {visibleNotifications.map((item) => {
               const Icon = iconFor(item.title);
               return (
                 <li key={item.id} className={`flex gap-4 px-5 py-4 ${item.read ? "bg-white" : "bg-amber-50/60"}`}>
@@ -154,6 +198,7 @@ export default function NotificationsPage() {
             })}
           </ul>
         )}
+        {data && paginationControls()}
       </section>
     </main>
   );
