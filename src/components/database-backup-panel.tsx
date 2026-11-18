@@ -24,6 +24,7 @@ type OperationResult = {
   restoredRecords?: number;
   module?: string;
   counts?: Record<string, number>;
+  protectedInvoices?: number;
 };
 
 function humanSize(bytes: number) {
@@ -109,7 +110,7 @@ export function DatabaseBackupPanel() {
         body: JSON.stringify({ module: moduleId, confirmation: clearConfirmation }),
       });
       const removed = Object.values(result.counts ?? {}).reduce((sum, count) => sum + count, 0);
-      setMessage(`${removed} enregistrement(s) supprimé(s) du module. Actualisation du logiciel…`);
+      setMessage(`${removed} enregistrement(s) supprimé(s) du module.${result.protectedInvoices ? ` ${result.protectedInvoices} facture(s) certifiée(s) conservée(s).` : ""} Actualisation du logiciel…`);
       setClearConfirmation("");
       window.setTimeout(() => window.location.reload(), 900);
     } catch (caught) {

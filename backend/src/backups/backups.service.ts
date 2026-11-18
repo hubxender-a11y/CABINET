@@ -104,6 +104,7 @@ const clearableModules = {
   stock: 'Stocks et achats · produits, fournisseurs et mouvements',
   clients: 'Dossiers clients · coordonnées et pièces du dossier',
   facturation: 'Facturation · factures, règlements et pièces fiscales',
+  facturesFonds: 'Factures et approvisionnements · USD/CDF',
   cashVouchers: 'Bons de sortie caisse · bons et mouvements associés',
   tresorerie: 'Trésorerie · approvisionnements, OP et bons de caisse',
 } as const;
@@ -244,8 +245,9 @@ export class BackupsService {
         return result.count;
       };
       const counts: Record<string, number> = {};
+      let protectedInvoices = 0;
       const remove = async (model: string, where?: Record<string, unknown>) => {
-        counts[model] = await deleteRows(model, where);
+        counts[model] = (counts[model] ?? 0) + await deleteRows(model, where);
       };
 
       if (moduleKey === 'archives') {
@@ -274,8 +276,19 @@ export class BackupsService {
         await remove('customerDocument');
         await remove('customer');
       } else if (moduleKey === 'facturation') {
+        const certifiedInvoices = await transaction.invoice.count({
+          where: {
+            companyId,
+            OR: [{ isCertified: true }, { fiscalStatus: 'CERTIFIED' }],
+          },
+        });
+        if (certifiedInvoices) {
+          throw new ConflictException(
+            'Le vidage est bloqué : des factures certifiées fiscalement doivent être conservées.',
+          );
+        }
         const payments = await transaction.payment.findMany({ where: { companyId }, select: { id: true } });
-        await remove('cashMovement', { companyId, sourceType: 'INVOICE_PAYMENT', sourceId: { in: payments.map(({ id }) => id) } });
+        await remove('cashMovement', { companyId, sourceType: { in: ['INVOICE_PAYMENT', 'INVOICE_PAYMENT_REVERSAL'] }, sourceId: { in: payments.map(({ id }) => id) } });
         await remove('paymentAllocation', { payment: { companyId } });
         await remove('payment');
         await remove('fiscalTransaction');
@@ -284,6 +297,127 @@ export class BackupsService {
         await remove('invoiceItem', { invoice: { companyId } });
         await remove('invoiceTax', { invoice: { companyId } });
         await remove('invoice');
+      } else if (moduleKey === 'facturesFonds') {
+        const targetInvoices = await transaction.invoice.findMany({
+          where: {
+            companyId,
+            currency: { in: ['USD', 'CDF'] },
+            isCertified: false,
+            fiscalStatus: { not: 'CERTIFIED' },
+          },
+          select: { id: true },
+        });
+        const invoiceIds = targetInvoices.map(({ id }) => id);
+        protectedInvoices = await transaction.invoice.count({
+          where: {
+            companyId,
+            currency: { in: ['USD', 'CDF'] },
+            OR: [{ isCertified: true }, { fiscalStatus: 'CERTIFIED' }],
+          },
+        });
+        const payments = invoiceIds.length
+          ? await transaction.payment.findMany({
+              where: {
+                companyId,
+                OR: [
+                  { invoiceId: { in: invoiceIds } },
+                  { allocations: { some: { invoiceId: { in: invoiceIds } } } },
+                ],
+              },
+              select: {
+                id: true,
+                status: true,
+                invoiceId: true,
+                allocations: { select: { invoiceId: true } },
+              },
+            })
+          : [];
+        const paymentIds = payments.map(({ id }) => id);
+        const targetInvoiceIdSet = new Set(invoiceIds);
+        const affectedRetainedInvoiceIds = new Set<string>();
+        for (const payment of payments) {
+          if (payment.status !== 'RECEIVED') continue;
+          if (payment.invoiceId && !targetInvoiceIdSet.has(payment.invoiceId)) {
+            affectedRetainedInvoiceIds.add(payment.invoiceId);
+          }
+          for (const allocation of payment.allocations) {
+            if (!targetInvoiceIdSet.has(allocation.invoiceId)) {
+              affectedRetainedInvoiceIds.add(allocation.invoiceId);
+            }
+          }
+        }
+
+        if (paymentIds.length) {
+          await remove('cashMovement', {
+            companyId,
+            sourceId: { in: paymentIds },
+            sourceType: { in: ['INVOICE_PAYMENT', 'INVOICE_PAYMENT_REVERSAL'] },
+          });
+          await remove('paymentAllocation', { paymentId: { in: paymentIds } });
+          await remove('payment', { companyId, id: { in: paymentIds } });
+        }
+
+        if (affectedRetainedInvoiceIds.size) {
+          const retainedIds = [...affectedRetainedInvoiceIds];
+          const remainingPayments = await transaction.payment.findMany({
+            where: {
+              companyId,
+              status: 'RECEIVED',
+              OR: [
+                { invoiceId: { in: retainedIds } },
+                { allocations: { some: { invoiceId: { in: retainedIds } } } },
+              ],
+            },
+            select: {
+              amount: true,
+              invoiceId: true,
+              allocations: { select: { invoiceId: true, amount: true } },
+            },
+          });
+          const paidByInvoice = new Map(retainedIds.map((id) => [id, new Prisma.Decimal(0)]));
+          for (const payment of remainingPayments) {
+            if (payment.invoiceId && paidByInvoice.has(payment.invoiceId)) {
+              paidByInvoice.set(
+                payment.invoiceId,
+                paidByInvoice.get(payment.invoiceId)!.add(payment.amount),
+              );
+            }
+            for (const allocation of payment.allocations) {
+              if (
+                !paidByInvoice.has(allocation.invoiceId) ||
+                allocation.invoiceId === payment.invoiceId
+              ) continue;
+              paidByInvoice.set(
+                allocation.invoiceId,
+                paidByInvoice.get(allocation.invoiceId)!.add(allocation.amount),
+              );
+            }
+          }
+          for (const [id, paidAmount] of paidByInvoice) {
+            await transaction.invoice.updateMany({
+              where: { id, companyId },
+              data: { paidAmount },
+            });
+          }
+        }
+
+        await remove('paymentAllocation', { invoiceId: { in: invoiceIds } });
+        await remove('creditNote', { invoiceId: { in: invoiceIds } });
+        await remove('invoiceTax', { invoiceId: { in: invoiceIds } });
+        await remove('invoiceItem', { invoiceId: { in: invoiceIds } });
+        await remove('fiscalTransaction', { invoiceId: { in: invoiceIds } });
+        await remove('fiscalTransmissionLog', { invoiceId: { in: invoiceIds } });
+        await remove('invoice', { companyId, id: { in: invoiceIds } });
+
+        const cashAccounts = await transaction.cashAccount.findMany({
+          where: { companyId, currency: { in: ['USD', 'CDF'] } },
+          select: { id: true },
+        });
+        await remove('cashMovement', {
+          companyId,
+          cashAccountId: { in: cashAccounts.map(({ id }) => id) },
+          sourceType: 'CASH_FUNDING',
+        });
       } else if (moduleKey === 'cashVouchers') {
         const vouchers = await transaction.cashVoucher.findMany({
           where: { companyId },
@@ -331,10 +465,10 @@ export class BackupsService {
           companyId,
           userId,
           action: 'DATABASE_MODULE_CLEARED',
-          details: { module: moduleKey, counts },
+          details: { module: moduleKey, counts, protectedInvoices },
         },
       });
-      return { module: moduleKey, counts };
+      return { module: moduleKey, counts, protectedInvoices };
     });
   }
 
