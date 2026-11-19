@@ -31,6 +31,40 @@ export class CompanyController {
     return this.company.createPlatformCompany(dto, request.user!.sub);
   }
 
+  @Patch('platform/companies/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PLATFORM_SUPER_ADMIN)
+  @ApiOperation({ summary: 'Update company identity and branding' })
+  updatePlatformCompany(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateCompanyDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.company.updatePlatformCompany(id, dto, request.user!.sub);
+  }
+
+  @Delete('platform/companies/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PLATFORM_SUPER_ADMIN)
+  @ApiOperation({ summary: 'Delete an isolated company workspace' })
+  deletePlatformCompany(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.company.deletePlatformCompany(id, request.user!.sub);
+  }
+
+  @Post('platform/companies/:id/restore')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PLATFORM_SUPER_ADMIN)
+  @ApiOperation({ summary: 'Restore an archived company workspace' })
+  restorePlatformCompany(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.company.restorePlatformCompany(id, request.user!.sub);
+  }
+
   @Get('platform/admins')
   @UseGuards(RolesGuard)
   @Roles(UserRole.PLATFORM_SUPER_ADMIN)

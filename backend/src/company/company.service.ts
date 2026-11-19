@@ -14,6 +14,9 @@ const companyFields = {
   legalName: true,
   tradeName: true,
   logoUrl: true,
+  primaryColor: true,
+  accentColor: true,
+  isActive: true,
   rccm: true,
   nin: true,
   nif: true,
@@ -186,6 +189,10 @@ export class CompanyService {
         tradeName: true,
         email: true,
         city: true,
+        logoUrl: true,
+        primaryColor: true,
+        accentColor: true,
+        isActive: true,
         createdAt: true,
         _count: { select: { memberships: true, invoices: true, customers: true } },
       },
@@ -221,6 +228,10 @@ export class CompanyService {
           tradeName: true,
           email: true,
           city: true,
+          logoUrl: true,
+          primaryColor: true,
+          accentColor: true,
+          isActive: true,
           createdAt: true,
         },
       });
@@ -235,6 +246,89 @@ export class CompanyService {
       return created;
     });
     return company;
+  }
+
+  async updatePlatformCompany(id: string, dto: UpdateCompanyDto, actorId: string) {
+    if (!Object.keys(dto).length) {
+      throw new BadRequestException('Aucune modification à enregistrer.');
+    }
+    if (dto.legalName !== undefined && !dto.legalName.trim()) {
+      throw new BadRequestException('La raison sociale ne peut pas être vide.');
+    }
+    const exists = await this.prisma.company.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) throw new NotFoundException('Entreprise introuvable.');
+    return this.prisma.$transaction(async (transaction) => {
+      const saved = await transaction.company.update({
+        where: { id },
+        data: {
+          ...(dto.legalName !== undefined ? { legalName: dto.legalName.trim() } : {}),
+          ...(dto.tradeName !== undefined ? { tradeName: dto.tradeName?.trim() || null } : {}),
+          ...(dto.email !== undefined ? { email: dto.email?.trim().toLowerCase() || null } : {}),
+          ...(dto.city !== undefined ? { city: dto.city?.trim() || null } : {}),
+          ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl } : {}),
+          ...(dto.primaryColor !== undefined ? { primaryColor: dto.primaryColor.toLowerCase() } : {}),
+          ...(dto.accentColor !== undefined ? { accentColor: dto.accentColor.toLowerCase() } : {}),
+        },
+        select: {
+          id: true, legalName: true, tradeName: true, email: true, city: true,
+          logoUrl: true, primaryColor: true, accentColor: true, createdAt: true,
+          isActive: true,
+          _count: { select: { memberships: true, invoices: true, customers: true } },
+        },
+      });
+      await transaction.auditLog.create({
+        data: {
+          companyId: getCompanyId(),
+          userId: actorId,
+          action: 'PLATFORM_COMPANY_UPDATED',
+          details: { companyId: id, changedFields: Object.keys(dto) },
+        },
+      });
+      return saved;
+    });
+  }
+
+  async deletePlatformCompany(id: string, actorId: string) {
+    const currentCompanyId = getCompanyId();
+    if (id === currentCompanyId) {
+      throw new BadRequestException('Ouvrez une autre entreprise avant de supprimer celle-ci.');
+    }
+    return this.prisma.$transaction(async (transaction) => {
+      const target = await transaction.company.findUnique({
+        where: { id }, select: { legalName: true, tradeName: true },
+      });
+      if (!target) throw new NotFoundException('Entreprise introuvable.');
+      if (await transaction.company.count({ where: { isActive: true } }) <= 1) {
+        throw new BadRequestException('La plateforme doit conserver au moins une entreprise.');
+      }
+      await transaction.auditLog.create({
+        data: {
+          companyId: currentCompanyId,
+          userId: actorId,
+          action: 'PLATFORM_COMPANY_ARCHIVED',
+          details: { companyId: id, legalName: target.legalName, tradeName: target.tradeName },
+        },
+      });
+      await transaction.company.update({ where: { id }, data: { isActive: false } });
+      return { id, archived: true };
+    });
+  }
+
+  async restorePlatformCompany(id: string, actorId: string) {
+    return this.prisma.$transaction(async (transaction) => {
+      const target = await transaction.company.findUnique({ where: { id }, select: { id: true, legalName: true } });
+      if (!target) throw new NotFoundException('Entreprise introuvable.');
+      await transaction.company.update({ where: { id }, data: { isActive: true } });
+      await transaction.auditLog.create({
+        data: {
+          companyId: getCompanyId(),
+          userId: actorId,
+          action: 'PLATFORM_COMPANY_RESTORED',
+          details: { companyId: id, legalName: target.legalName },
+        },
+      });
+      return { id, restored: true };
+    });
   }
 
   async listPlatformAdmins() {
@@ -370,6 +464,8 @@ export class CompanyService {
         ? { tradeName: dto.tradeName?.trim() || null }
         : {}),
       ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl } : {}),
+      ...(dto.primaryColor !== undefined ? { primaryColor: dto.primaryColor.toLowerCase() } : {}),
+      ...(dto.accentColor !== undefined ? { accentColor: dto.accentColor.toLowerCase() } : {}),
       ...(dto.rccm !== undefined ? { rccm: dto.rccm?.trim() || null } : {}),
       ...(dto.nin !== undefined ? { nin: dto.nin?.trim() || null } : {}),
       ...(dto.nif !== undefined ? { nif: dto.nif?.trim() || null } : {}),

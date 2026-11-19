@@ -12,6 +12,16 @@ import {
 export class UpdateCompanyDto {
   @IsOptional()
   @IsString()
+  @Matches(/^#[0-9a-fA-F]{6}$/)
+  primaryColor?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9a-fA-F]{6}$/)
+  accentColor?: string;
+
+  @IsOptional()
+  @IsString()
   @MinLength(2)
   @MaxLength(180)
   legalName?: string;

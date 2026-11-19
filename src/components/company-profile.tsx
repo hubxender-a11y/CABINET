@@ -19,6 +19,8 @@ export type CompanyProfile = {
   legalName: string;
   tradeName: string | null;
   logoUrl: string | null;
+  primaryColor: string;
+  accentColor: string;
   rccm: string | null;
   nin: string | null;
   nif: string | null;
@@ -65,6 +67,8 @@ const persistedProfileFields: (keyof CompanyProfileChanges)[] = [
   "legalName",
   "tradeName",
   "logoUrl",
+  "primaryColor",
+  "accentColor",
   "rccm",
   "nin",
   "nif",

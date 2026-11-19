@@ -18,7 +18,7 @@ export class AuthService {
       where: { email: dto.email.trim().toLowerCase() },
       include: {
         memberships: {
-          where: { isActive: true },
+          where: { isActive: true, company: { isActive: true } },
           select: {
             companyId: true,
             role: true,
@@ -68,6 +68,7 @@ export class AuthService {
     }
     if (user.isPlatformAdmin) {
       const companies = await this.prisma.company.findMany({
+        where: { isActive: true },
         select: { id: true, legalName: true, tradeName: true, logoUrl: true },
         orderBy: { legalName: 'asc' },
       });
@@ -114,6 +115,7 @@ export class AuthService {
     if (!user?.isActive) throw new UnauthorizedException('Session invalide.');
     if (user.isPlatformAdmin) {
       const companies = await this.prisma.company.findMany({
+        where: { isActive: true },
         select: { id: true, legalName: true, tradeName: true, logoUrl: true },
         orderBy: { legalName: 'asc' },
       });
@@ -148,9 +150,9 @@ export class AuthService {
     if (user.isPlatformAdmin) {
       const company = await this.prisma.company.findUnique({
         where: { id: companyId },
-        select: { id: true, legalName: true, tradeName: true, logoUrl: true },
+        select: { id: true, legalName: true, tradeName: true, logoUrl: true, isActive: true },
       });
-      if (!company) throw new UnauthorizedException('Entreprise introuvable.');
+      if (!company?.isActive) throw new UnauthorizedException('Entreprise introuvable ou archivée.');
       return this.issueSession(user, {
         companyId: company.id,
         role: 'PLATFORM_SUPER_ADMIN',
@@ -158,7 +160,7 @@ export class AuthService {
       });
     }
     const membership = await this.prisma.companyMembership.findFirst({
-      where: { userId, companyId, isActive: true, user: { isActive: true } },
+      where: { userId, companyId, isActive: true, user: { isActive: true }, company: { isActive: true } },
       select: {
         companyId: true,
         role: true,

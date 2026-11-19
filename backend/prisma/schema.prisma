@@ -73,6 +73,9 @@ model Company {
   legalName             String
   tradeName             String?
   logoUrl               String?
+  primaryColor          String                  @default("#e60000")
+  accentColor           String                  @default("#ffcc00")
+  isActive              Boolean                 @default(true)
   rccm                  String?
   nin                   String?
   nif                   String?

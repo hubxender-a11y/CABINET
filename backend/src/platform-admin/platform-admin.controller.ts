@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/roles.decorator';
@@ -17,5 +17,11 @@ export class PlatformAdminController {
   @ApiOperation({ summary: 'Read cross-company platform activity' })
   overview() {
     return this.platformAdmin.overview();
+  }
+
+  @Get('users')
+  @ApiOperation({ summary: 'Read users across company workspaces' })
+  users(@Query('companyId') companyId?: string) {
+    return this.platformAdmin.users(companyId);
   }
 }

@@ -17,6 +17,42 @@ const trackedCompanyCounts = {
 export class PlatformAdminService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async users(companyId?: string) {
+    const memberships = await this.prisma.companyMembership.findMany({
+      where: companyId ? { companyId } : undefined,
+      orderBy: [{ company: { legalName: 'asc' } }, { user: { name: 'asc' } }],
+      select: {
+        id: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        company: { select: { id: true, legalName: true, tradeName: true, isActive: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            isActive: true,
+            isPlatformAdmin: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+    return memberships.map((membership) => ({
+      ...membership.user,
+      membershipId: membership.id,
+      role: membership.role,
+      isActive: membership.isActive && membership.user.isActive,
+      joinedAt: membership.createdAt,
+      company: {
+        id: membership.company.id,
+        name: membership.company.tradeName || membership.company.legalName,
+        isActive: membership.company.isActive,
+      },
+    }));
+  }
+
   async overview() {
     const kinshasaDateParts = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Africa/Kinshasa',
@@ -46,6 +82,11 @@ export class PlatformAdminService {
           legalName: true,
           tradeName: true,
           logoUrl: true,
+          primaryColor: true,
+          accentColor: true,
+          email: true,
+          city: true,
+          isActive: true,
           currencyCode: true,
           createdAt: true,
           subscription: {
@@ -110,6 +151,11 @@ export class PlatformAdminService {
       name: company.tradeName || company.legalName,
       legalName: company.legalName,
       logoUrl: company.logoUrl,
+      primaryColor: company.primaryColor,
+      accentColor: company.accentColor,
+      email: company.email,
+      city: company.city,
+      isActive: company.isActive,
       currencyCode: company.currencyCode,
       createdAt: company.createdAt,
       subscription: company.subscription,

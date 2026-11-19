@@ -70,9 +70,15 @@ export class JwtAuthGuard implements CanActivate {
     if (user.isPlatformAdmin) {
       const company = await this.prisma.company.findUnique({
         where: { id: payload.companyId },
-        select: { id: true },
+        select: { id: true, isActive: true },
       });
-      if (!company) throw new UnauthorizedException('Session invalide.');
+      if (!company?.isActive) throw new UnauthorizedException('Session invalide ou entreprise archivée.');
+    } else {
+      const company = await this.prisma.company.findUnique({
+        where: { id: payload.companyId },
+        select: { isActive: true },
+      });
+      if (!company?.isActive) throw new UnauthorizedException('Session invalide ou entreprise archivée.');
     }
     setRequestCompanyId(payload.companyId);
     if (

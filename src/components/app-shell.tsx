@@ -121,19 +121,20 @@ const primaryNavigation = [
 
 const platformNavigationGroups = [
   {
-    label: "Plateforme",
+    label: "Tableau de bord",
     icon: LayoutDashboard,
     items: [
       { href: "/platform-admin#overview", label: "Vue globale", icon: LayoutDashboard },
-      { href: "/platform-admin#companies", label: "Entreprises", icon: Building2 },
-      { href: "/platform-admin#activity", label: "Activités", icon: BarChart3 },
     ],
   },
   {
     label: "Configuration",
     icon: Settings,
     items: [
-      { href: "/platform-admin#settings", label: "Préférences super-admin", icon: Settings },
+      { href: "/platform-admin#companies", label: "Gestion des entreprises", icon: Building2 },
+      { href: "/platform-admin#users", label: "Gestion des utilisateurs", icon: Users },
+      { href: "/platform-admin#themes", label: "Thèmes & identité", icon: Paintbrush },
+      { href: "/platform-admin#reports", label: "Rapports des entreprises", icon: BarChart3 },
     ],
   },
 ];
@@ -141,7 +142,7 @@ const platformNavigationGroups = [
 const platformPrimaryNavigation = [
   { href: "/platform-admin#overview", label: "Vue globale", icon: LayoutDashboard, paths: ["/platform-admin"] },
   { href: "/platform-admin#companies", label: "Entreprises", icon: Building2, paths: ["/platform-admin"] },
-  { href: "/platform-admin#activity", label: "Activités", icon: BarChart3, paths: ["/platform-admin"] },
+  { href: "/platform-admin#reports", label: "Rapports", icon: BarChart3, paths: ["/platform-admin"] },
 ];
 
 function isActiveRoute(pathname: string, href: string) {
@@ -168,16 +169,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [switchingCompany, setSwitchingCompany] = useState(false);
   const [companySwitchError, setCompanySwitchError] = useState("");
   const isPlatformAdmin = userRole === "PLATFORM_SUPER_ADMIN";
+  const isPlatformConsole = isPlatformAdmin && pathname === "/platform-admin";
   const mobileMenuOpen = mobileMenuPath === pathname;
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuCloseButtonRef = useRef<HTMLButtonElement>(null);
-  const companyName = isPlatformAdmin ? "Administration globale" : companyDisplayName(profile);
-  const location = isPlatformAdmin ? "Toutes les entreprises" : companyLocation(profile);
-  const activePage = isPlatformAdmin
+  const companyName = isPlatformConsole ? "Administration globale" : companyDisplayName(profile);
+  const location = isPlatformConsole ? "Toutes les entreprises" : companyLocation(profile);
+  const workspaceLogo = !isPlatformConsole && profile?.logoUrl
+    ? profile.logoUrl
+    : "/branding/ctrs-logo.jpg";
+  const activePage = isPlatformConsole
     ? { href: "/platform-admin", label: "Vue globale", icon: LayoutDashboard }
     : allNavigationItems.find((item) => pathname === item.href) ??
       allNavigationItems.find((item) => isActiveRoute(pathname, item.href));
-  const activeHref = isPlatformAdmin ? "/platform-admin#overview" : activePage?.href;
+  const activeHref = isPlatformConsole ? "/platform-admin" : activePage?.href;
   const visibleNavigationGroups = userRole === "MANAGING_PARTNER"
     ? navigationGroups.map((group) => ({
         ...group,
@@ -187,10 +192,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const visiblePrimaryNavigation = userRole === "MANAGING_PARTNER"
     ? managingPartnerNavigation
     : primaryNavigation;
-  const currentNavigationGroups = isPlatformAdmin
+  const currentNavigationGroups = isPlatformConsole
     ? platformNavigationGroups
     : visibleNavigationGroups;
-  const currentPrimaryNavigation = isPlatformAdmin
+  const currentPrimaryNavigation = isPlatformConsole
     ? platformPrimaryNavigation
     : visiblePrimaryNavigation;
 
@@ -199,16 +204,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const isAllowed = managingPartnerPaths.some((path) => isActiveRoute(pathname, path)) || pathname === "/notifications";
     if (!isAllowed) router.replace("/payment-orders");
   }, [pathname, router, userRole]);
-
-  useEffect(() => {
-    if (
-      isPlatformAdmin &&
-      pathname !== "/login" &&
-      pathname !== "/platform-admin"
-    ) {
-      router.replace("/platform-admin");
-    }
-  }, [isPlatformAdmin, pathname, router]);
 
   useEffect(() => {
     if (!getSessionToken()) return;
@@ -320,7 +315,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="app-frame">
+    <div
+      className="app-frame"
+      style={{
+        "--brand": profile?.primaryColor ?? "#e60000",
+        "--brand-deep": profile?.primaryColor ?? "#a90000",
+        "--brand-gold": profile?.accentColor ?? "#ffcc00",
+        "--brand-blue-600": profile?.primaryColor ?? "#e60000",
+        "--brand-blue-700": profile?.primaryColor ?? "#c40000",
+        "--brand-blue-800": profile?.primaryColor ?? "#a90000",
+      } as React.CSSProperties}
+    >
       <div className="app-layout">
         <aside className="app-sidebar print:hidden">
           {companies.length > 1 && !isPlatformAdmin && (
@@ -340,17 +345,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {companySwitchError && <p role="alert" className="px-1 pt-1 text-xs text-rose-700">{companySwitchError}</p>}
             </div>
           )}
-          <Link href={isPlatformAdmin ? "/platform-admin#settings" : "/settings"} className="app-workspace-card">
+          <Link href={isPlatformConsole ? "/platform-admin#settings" : "/settings"} className="app-workspace-card">
             <span className="app-workspace-avatar">
               {companyName.slice(0, 1).toLocaleUpperCase("fr")}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="app-workspace-label">{isPlatformAdmin ? "CONSOLE SUPER-ADMIN" : "Cabinet comptable"}</span>
+              <span className="app-workspace-label">{isPlatformConsole ? "CONSOLE SUPER-ADMIN" : isPlatformAdmin ? "EXPLORATION SUPER-ADMIN" : "Cabinet comptable"}</span>
               <span className="app-workspace-name">{companyName}</span>
               <span className="app-workspace-location">{location}</span>
             </span>
             <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
           </Link>
+          {isPlatformAdmin && !isPlatformConsole && (
+            <Link href="/platform-admin" className="mx-3 mb-2 inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100">
+              <LayoutDashboard className="h-4 w-4" /> Retour au tableau global
+            </Link>
+          )}
 
           <nav className="app-navigation" aria-label="Navigation principale">
             <p className="app-navigation-overline">Menu principal</p>
@@ -358,7 +368,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               const groupActive = group.items.some(({ href }) =>
                 isActiveRoute(pathname, href),
               );
-              const expanded = expandedGroups[group.label] ?? (isPlatformAdmin || groupActive);
+              const expanded = expandedGroups[group.label] ?? (isPlatformConsole || groupActive);
               return (
                 <div key={group.label} className="app-navigation-group">
                   <button
@@ -413,8 +423,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="app-sidebar-footer">
             <div className="app-currency-chip">
               <span className="app-live-dot" />
-              {isPlatformAdmin ? "Périmètre" : "Devise principale"}
-              <strong>{isPlatformAdmin ? "Global" : profile?.currencyCode ?? "CDF"}</strong>
+              {isPlatformConsole ? "Périmètre" : "Devise principale"}
+              <strong>{isPlatformConsole ? "Global" : profile?.currencyCode ?? "CDF"}</strong>
             </div>
             <button type="button" onClick={logout} className="app-logout-link">
               <LogOut className="h-4 w-4" />
@@ -436,27 +446,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="app-content">
           <header className="app-topbar print:hidden">
             <Link
-              href={isPlatformAdmin ? "/platform-admin" : "/"}
+              href={isPlatformConsole ? "/platform-admin" : "/"}
               className="app-shell-brand"
               aria-label="Cabinet Transparency, accueil"
             >
               <Image
-                src="/branding/ctrs-logo.jpg"
-                alt="Cabinet Transparency"
+                src={workspaceLogo}
+                alt={isPlatformConsole ? "Cabinet Transparency" : companyName}
                 width={369}
                 height={85}
                 priority
+                unoptimized={workspaceLogo.startsWith("data:")}
                 className="app-brand-logo"
               />
             </Link>
             <div className="app-mobile-brand">
-              <Link href={isPlatformAdmin ? "/platform-admin" : "/"} aria-label="Cabinet Transparency, accueil">
+              <Link href={isPlatformConsole ? "/platform-admin" : "/"} aria-label="Cabinet Transparency, accueil">
                 <Image
-                  src="/branding/ctrs-logo.jpg"
-                  alt="Cabinet Transparency"
+                  src={workspaceLogo}
+                  alt={isPlatformConsole ? "Cabinet Transparency" : companyName}
                   width={369}
                   height={85}
                   priority
+                  unoptimized={workspaceLogo.startsWith("data:")}
                   className="app-brand-logo"
                 />
               </Link>
@@ -483,7 +495,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               aria-label="Modules principaux"
             >
               {currentPrimaryNavigation.map(({ href, label, icon: Icon, paths }) => {
-                const active = isPlatformAdmin ? label === "Vue globale" : isActiveModule(pathname, paths);
+                const active = isPlatformConsole ? label === "Vue globale" : isActiveModule(pathname, paths);
                 return (
                   <Link
                     key={href}
@@ -502,7 +514,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="app-location-pill">
                 {activePage?.label ?? location}
               </span>
-              {!isPlatformAdmin && (
+              {!isPlatformConsole && (
                 <Link
                   href="/notifications"
                   className={`app-icon-action relative app-notification-bell ${unreadNotifications ? "has-unread" : ""}`}
@@ -518,7 +530,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               )}
               <Link
-                href={isPlatformAdmin ? "/platform-admin#settings" : "/settings"}
+                href={isPlatformConsole ? "/platform-admin#settings" : "/settings"}
                 className="app-icon-action"
                 aria-label="Paramètres"
               >
@@ -553,10 +565,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <div className="app-mobile-navigation-header">
                   <Image
-                    src="/branding/ctrs-logo.jpg"
-                    alt="Cabinet Transparency"
+                    src={workspaceLogo}
+                    alt={isPlatformConsole ? "Cabinet Transparency" : companyName}
                     width={369}
                     height={85}
+                    unoptimized={workspaceLogo.startsWith("data:")}
                     className="app-brand-logo"
                   />
                   <button
@@ -575,16 +588,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="app-workspace-label">
-                      {isPlatformAdmin ? "CONSOLE SUPER-ADMIN" : "Cabinet comptable"}
+                      {isPlatformConsole ? "CONSOLE SUPER-ADMIN" : isPlatformAdmin ? "EXPLORATION SUPER-ADMIN" : "Cabinet comptable"}
                     </span>
                     <span className="app-workspace-name">{companyName}</span>
                     <span className="app-workspace-location">{location}</span>
                   </span>
                   <span className="app-mobile-currency">
-                    {isPlatformAdmin ? "Global" : profile?.currencyCode ?? "CDF"}
+                    {isPlatformConsole ? "Global" : profile?.currencyCode ?? "CDF"}
                   </span>
                 </div>
-                {!isPlatformAdmin && (
+                {isPlatformAdmin && !isPlatformConsole && (
+                  <Link href="/platform-admin" onClick={() => setMobileMenuPath(null)} className="mx-3 mt-2 inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800">
+                    <LayoutDashboard className="h-4 w-4" /> Retour au tableau global
+                  </Link>
+                )}
+                {!isPlatformConsole && (
                   <Link
                     href="/notifications"
                     onClick={() => setMobileMenuPath(null)}
@@ -611,7 +629,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     const groupActive = group.items.some(({ href }) =>
                       isActiveRoute(pathname, href),
                     );
-                    const expanded = expandedGroups[group.label] ?? (isPlatformAdmin || groupActive);
+                    const expanded = expandedGroups[group.label] ?? (isPlatformConsole || groupActive);
                     return (
                       <section
                         key={group.label}

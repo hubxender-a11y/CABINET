@@ -58,6 +58,8 @@ function toChanges(profile: CompanyProfile): CompanyProfileChanges {
     legalName: profile.legalName,
     tradeName: profile.tradeName,
     logoUrl: profile.logoUrl,
+    primaryColor: profile.primaryColor,
+    accentColor: profile.accentColor,
     rccm: profile.rccm,
     nin: profile.nin,
     nif: profile.nif,
