@@ -103,6 +103,7 @@ const clearableModules = {
   patrimoine: 'Patrimoine · biens et historique de leurs mouvements',
   stock: 'Stocks et achats · produits, fournisseurs et mouvements',
   clients: 'Dossiers clients · coordonnées et pièces du dossier',
+  reglements: 'Règlements clients · paiements et mouvements liés',
   facturation: 'Facturation · factures, règlements et pièces fiscales',
   facturesFonds: 'Factures et approvisionnements · USD/CDF',
   cashVouchers: 'Bons de sortie caisse · bons et mouvements associés',
@@ -246,6 +247,7 @@ export class BackupsService {
       };
       const counts: Record<string, number> = {};
       let protectedInvoices = 0;
+      let updatedInvoices = 0;
       const remove = async (model: string, where?: Record<string, unknown>) => {
         counts[model] = (counts[model] ?? 0) + await deleteRows(model, where);
       };
@@ -275,6 +277,32 @@ export class BackupsService {
         }
         await remove('customerDocument');
         await remove('customer');
+      } else if (moduleKey === 'reglements') {
+        const payments = await transaction.payment.findMany({
+          where: { companyId },
+          select: { id: true },
+        });
+        const paymentIds = payments.map(({ id }) => id);
+        if (paymentIds.length) {
+          await remove('cashMovement', {
+            companyId,
+            sourceType: { in: ['INVOICE_PAYMENT', 'INVOICE_PAYMENT_REVERSAL'] },
+          });
+          await remove('paymentAllocation', { paymentId: { in: paymentIds } });
+          await remove('payment', { companyId, id: { in: paymentIds } });
+        } else {
+          await remove('cashMovement', {
+            companyId,
+            sourceType: { in: ['INVOICE_PAYMENT', 'INVOICE_PAYMENT_REVERSAL'] },
+          });
+          counts.paymentAllocation = 0;
+          counts.payment = 0;
+        }
+        const resetResult = await transaction.invoice.updateMany({
+          where: { companyId, paidAmount: { not: 0 } },
+          data: { paidAmount: new Prisma.Decimal(0) },
+        });
+        updatedInvoices = resetResult.count;
       } else if (moduleKey === 'facturation') {
         const certifiedInvoices = await transaction.invoice.count({
           where: {
@@ -465,10 +493,10 @@ export class BackupsService {
           companyId,
           userId,
           action: 'DATABASE_MODULE_CLEARED',
-          details: { module: moduleKey, counts, protectedInvoices },
+          details: { module: moduleKey, counts, protectedInvoices, updatedInvoices },
         },
       });
-      return { module: moduleKey, counts, protectedInvoices };
+      return { module: moduleKey, counts, protectedInvoices, updatedInvoices };
     }, { maxWait: 10_000, timeout: 60_000 });
   }
 

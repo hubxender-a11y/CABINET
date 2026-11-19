@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { Fragment, FormEvent, Suspense, useMemo, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { Ban, ChevronDown, Download, Printer, X } from "lucide-react";
@@ -14,6 +14,11 @@ import { displayCabinetName, useCompanyProfile } from "@/components/company-prof
 import { useNotifications } from "@/components/notification-provider";
 import { formatDate, formatMoney } from "@/lib/formatting";
 import { invoiceBalance } from "@/lib/receivables";
+import { useKinshasaDate } from "@/lib/use-kinshasa-date";
+
+const subscribeToDocumentBody = () => () => {};
+const getDocumentBody = (): HTMLElement | null => document.body;
+const getServerDocumentBody = (): HTMLElement | null => null;
 
 const methodLabels: Record<WorkspacePayment["method"], string> = {
   CASH_USD: "Espèces (USD)",
@@ -37,8 +42,13 @@ function PaymentsRegister() {
   const requestedInvoiceId = useSearchParams().get("facture");
   const { profile } = useCompanyProfile();
   const { notify } = useNotifications();
+  const today = useKinshasaDate() ?? "";
   const [selectedReceipt, setSelectedReceipt] = useState<WorkspacePayment | null>(null);
-  const [receiptPortalRoot, setReceiptPortalRoot] = useState<HTMLElement | null>(null);
+  const receiptPortalRoot = useSyncExternalStore(
+    subscribeToDocumentBody,
+    getDocumentBody,
+    getServerDocumentBody,
+  );
   const [expandedPaymentId, setExpandedPaymentId] = useState<string | null>(null);
   const payableInvoices = useMemo(
     () => invoices.filter((invoice) => invoiceBalance(invoice) > 0),
@@ -46,6 +56,7 @@ function PaymentsRegister() {
   );
   const [invoiceId, setInvoiceId] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
+  const [paymentDateOverride, setPaymentDateOverride] = useState<string | null>(null);
   const [method, setMethod] = useState<WorkspacePayment["method"]>("BANK_TRANSFER");
   const [reference, setReference] = useState("");
   const [error, setError] = useState("");
@@ -55,10 +66,7 @@ function PaymentsRegister() {
   const [cancelReason, setCancelReason] = useState("");
   const [cancelError, setCancelError] = useState("");
   const [cancelling, setCancelling] = useState(false);
-
-  useEffect(() => {
-    setReceiptPortalRoot(document.body);
-  }, []);
+  const paymentDate = paymentDateOverride ?? today;
 
   const selectedInvoice = payableInvoices.find(
     (invoice) => (invoice.databaseId ?? invoice.id) === (invoiceId ?? requestedInvoiceId),
@@ -135,6 +143,10 @@ function PaymentsRegister() {
       rejectPayment("Sélectionnez une facture à régler.");
       return;
     }
+    if (!paymentDate) {
+      rejectPayment("Sélectionnez la date du règlement.");
+      return;
+    }
 
     const parsedAmount = Number(amount);
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
@@ -152,11 +164,13 @@ function PaymentsRegister() {
         invoice: selectedInvoice,
         amount,
         method,
+        paymentDate,
         reference: reference.trim() || undefined,
       });
       setSelectedReceipt(savedPayment);
       setAmount("");
       setReference("");
+      setPaymentDateOverride(null);
       setSuccess("Règlement enregistré. Le reçu est prêt à être imprimé.");
       notify({
         type: "success",
@@ -276,7 +290,7 @@ function PaymentsRegister() {
           <div className="space-y-2">
             <p><span className="font-semibold">Client :</span> {selectedReceipt.customer}</p>
             <p><span className="font-semibold">Facture :</span> {selectedReceipt.invoiceNumber}</p>
-            <p><span className="font-semibold">Date du règlement :</span> {formatDate(selectedReceipt.createdAt, { dateStyle: "long", timeStyle: "short" })}</p>
+            <p><span className="font-semibold">Date du règlement :</span> {formatDate(selectedReceipt.paymentDate, { dateStyle: "long" })}</p>
           </div>
           <div className="space-y-2">
             <p><span className="font-semibold">Mode de paiement :</span> {methodLabels[selectedReceipt.method]}</p>
@@ -416,6 +430,18 @@ function PaymentsRegister() {
           </p>
 
           <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+            Date du règlement
+            <input
+              required
+              type="date"
+              max={today || undefined}
+              value={paymentDate}
+              onChange={(event) => setPaymentDateOverride(event.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
+            />
+          </label>
+
+          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
             Montant reçu
             <input
               required
@@ -507,10 +533,7 @@ function PaymentsRegister() {
                       <Fragment key={payment.id}>
                         <tr className="border-t border-slate-100">
                           <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                            {formatDate(payment.createdAt, {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })}
+                            {formatDate(payment.paymentDate, { dateStyle: "medium" })}
                           </td>
                           <td className="px-4 py-3">
                             <p className="font-medium text-slate-900">{payment.customer}</p>

@@ -74,6 +74,7 @@ export type WorkspacePayment = {
   status?: string;
   invoiceTotal?: number;
   invoicePaidAmountAfter?: number | null;
+  paymentDate: string;
   createdAt: string;
 };
 
@@ -85,6 +86,7 @@ type PaymentApiRecord = {
   reference: string | null;
   status: string;
   invoicePaidAmountAfter: string | null;
+  paymentDate: string;
   createdAt: string;
   invoice: {
     id: string;
@@ -143,6 +145,7 @@ type StatementPaymentApiRecord = {
   reference: string | null;
   status: string;
   invoicePaidAmountAfter: string | null;
+  paymentDate: string;
   createdAt: string;
 };
 
@@ -194,6 +197,7 @@ type WorkspaceStore = {
     invoice: WorkspaceInvoice;
     amount: string;
     method: WorkspacePayment["method"];
+    paymentDate: string;
     reference?: string;
   }) => Promise<WorkspacePayment>;
   cancelPayment: (paymentId: string, reason: string) => Promise<WorkspacePayment>;
@@ -258,6 +262,7 @@ function mapPayment(record: PaymentApiRecord): WorkspacePayment {
     invoicePaidAmountAfter: record.invoicePaidAmountAfter
       ? Number(record.invoicePaidAmountAfter)
       : null,
+    paymentDate: record.paymentDate,
     createdAt: record.createdAt,
   };
 }
@@ -573,7 +578,7 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
         current.filter((payment) => !deletedPaymentIds.has(payment.id)),
       );
     },
-    addPayment: async ({ invoice, amount, method, reference }) => {
+    addPayment: async ({ invoice, amount, method, reference, paymentDate }) => {
       if (!hasConfiguredApi) {
         throw new Error(
           "API du cabinet non configurée. Le règlement n’a pas été enregistré.",
@@ -594,6 +599,7 @@ export function WorkspaceStoreProvider({ children }: { children: ReactNode }) {
           amount,
           method,
           reference,
+          paymentDate,
         }),
       });
       const savedPayment = mapPayment(created);

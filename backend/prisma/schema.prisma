@@ -552,6 +552,7 @@ model Payment {
   currency               String              @default("CDF")
   reference              String?
   status                 String              @default("RECEIVED")
+  paymentDate            DateTime            @default(now())
   createdAt              DateTime            @default(now())
   company                Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invoice                Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
@@ -559,6 +560,7 @@ model Payment {
   allocations            PaymentAllocation[]
 
   @@index([companyId, createdAt])
+  @@index([companyId, paymentDate])
   @@index([invoiceId])
 }
 

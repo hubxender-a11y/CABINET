@@ -25,6 +25,7 @@ type OperationResult = {
   module?: string;
   counts?: Record<string, number>;
   protectedInvoices?: number;
+  updatedInvoices?: number;
 };
 
 function humanSize(bytes: number) {
@@ -110,7 +111,8 @@ export function DatabaseBackupPanel() {
         body: JSON.stringify({ module: moduleId, confirmation: clearConfirmation }),
       });
       const removed = Object.values(result.counts ?? {}).reduce((sum, count) => sum + count, 0);
-      setMessage(`${removed} enregistrement(s) supprimé(s) du module.${result.protectedInvoices ? ` ${result.protectedInvoices} facture(s) certifiée(s) conservée(s).` : ""} Actualisation du logiciel…`);
+      const reset = result.updatedInvoices ? ` ${result.updatedInvoices} facture(s) conservée(s) avec le montant réglé remis à zéro.` : "";
+      setMessage(`${removed} enregistrement(s) supprimé(s) du module.${reset}${result.protectedInvoices ? ` ${result.protectedInvoices} facture(s) certifiée(s) conservée(s).` : ""} Actualisation du logiciel…`);
       setClearConfirmation("");
       window.setTimeout(() => window.location.reload(), 900);
     } catch (caught) {

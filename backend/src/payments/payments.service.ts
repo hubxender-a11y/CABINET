@@ -31,7 +31,7 @@ export class PaymentsService {
         },
         customer: { select: { name: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }],
       take: 200,
     });
   }
@@ -39,6 +39,25 @@ export class PaymentsService {
   async create(dto: CreatePaymentDto) {
     const companyId = getCompanyId();
     const amount = new Prisma.Decimal(dto.amount);
+    const kinshasaDateParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Kinshasa',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const kinshasaToday = ['year', 'month', 'day']
+      .map((type) => kinshasaDateParts.find((part) => part.type === type)?.value ?? '')
+      .join('-');
+    const paymentDate = new Date(`${dto.paymentDate}T12:00:00.000Z`);
+    if (
+      !Number.isFinite(paymentDate.getTime()) ||
+      paymentDate.toISOString().slice(0, 10) !== dto.paymentDate ||
+      dto.paymentDate > kinshasaToday
+    ) {
+      throw new BadRequestException(
+        'La date du règlement doit être valide et ne peut pas être future.',
+      );
+    }
     if (amount.lte(0)) {
       throw new BadRequestException(
         'Le montant du paiement doit être positif.',
@@ -102,6 +121,7 @@ export class PaymentsService {
               currency: invoice.currency,
               reference: dto.reference?.trim(),
               status: 'RECEIVED',
+              paymentDate,
               allocations: {
                 create: { invoiceId: invoice.id, amount },
               },
@@ -119,14 +139,32 @@ export class PaymentsService {
             },
           });
 
+          const activePayments = await transaction.payment.findMany({
+            where: { companyId, invoiceId: invoice.id, status: 'RECEIVED' },
+            select: { id: true, amount: true },
+            orderBy: [{ paymentDate: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          });
+          let cumulativePaid = new Prisma.Decimal(0);
+          let createdPaymentCumulative = new Prisma.Decimal(0);
+          for (const activePayment of activePayments) {
+            cumulativePaid = cumulativePaid.add(activePayment.amount);
+            if (activePayment.id === payment.id) {
+              createdPaymentCumulative = cumulativePaid;
+            }
+            await transaction.payment.update({
+              where: { id: activePayment.id },
+              data: { invoicePaidAmountAfter: cumulativePaid },
+            });
+          }
           await transaction.invoice.update({
             where: { id: invoice.id },
-            data: { paidAmount: { increment: amount } },
+            data: { paidAmount: cumulativePaid },
           });
+          payment.invoicePaidAmountAfter = createdPaymentCumulative;
           await createCashMovement(transaction, {
             companyId,
             cashAccountId: treasuryAccount.id,
-            date: payment.createdAt,
+            date: payment.paymentDate,
             direction: 'IN',
             amount,
             sourceAmount: amount,
@@ -203,7 +241,7 @@ export class PaymentsService {
           const activePayments = await transaction.payment.findMany({
             where: { companyId, invoiceId: payment.invoiceId, status: 'RECEIVED' },
             select: { id: true, amount: true },
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            orderBy: [{ paymentDate: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
           });
           let paidAmount = new Prisma.Decimal(0);
           for (const activePayment of activePayments) {

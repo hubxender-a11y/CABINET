@@ -51,8 +51,10 @@ export default function FundingPage() {
   const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
   const [loading, setLoading] = useState(true);
+  const [treasuryLoaded, setTreasuryLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [success, setSuccess] = useState("");
   const [transferAmountUsd, setTransferAmountUsd] = useState("");
   const [transferAccountId, setTransferAccountId] = useState("");
@@ -64,24 +66,37 @@ export default function FundingPage() {
   const refresh = useCallback(async () => {
     const data = await apiRequest<Treasury>("/cash-vouchers/treasury");
     setTreasury(data);
+    setTreasuryLoaded(true);
+    setLoadError("");
   }, []);
 
   useEffect(() => {
     let active = true;
-    void Promise.all([
+    void Promise.allSettled([
       apiRequest<Treasury>("/cash-vouchers/treasury"),
       apiRequest<{ role: string }>("/auth/me"),
     ])
-      .then(([data, user]) => {
+      .then(([treasuryResult, userResult]) => {
         if (!active) return;
-        setTreasury(data);
-        setUserRole(user.role);
-      })
-      .catch((caught: unknown) => {
-        if (active)
-          setError(
-            caught instanceof Error ? caught.message : "Chargement impossible.",
+        if (treasuryResult.status === "fulfilled") {
+          setTreasury(treasuryResult.value);
+          setTreasuryLoaded(true);
+        } else {
+          setLoadError(
+            treasuryResult.reason instanceof Error
+              ? treasuryResult.reason.message
+              : "Chargement de la trésorerie impossible.",
           );
+        }
+        if (userResult.status === "fulfilled") {
+          setUserRole(userResult.value.role);
+        } else {
+          setError(
+            userResult.reason instanceof Error
+              ? userResult.reason.message
+              : "Chargement des autorisations impossible.",
+          );
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -117,7 +132,10 @@ export default function FundingPage() {
     (item) => item.currency === "USD",
   );
   const transferAccount =
-    usdAccounts.find((item) => item.id === transferAccountId) ?? usdCash;
+    usdAccounts.find((item) => item.id === transferAccountId) ??
+    (Number(usdCash?.balance ?? 0) > 0
+      ? usdCash
+      : usdAccounts.find((item) => Number(item.balance) > 0) ?? usdCash);
   const convertedAccount = treasury.accounts.find(
     (item) =>
       item.currency === "CDF" &&
@@ -131,6 +149,25 @@ export default function FundingPage() {
     requiresConversion && receivedCurrency === "USD" && currency === "CDF"
       ? Math.round(Number(amount || 0) * exchangeRate)
       : Number(amount || 0);
+
+  function formatTreasuryAmount(value: number, currencyCode: Currency) {
+    if (treasuryLoaded) return formatMoney(value, currencyCode);
+    return loading ? "Chargement…" : "Indisponible";
+  }
+
+  async function refreshTreasury() {
+    setLoading(true);
+    setLoadError("");
+    try {
+      await refresh();
+    } catch (caught) {
+      setLoadError(
+        caught instanceof Error ? caught.message : "Actualisation impossible.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -245,15 +282,7 @@ export default function FundingPage() {
         </div>
         <button
           type="button"
-          onClick={() =>
-            void refresh().catch((caught: unknown) =>
-              setError(
-                caught instanceof Error
-                  ? caught.message
-                  : "Actualisation impossible.",
-              ),
-            )
-          }
+          onClick={() => void refreshTreasury()}
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
@@ -262,15 +291,26 @@ export default function FundingPage() {
       </header>
 
       <div
-        className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${databaseConnected ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}
+        className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${treasuryLoaded && !loadError ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}
       >
-        {databaseConnected ? (
+        {treasuryLoaded && !loadError ? (
           <Check className="h-4 w-4" />
         ) : (
           <CircleAlert className="h-4 w-4" />
         )}
-        {databaseConnected ? "Caisse connectée" : "Serveur indisponible"}
+        {treasuryLoaded && loadError
+          ? "Derniers soldes affichés · actualisation échouée"
+          : treasuryLoaded
+            ? "Trésorerie actualisée"
+            : loading
+              ? "Connexion à la trésorerie…"
+              : "Soldes non chargés · actualisez pour réessayer"}
       </div>
+      {loadError && !loading && (
+        <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {loadError}
+        </p>
+      )}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {(["USD", "CDF"] as const).map((code) => {
@@ -285,22 +325,22 @@ export default function FundingPage() {
               <article className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
                 <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Disponible OP · {code}</p>
-                    <p className="mt-1 text-2xl font-semibold text-slate-900">{formatMoney(Number(account?.paymentOrderAvailable ?? 0), code)}</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Disponible OP · caisse {code}</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900">{formatTreasuryAmount(Number(account?.paymentOrderAvailable ?? 0), code)}</p>
                   </div>
                   <span className="rounded-xl bg-blue-50 p-3 text-blue-700"><Wallet className="h-5 w-5" /></span>
                 </div>
-                <p className="px-5 py-3 text-xs text-slate-500">Espèces en caisse · {formatMoney(Number(account?.balance ?? 0), code)}</p>
+                <p className="px-5 py-3 text-xs text-slate-500">Solde espèces · {formatTreasuryAmount(Number(account?.balance ?? 0), code)}</p>
               </article>
               <article className="overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm">
                 <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-teal-700">En banque · {code}</p>
-                    <p className="mt-1 text-2xl font-semibold text-slate-900">{formatMoney(bankBalance, code)}</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-teal-700">Banque · virements et cartes · {code}</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900">{formatTreasuryAmount(bankBalance, code)}</p>
                   </div>
                   <span className="rounded-xl bg-teal-50 p-3 text-teal-700"><Landmark className="h-5 w-5" /></span>
                 </div>
-                <p className="px-5 py-3 text-xs text-slate-500">Solde saisi · hors disponible OP</p>
+                <p className="px-5 py-3 text-xs text-slate-500">Solde du journal bancaire · exclu du disponible OP en caisse</p>
               </article>
             </Fragment>
           );
@@ -431,7 +471,7 @@ export default function FundingPage() {
             )}
             <button
               type="submit"
-              disabled={saving || !databaseConnected}
+              disabled={saving || !databaseConnected || !treasuryLoaded || Boolean(loadError)}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Banknote className="h-4 w-4" />{" "}
@@ -531,8 +571,8 @@ export default function FundingPage() {
               Transférer un solde USD vers CDF
             </h2>
             <p className="mt-1 text-xs text-slate-600">
-              Solde source :{" "}
-              {formatMoney(Number(transferAccount?.balance ?? 0), "USD")} ·
+              {transferAccount?.name ?? "Compte USD"} :{" "}
+              {formatTreasuryAmount(Number(transferAccount?.balance ?? 0), "USD")} ·
               destination :{" "}
               {convertedAccount?.name ?? "compte CDF créé au transfert"} · 1 USD
               ={" "}
@@ -551,7 +591,7 @@ export default function FundingPage() {
             >
               {usdAccounts.map((account) => (
                 <option key={account.id} value={account.id}>
-                  {account.name} · {formatMoney(Number(account.balance), "USD")}
+                  {account.name} · {formatTreasuryAmount(Number(account.balance), "USD")}
                 </option>
               ))}
             </select>
@@ -584,6 +624,8 @@ export default function FundingPage() {
             disabled={
               transferSaving ||
               !databaseConnected ||
+              !treasuryLoaded ||
+              Boolean(loadError) ||
               !exchangeRate ||
               !transferAccount?.id ||
               Number(transferAmountUsd) > Number(transferAccount?.balance ?? 0)

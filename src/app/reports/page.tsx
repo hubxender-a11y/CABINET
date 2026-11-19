@@ -37,6 +37,7 @@ type MonthlyReportResponse = {
     amount: string;
     currency: "CDF" | "USD";
     createdAt: string;
+    paymentDate: string;
     invoice: { id: string; invoiceNumber: string } | null;
     customer: { name: string } | null;
   }[];
@@ -103,6 +104,8 @@ function isMonthlyPayment(value: unknown): value is MonthlyReportResponse["payme
     (payment.currency === "CDF" || payment.currency === "USD") &&
     typeof payment.createdAt === "string" &&
     Number.isFinite(Date.parse(payment.createdAt)) &&
+    typeof payment.paymentDate === "string" &&
+    Number.isFinite(Date.parse(payment.paymentDate)) &&
     (invoice === null ||
       (typeof invoice === "object" &&
         typeof (invoice as Record<string, unknown>).id === "string" &&
@@ -161,6 +164,7 @@ function mapMonthlyPayment(payment: MonthlyReportResponse["payments"][number]) {
     currency: payment.currency,
     method: "OTHER" as const,
     createdAt: payment.createdAt,
+    paymentDate: payment.paymentDate,
   };
 }
 
@@ -278,7 +282,7 @@ export default function ReportsPage() {
       (invoice) => invoice.status !== "Brouillon" && invoice.status !== "Rejetée",
     );
     const periodPayments = sourcePayments.filter((payment) => {
-      const date = kinshasaDate(payment.createdAt);
+      const date = kinshasaDate(payment.paymentDate);
       return date >= periodBounds.start && date <= periodBounds.end;
     });
     const periodExpenses = sourceExpenses.filter((expense) => {
@@ -589,7 +593,7 @@ export default function ReportsPage() {
                     <tbody>
                       {report.payments.map((payment) => (
                         <tr key={payment.id}>
-                          <td>{formatDate(kinshasaDate(payment.createdAt))}</td>
+                          <td>{formatDate(kinshasaDate(payment.paymentDate))}</td>
                           <td>{payment.invoiceNumber}</td>
                           <td>{payment.customer}</td>
                           <td>{formatMoney(Number(payment.amount), payment.currency)}</td>

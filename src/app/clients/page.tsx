@@ -30,6 +30,7 @@ import {
 } from "@/components/workspace-store";
 import { useNotifications } from "@/components/notification-provider";
 import { formatDate, formatMoney } from "@/lib/formatting";
+import { useKinshasaDate } from "@/lib/use-kinshasa-date";
 
 type PaymentStatus =
   "Payée" | "Partiellement payée" | "À payer" | "En retard" | "En attente";
@@ -108,6 +109,7 @@ export default function ClientsPage() {
     clientsError,
   } = useWorkspaceStore();
   const { notify } = useNotifications();
+  const today = useKinshasaDate() ?? "";
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
@@ -147,6 +149,8 @@ export default function ClientsPage() {
   const [loadingPreviewId, setLoadingPreviewId] = useState<string | null>(null);
   const [paymentInvoiceId, setPaymentInvoiceId] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentDateOverride, setPaymentDateOverride] = useState<string | null>(null);
+  const paymentDate = paymentDateOverride ?? today;
   const [paymentMethod, setPaymentMethod] =
     useState<WorkspacePayment["method"]>("BANK_TRANSFER");
   const [paymentReference, setPaymentReference] = useState("");
@@ -587,6 +591,12 @@ export default function ClientsPage() {
       });
       return;
     }
+    if (!paymentDate) {
+      const reason = "Sélectionnez la date du règlement.";
+      setPaymentError(reason);
+      notify({ type: "error", title: "Règlement non enregistré", message: reason });
+      return;
+    }
 
     const amount = Number(paymentAmount);
     const remaining = Math.max(invoice.amount - (invoice.paidAmount ?? 0), 0);
@@ -617,9 +627,11 @@ export default function ClientsPage() {
         invoice,
         amount: paymentAmount,
         method: paymentMethod,
+        paymentDate,
         reference: paymentReference.trim() || undefined,
       });
       setPaymentAmount("");
+      setPaymentDateOverride(null);
       setPaymentReference("");
       setPaymentMessage("Règlement enregistré dans PostgreSQL.");
       notify({
@@ -1038,7 +1050,7 @@ export default function ClientsPage() {
                                   )}
                                 </span>
                                 <span className="text-xs text-slate-500">
-                                  {formatDate(payment.createdAt, {
+                                  {formatDate(payment.paymentDate, {
                                     dateStyle: "medium",
                                     timeStyle: "short",
                                   })}
@@ -1319,6 +1331,17 @@ export default function ClientsPage() {
                                 />
                               </label>
                               <label className="block space-y-1 text-sm font-medium text-slate-700">
+                                Date du règlement
+                                <input
+                                  required
+                                  type="date"
+                                  max={today || undefined}
+                                  value={paymentDate}
+                                  onChange={(event) => setPaymentDateOverride(event.target.value)}
+                                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                                />
+                              </label>
+                              <label className="block space-y-1 text-sm font-medium text-slate-700">
                                 Moyen de paiement
                                 <select
                                   value={paymentMethod}
@@ -1542,7 +1565,7 @@ export default function ClientsPage() {
                       {payments.map((payment) => (
                         <tr key={payment.id}>
                           <td>
-                            {formatDate(payment.createdAt, {
+                            {formatDate(payment.paymentDate, {
                               dateStyle: "medium",
                             })}
                           </td>
