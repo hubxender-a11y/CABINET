@@ -63,58 +63,55 @@ export class CashVouchersService {
   }
 
   async treasury(companyId: string) {
-    return this.prisma.$transaction(async (transaction) => {
-      await Promise.all([
-        ensureCashAccount(transaction, companyId, 'CDF'),
-        ensureCashAccount(transaction, companyId, 'USD'),
-        ensureTreasuryAccount(transaction, companyId, 'CDF', 'BANK_TRANSFER'),
-        ensureTreasuryAccount(transaction, companyId, 'USD', 'BANK_TRANSFER'),
-      ]);
-      const accounts = await transaction.cashAccount.findMany({
-        where: { companyId },
-        orderBy: [{ currency: 'asc' }, { accountType: 'asc' }],
-      });
-      const balances = await Promise.all(
-        accounts.map(async (account) => {
-          const [balance, provisionedFunds] = await Promise.all([
-            getCashBalance(transaction, companyId, account.id),
-            getPaymentOrderFundingBalance(transaction, companyId, account.id),
-          ]);
-          const paymentOrderAvailable = provisionedFunds;
-          return { account, balance, paymentOrderAvailable };
-        }),
-      );
-      const movements = await transaction.cashMovement.findMany({
-        where: { companyId },
-        include: {
-          cashAccount: {
-            select: {
-              code: true,
-              name: true,
-              currency: true,
-              accountType: true,
-            },
+    await Promise.all([
+      ensureCashAccount(this.prisma, companyId, 'CDF'),
+      ensureCashAccount(this.prisma, companyId, 'USD'),
+      ensureTreasuryAccount(this.prisma, companyId, 'CDF', 'BANK_TRANSFER'),
+      ensureTreasuryAccount(this.prisma, companyId, 'USD', 'BANK_TRANSFER'),
+    ]);
+    const accounts = await this.prisma.cashAccount.findMany({
+      where: { companyId },
+      orderBy: [{ currency: 'asc' }, { accountType: 'asc' }],
+    });
+    const balances = await Promise.all(
+      accounts.map(async (account) => {
+        const [balance, provisionedFunds] = await Promise.all([
+          getCashBalance(this.prisma, companyId, account.id),
+          account.accountType === 'CASH'
+            ? getPaymentOrderFundingBalance(this.prisma, companyId, account.id)
+            : Promise.resolve(new Prisma.Decimal(0)),
+        ]);
+        return { account, balance, paymentOrderAvailable: provisionedFunds };
+      }),
+    );
+    const movements = await this.prisma.cashMovement.findMany({
+      where: { companyId },
+      include: {
+        cashAccount: {
+          select: {
+            code: true,
+            name: true,
+            currency: true,
+            accountType: true,
           },
         },
-        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-        take: 150,
-      });
-      return {
-        accounts: balances.map(
-          ({ account, balance, paymentOrderAvailable }) => ({
-            ...account,
-            balance: balance.toString(),
-            paymentOrderAvailable: paymentOrderAvailable.toString(),
-          }),
-        ),
-        movements: movements.map((movement) => ({
-          ...movement,
-          amount: movement.amount.toString(),
-          sourceAmount: movement.sourceAmount?.toString() ?? null,
-          exchangeRate: movement.exchangeRate?.toString() ?? null,
-        })),
-      };
+      },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+      take: 150,
     });
+    return {
+      accounts: balances.map(({ account, balance, paymentOrderAvailable }) => ({
+        ...account,
+        balance: balance.toString(),
+        paymentOrderAvailable: paymentOrderAvailable.toString(),
+      })),
+      movements: movements.map((movement) => ({
+        ...movement,
+        amount: movement.amount.toString(),
+        sourceAmount: movement.sourceAmount?.toString() ?? null,
+        exchangeRate: movement.exchangeRate?.toString() ?? null,
+      })),
+    };
   }
 
   async treasuryPeriod(companyId: string, from: string, to: string) {
@@ -133,91 +130,72 @@ export class CashVouchersService {
     const rangeEnd = new Date(`${to}T23:59:59.999Z`);
     const beforeStart = new Date(rangeStart.getTime() - 1);
 
-    return this.prisma.$transaction(async (transaction) => {
-      await Promise.all([
-        ensureCashAccount(transaction, companyId, 'CDF'),
-        ensureCashAccount(transaction, companyId, 'USD'),
-        ensureTreasuryAccount(transaction, companyId, 'CDF', 'BANK_TRANSFER'),
-        ensureTreasuryAccount(transaction, companyId, 'USD', 'BANK_TRANSFER'),
-      ]);
-      const accounts = await transaction.cashAccount.findMany({
-        where: { companyId },
-        orderBy: [{ currency: 'asc' }, { accountType: 'asc' }],
-      });
-      const balances = await Promise.all(
-        accounts.map(async (account) => {
-          const [openingBalance, closingBalance, openingFunds, closingFunds] =
-            await Promise.all([
-              getCashBalance(transaction, companyId, account.id, beforeStart),
-              getCashBalance(transaction, companyId, account.id, rangeEnd),
-              getPaymentOrderFundingBalance(
-                transaction,
-                companyId,
-                account.id,
-                beforeStart,
-              ),
-              getPaymentOrderFundingBalance(
-                transaction,
-                companyId,
-                account.id,
-                rangeEnd,
-              ),
-            ]);
-          return {
-            account,
-            openingBalance,
-            closingBalance,
-            openingFunds,
-            closingFunds,
-          };
-        }),
-      );
-      const movements = await transaction.cashMovement.findMany({
-        where: {
-          companyId,
-          date: { gte: rangeStart, lte: rangeEnd },
-        },
-        include: {
-          cashAccount: {
-            select: {
-              code: true,
-              name: true,
-              currency: true,
-              accountType: true,
-            },
+    await Promise.all([
+      ensureCashAccount(this.prisma, companyId, 'CDF'),
+      ensureCashAccount(this.prisma, companyId, 'USD'),
+      ensureTreasuryAccount(this.prisma, companyId, 'CDF', 'BANK_TRANSFER'),
+      ensureTreasuryAccount(this.prisma, companyId, 'USD', 'BANK_TRANSFER'),
+    ]);
+    const accounts = await this.prisma.cashAccount.findMany({
+      where: { companyId },
+      orderBy: [{ currency: 'asc' }, { accountType: 'asc' }],
+    });
+    const balances = await Promise.all(
+      accounts.map(async (account) => {
+        const isCash = account.accountType === 'CASH';
+        const [openingBalance, closingBalance, openingFunds, closingFunds] =
+          await Promise.all([
+            getCashBalance(this.prisma, companyId, account.id, beforeStart),
+            getCashBalance(this.prisma, companyId, account.id, rangeEnd),
+            isCash
+              ? getPaymentOrderFundingBalance(this.prisma, companyId, account.id, beforeStart)
+              : Promise.resolve(new Prisma.Decimal(0)),
+            isCash
+              ? getPaymentOrderFundingBalance(this.prisma, companyId, account.id, rangeEnd)
+              : Promise.resolve(new Prisma.Decimal(0)),
+          ]);
+        return { account, openingBalance, closingBalance, openingFunds, closingFunds };
+      }),
+    );
+    const movements = await this.prisma.cashMovement.findMany({
+      where: {
+        companyId,
+        date: { gte: rangeStart, lte: rangeEnd },
+      },
+      include: {
+        cashAccount: {
+          select: {
+            code: true,
+            name: true,
+            currency: true,
+            accountType: true,
           },
         },
-        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
-      });
-
-      return {
-        from,
-        to,
-        accounts: balances.map(
-          ({
-            account,
-            openingBalance,
-            closingBalance,
-            openingFunds,
-            closingFunds,
-          }) => ({
-            ...account,
-            openingBalance: openingBalance.toString(),
-            closingBalance: closingBalance.toString(),
-            openingPaymentOrderAvailable:
-              account.accountType === 'CASH' ? openingFunds.toString() : '0',
-            closingPaymentOrderAvailable:
-              account.accountType === 'CASH' ? closingFunds.toString() : '0',
-          }),
-        ),
-        movements: movements.map((movement) => ({
-          ...movement,
-          amount: movement.amount.toString(),
-          sourceAmount: movement.sourceAmount?.toString() ?? null,
-          exchangeRate: movement.exchangeRate?.toString() ?? null,
-        })),
-      };
+      },
+      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     });
+
+    return {
+      from,
+      to,
+      accounts: balances.map(
+        ({ account, openingBalance, closingBalance, openingFunds, closingFunds }) => ({
+          ...account,
+          openingBalance: openingBalance.toString(),
+          closingBalance: closingBalance.toString(),
+          openingPaymentOrderAvailable:
+            account.accountType === 'CASH' ? openingFunds.toString() : '0',
+          closingPaymentOrderAvailable:
+            account.accountType === 'CASH' ? closingFunds.toString() : '0',
+        }),
+      ),
+      movements: movements.map((movement) => ({
+        ...movement,
+        amount: movement.amount.toString(),
+        sourceAmount: movement.sourceAmount?.toString() ?? null,
+        exchangeRate: movement.exchangeRate?.toString() ?? null,
+      })),
+    };
   }
 
   async reconcile(
