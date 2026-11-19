@@ -156,13 +156,6 @@ export default function LoginPage() {
   return (
     <main className="login-layout">
       <aside className="login-intro" aria-label="Espace professionnel">
-        <div className="login-intro-brand">
-          <span className="login-intro-mark" aria-hidden="true"><ReceiptText /></span>
-          <span className="login-intro-brand-copy">
-            <span className="login-intro-overline">FACTURATION · GESTION CLIENT</span>
-            <strong>Facture Client</strong>
-          </span>
-        </div>
         <div className="login-intro-copy">
           <p>VOTRE ESPACE DE GESTION</p>
           <h2>{workspaces.length ? "Choisissez votre entreprise." : pendingSession ? "Votre espace est prêt." : "La gestion de vos clients, simplement."}</h2>
