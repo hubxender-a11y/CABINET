@@ -1,7 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-type CashTransaction = Prisma.TransactionClient;
+type CashTransaction = Pick<
+  Prisma.TransactionClient,
+  'cashAccount' | 'cashMovement' | '$queryRaw'
+>;
 export type TreasuryAccountType =
   'CASH' | 'BANK_TRANSFER' | 'CARD' | 'MOBILE_MONEY' | 'OTHER';
 
