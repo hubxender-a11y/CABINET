@@ -1,5 +1,5 @@
 import { PaymentMethod } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsDateString, IsEnum, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class CreatePaymentDto {
   @IsUUID()
@@ -11,6 +11,10 @@ export class CreatePaymentDto {
 
   @IsEnum(PaymentMethod)
   method: PaymentMethod;
+
+  @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  paymentDate: string;
 
   @IsOptional()
   @IsString()

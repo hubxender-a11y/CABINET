@@ -41,13 +41,13 @@ export class DashboardService {
         where: {
           companyId,
           status: 'RECEIVED',
-          createdAt: { gte: start, lt: end },
+          paymentDate: { gte: start, lt: end },
         },
         include: {
           invoice: { select: { id: true, invoiceNumber: true } },
           customer: { select: { name: true } },
         },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        orderBy: [{ paymentDate: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       }),
       this.prisma.expense.findMany({
         where: { companyId, status: 'RECORDED', date: { gte: start, lt: end } },
@@ -72,6 +72,7 @@ export class DashboardService {
         amount: payment.amount.toString(),
         currency: payment.currency,
         createdAt: payment.createdAt.toISOString(),
+        paymentDate: payment.paymentDate.toISOString(),
         invoice: payment.invoice,
         customer: payment.customer,
       })),
@@ -152,7 +153,7 @@ export class DashboardService {
         where: {
           companyId,
           status: 'RECEIVED',
-          createdAt: { gte: monthStart },
+          paymentDate: { gte: monthStart },
         },
         _sum: { amount: true },
       }),

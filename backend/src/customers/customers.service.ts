@@ -131,7 +131,7 @@ export class CustomersService {
         where: { companyId, customerId: id },
         include: {
           items: true,
-          payments: { orderBy: { createdAt: 'desc' } },
+          payments: { orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }] },
         },
         orderBy: { issueDate: 'desc' },
       }),
@@ -142,7 +142,7 @@ export class CustomersService {
             select: { id: true, invoiceNumber: true, currency: true },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }],
       }),
     ]);
 
