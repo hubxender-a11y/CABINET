@@ -21,6 +21,8 @@ import {
   ExternalLink,
   Check,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { setSessionToken } from "@/lib/session";
@@ -81,8 +83,25 @@ type PlatformOverview = {
     totalsByCurrency: CurrencyTotals[];
   };
   companies: PlatformCompany[];
-  recentActivity: PlatformActivity[];
 };
+
+type PlatformActivityPage = {
+  items: PlatformActivity[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+};
+
+type PlatformTab = "overview" | "companies" | "users" | "themes" | "reports";
+
+const platformTabs: { id: PlatformTab; label: string; icon: typeof Activity }[] = [
+  { id: "overview", label: "Tableau global", icon: Activity },
+  { id: "companies", label: "Entreprises", icon: Building2 },
+  { id: "users", label: "Utilisateurs", icon: Users },
+  { id: "themes", label: "Thèmes", icon: Palette },
+  { id: "reports", label: "Rapports", icon: ArrowUpRight },
+];
 
 type PlatformUser = {
   id: string;
@@ -224,6 +243,10 @@ export default function PlatformAdminPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [platformUsers, setPlatformUsers] = useState<PlatformUser[]>([]);
+  const [activeTab, setActiveTab] = useState<PlatformTab>("overview");
+  const [activityPage, setActivityPage] = useState<PlatformActivityPage | null>(null);
+  const [activityPageNumber, setActivityPageNumber] = useState(1);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [usersLoading, setUsersLoading] = useState(true);
   const [savingCompany, setSavingCompany] = useState(false);
   const [companyEditorOpen, setCompanyEditorOpen] = useState(false);
@@ -270,10 +293,7 @@ export default function PlatformAdminPage() {
       !query || `${company.name} ${company.legalName}`.toLocaleLowerCase("fr-CD").includes(query),
     );
   }, [overview?.companies, search]);
-  const activities = useMemo(() => {
-    const events = overview?.recentActivity ?? [];
-    return effectiveCompanyId === "all" ? events : events.filter((event) => event.company.id === effectiveCompanyId);
-  }, [effectiveCompanyId, overview?.recentActivity]);
+  const activities = activityPage?.items ?? [];
 
   function toggleCard(card: DashboardCard) {
     const cards = preferences.cards.includes(card)
@@ -282,9 +302,33 @@ export default function PlatformAdminPage() {
     savePreferences({ ...preferences, cards });
   }
 
-  function scrollTo(id: string) {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+  useEffect(() => {
+    if (activeTab !== "reports") return;
+    const query = new URLSearchParams({ page: String(activityPageNumber), pageSize: "10" });
+    if (effectiveCompanyId !== "all") query.set("companyId", effectiveCompanyId);
+    let active = true;
+    void Promise.resolve()
+      .then(() => {
+        if (!active) return null;
+        setActivityLoading(true);
+        return apiRequest<PlatformActivityPage>(`/platform-admin/activities?${query.toString()}`);
+      })
+      .then((result) => { if (active && result) setActivityPage(result); })
+      .catch((caught: unknown) => {
+        if (active) {
+          setActivityPage(null);
+          setError(caught instanceof Error ? caught.message : "Impossible de charger le journal d’activité.");
+        }
+      })
+      .finally(() => { if (active) setActivityLoading(false); });
+    return () => { active = false; };
+  }, [activeTab, activityPageNumber, effectiveCompanyId]);
+
+  useEffect(() => {
+    if (activeTab === "companies" && companyEditorOpen) {
+      document.getElementById("theme-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [activeTab, companyEditorOpen]);
 
   useEffect(() => {
     let active = true;
@@ -307,7 +351,7 @@ export default function PlatformAdminPage() {
       logoUrl: company.logoUrl ?? "",
     });
     setCompanyEditorOpen(true);
-    window.setTimeout(() => scrollTo("theme-editor"), 0);
+    setActiveTab("companies");
   }
 
   function editSelectedCompany() {
@@ -425,17 +469,27 @@ export default function PlatformAdminPage() {
         </button>
       </header>
 
-      <nav className="platform-admin-section-nav" aria-label="Menus super-administrateur">
-        <button type="button" onClick={() => scrollTo("overview")}>Tableau global</button>
-        <button type="button" onClick={() => scrollTo("companies")}>Entreprises</button>
-        <button type="button" onClick={() => scrollTo("users")}>Utilisateurs</button>
-        <button type="button" onClick={() => scrollTo("themes")}>Thèmes</button>
-        <button type="button" onClick={() => scrollTo("reports")}>Rapports</button>
+      <nav className="platform-admin-section-nav" role="tablist" aria-label="Menus super-administrateur">
+        {platformTabs.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            id={`platform-tab-${id}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === id}
+            aria-controls={`platform-panel-${id}`}
+            tabIndex={activeTab === id ? 0 : -1}
+            onClick={() => setActiveTab(id)}
+          >
+            <Icon size={16} aria-hidden="true" />
+            {label}
+          </button>
+        ))}
       </nav>
 
       {error && <div role="alert" className="platform-admin-error">{error}</div>}
 
-      <section id="overview" className="platform-admin-section scroll-mt-24">
+      <section id="platform-panel-overview" role="tabpanel" aria-labelledby="platform-tab-overview" hidden={activeTab !== "overview"} className="platform-admin-section scroll-mt-24">
         <div className="platform-admin-section-heading">
           <div><p>INDICATEURS CONSOLIDÉS</p><h2>La plateforme, en un regard</h2></div>
           {overview && <span>Actualisé {dateTime(overview.generatedAt)}</span>}
@@ -465,7 +519,7 @@ export default function PlatformAdminPage() {
         </div>
       </section>
 
-      <section id="companies" className="platform-admin-section scroll-mt-24">
+      <section role="tabpanel" aria-labelledby="platform-tab-companies" id="platform-panel-companies" hidden={activeTab !== "companies"} className="platform-admin-section scroll-mt-24">
         <div className="platform-admin-section-heading">
           <div><p>GESTION MULTI-ENTREPRISE</p><h2>Activité par entreprise</h2></div>
           <label className="platform-admin-search">
@@ -531,7 +585,7 @@ export default function PlatformAdminPage() {
                   ))}
                   {!selectedCompany.invoicesByCurrency.length && !selectedCompany.paymentsByCurrency.length && <p className="platform-admin-empty">Aucun flux financier enregistré.</p>}
                 </div>
-                <button type="button" className="platform-admin-text-button" onClick={() => { setSelectedCompanyId(selectedCompany.id); scrollTo("activity"); }}>
+                <button type="button" className="platform-admin-text-button" onClick={() => { setSelectedCompanyId(selectedCompany.id); setActivityPageNumber(1); setActiveTab("reports"); }}>
                   Voir l’historique d’activité de cette entreprise <span aria-hidden="true">→</span>
                 </button>
               </>
@@ -579,7 +633,7 @@ export default function PlatformAdminPage() {
         )}
       </section>
 
-      <section id="themes" className="platform-admin-section scroll-mt-24">
+      <section role="tabpanel" aria-labelledby="platform-tab-themes" id="platform-panel-themes" hidden={activeTab !== "themes"} className="platform-admin-section scroll-mt-24">
         <div className="platform-admin-section-heading"><div><p>IDENTITÉ VISUELLE</p><h2>Thème de chaque entreprise</h2></div><Palette size={20} className="text-slate-400" /></div>
         <div className="platform-admin-theme-list">
           {(overview?.companies ?? []).map((company) => (
@@ -594,7 +648,7 @@ export default function PlatformAdminPage() {
         </div>
       </section>
 
-      <section id="users" className="platform-admin-section scroll-mt-24">
+      <section role="tabpanel" aria-labelledby="platform-tab-users" id="platform-panel-users" hidden={activeTab !== "users"} className="platform-admin-section scroll-mt-24">
         <div className="platform-admin-section-heading"><div><p>ACCÈS AUX ESPACES</p><h2>Utilisateurs des entreprises</h2></div><span>{platformUsers.length} accès</span></div>
         <div className="platform-admin-users-table">
           <div className="platform-admin-users-head"><span>Utilisateur</span><span>Entreprise</span><span>Rôle</span><span>Statut</span><span /></div>
@@ -612,16 +666,16 @@ export default function PlatformAdminPage() {
         <p className="platform-admin-footnote">L’action « Gérer » ouvre l’équipe de l’entreprise sélectionnée pour modifier les rôles et accès dans son contexte.</p>
       </section>
 
-      <section id="reports" className="platform-admin-section scroll-mt-24">
+      <section role="tabpanel" aria-labelledby="platform-tab-reports" id="platform-panel-reports" hidden={activeTab !== "reports"} className="platform-admin-section scroll-mt-24">
         <div className="platform-admin-section-heading">
           <div><p>RAPPORTS & JOURNAL DE LA PLATEFORME</p><h2>Rapports et activités récentes</h2></div>
-          <select value={effectiveCompanyId} onChange={(event) => setSelectedCompanyId(event.target.value)} aria-label="Filtrer les activités par entreprise" className="platform-admin-select">
+          <select value={effectiveCompanyId} onChange={(event) => { setActivityPageNumber(1); setSelectedCompanyId(event.target.value); }} aria-label="Filtrer les activités par entreprise" className="platform-admin-select">
             <option value="all">Toutes les entreprises</option>
             {(overview?.companies ?? []).map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
           </select>
         </div>
-        <div className="platform-admin-activity-list">
-          {activities.map((event) => (
+        <div className="platform-admin-activity-list" aria-live="polite">
+          {activityLoading ? <p className="platform-admin-empty">Chargement du journal d’activité…</p> : activities.map((event) => (
             <article className="platform-admin-activity-row" key={event.id}>
               <span className="platform-admin-activity-mark"><Activity size={16} /></span>
               <div className="min-w-0 flex-1">
@@ -632,12 +686,20 @@ export default function PlatformAdminPage() {
               <time dateTime={event.createdAt}>{dateTime(event.createdAt)}</time>
             </article>
           ))}
-          {!loading && !activities.length && <p className="platform-admin-empty">Aucune activité enregistrée pour ce filtre.</p>}
+          {!activityLoading && !activities.length && <p className="platform-admin-empty">Aucune activité enregistrée pour ce filtre.</p>}
+        </div>
+        <div className="platform-admin-pagination" aria-label="Pagination des activités">
+          <span>{activityPage?.totalCount ? `${(activityPage.page - 1) * activityPage.pageSize + 1}–${Math.min(activityPage.page * activityPage.pageSize, activityPage.totalCount)} sur ${activityPage.totalCount}` : "0 activité"}</span>
+          <div>
+            <button type="button" onClick={() => setActivityPageNumber((page) => Math.max(1, page - 1))} disabled={activityLoading || activityPageNumber <= 1} aria-label="Page précédente"><ChevronLeft size={16} /> Précédent</button>
+            <span>Page {activityPage?.page ?? activityPageNumber} / {Math.max(1, activityPage?.totalPages ?? 1)}</span>
+            <button type="button" onClick={() => setActivityPageNumber((page) => page + 1)} disabled={activityLoading || !activityPage || activityPage.page >= activityPage.totalPages} aria-label="Page suivante">Suivant <ChevronRight size={16} /></button>
+          </div>
         </div>
         <p className="platform-admin-footnote">Les activités affichées proviennent du journal d’audit de chaque entreprise. Les écritures financières ne sont pas modifiables depuis cette vue.</p>
       </section>
 
-      <section id="settings" className="platform-admin-section scroll-mt-24">
+      <section id="settings" hidden={activeTab !== "overview"} className="platform-admin-section scroll-mt-24">
         <div className="platform-admin-section-heading">
           <div><p>ESPACE PERSONNEL</p><h2>Configuration du super-admin</h2></div>
           <Settings2 size={20} className="text-slate-400" />
