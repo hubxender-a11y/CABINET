@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { useKinshasaDate } from "@/lib/use-kinshasa-date";
+import { DocumentFooter, DocumentLetterhead } from "@/components/document-letterhead";
 
 type MovementType =
   "ASSIGNMENT" | "TRANSFER" | "MAINTENANCE" | "RETURN" | "DISPOSAL";
@@ -464,6 +465,7 @@ export default function PatrimoinePage() {
       )}
 
       <section className="asset-period-report" aria-labelledby="asset-period-title">
+        <DocumentLetterhead />
         <div className="asset-period-header asset-period-screen-only">
           <div>
             <p className="asset-page-eyebrow">Rapport patrimonial</p>
@@ -477,7 +479,7 @@ export default function PatrimoinePage() {
           </label>
         </div>
         <div className="asset-period-print-heading">
-          <h1>Cabinet Transparency · État du patrimoine</h1>
+          <h1>État périodique du matériel</h1>
           <p>{reportPeriod ? new Intl.DateTimeFormat("fr-CD", { month: "long", year: "numeric", timeZone: "Africa/Kinshasa" }).format(new Date(`${reportPeriod}-15T12:00:00Z`)) : "Période non sélectionnée"} · situation au {periodReport ? formatDate(periodReport.through) : "—"}</p>
         </div>
         {periodError && <p role="alert" className="asset-period-screen-only rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{periodError}</p>}
@@ -546,6 +548,7 @@ export default function PatrimoinePage() {
               )}
             </div>
             <p className="asset-period-footnote">Les biens sortis restent visibles dans l’inventaire mais sont exclus des valeurs détenues. La valeur nette est estimative et ne génère pas d’écriture comptable.</p>
+            <DocumentFooter />
           </>
         ) : null}
       </section>

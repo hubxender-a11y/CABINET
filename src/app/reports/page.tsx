@@ -10,6 +10,7 @@ import {
   useCompanyProfile,
 } from "@/components/company-profile";
 import { formatDate, formatMoney } from "@/lib/formatting";
+import { DocumentFooter, DocumentLetterhead } from "@/components/document-letterhead";
 
 type ReportExpense = {
   id?: string;
@@ -414,6 +415,7 @@ export default function ReportsPage() {
 
   return (
     <div className="report-page space-y-5">
+      <div className="report-print-brand"><DocumentLetterhead /></div>
       <header className="report-header">
         <div>
           <p className="report-eyebrow">Pilotage comptable · Clôture mensuelle</p>
@@ -680,6 +682,7 @@ export default function ReportsPage() {
       )}
       {!periodBounds && period && <p role="alert" className="report-error">La période sélectionnée est invalide.</p>}
       {!period && <p className="report-loading report-screen-only">Préparation du rapport…</p>}
+      <div className="report-print-brand"><DocumentFooter /></div>
     </div>
   );
 }
