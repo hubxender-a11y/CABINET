@@ -31,6 +31,7 @@ import {
 import { useNotifications } from "@/components/notification-provider";
 import { formatDate, formatMoney } from "@/lib/formatting";
 import { useKinshasaDate } from "@/lib/use-kinshasa-date";
+import { DocumentFooter, DocumentLetterhead } from "@/components/document-letterhead";
 
 type PaymentStatus =
   "Payée" | "Partiellement payée" | "À payer" | "En retard" | "En attente";
@@ -1416,15 +1417,18 @@ export default function ClientsPage() {
               aria-label="Récapitulatif imprimable du dossier client"
             >
               <header className="client-dossier-print-header">
-                <p>Cabinet Transparency · DOSSIER CLIENT</p>
-                <h1>{selectedClient.name}</h1>
-                <p>
-                  {selectedClient.type === "INDIVIDUAL"
-                    ? "Personne physique"
-                    : "Entreprise"}
-                  {" · "}
-                  {selectedClient.sector} · Statut : {selectedClient.status}
-                </p>
+                <DocumentLetterhead />
+                <div>
+                  <p>DOSSIER CLIENT</p>
+                  <h1>{selectedClient.name}</h1>
+                  <p>
+                    {selectedClient.type === "INDIVIDUAL"
+                      ? "Personne physique"
+                      : "Entreprise"}
+                    {" · "}
+                    {selectedClient.sector} · Statut : {selectedClient.status}
+                  </p>
+                </div>
               </header>
               <section>
                 <h2>Informations du client</h2>
@@ -1607,6 +1611,7 @@ export default function ClientsPage() {
                 Document de synthèse généré le {formatDate(new Date())}. Les
                 pièces justificatives ne sont pas incluses dans ce PDF.
               </footer>
+              <DocumentFooter />
             </section>
           </>
         )}
