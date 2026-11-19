@@ -18,9 +18,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Cabinet Transparency | Gestion de cabinet",
+  title: "Facture Client | Gestion professionnelle",
   description:
-    "Espace de pilotage comptable des entreprises clientes, de leur facturation, fiscalité et archivage en RDC.",
+    "Plateforme de facturation et de gestion client pour les entreprises.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
