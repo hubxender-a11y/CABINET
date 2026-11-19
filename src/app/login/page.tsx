@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Building2, Check, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, ReceiptText, Check, ShieldCheck } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { sessionRole, setSessionToken } from "@/lib/session";
 
@@ -45,7 +45,6 @@ export default function LoginPage() {
     () => workspaces.find(({ id }) => id === selectedWorkspaceId) ?? workspaces[0],
     [selectedWorkspaceId, workspaces],
   );
-  const activeWorkspace = pendingSession?.workspace ?? selectedWorkspace;
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -105,7 +104,7 @@ export default function LoginPage() {
         accessToken: result.accessToken,
         workspace: {
           id: companyId ?? "current",
-          name: result.user?.companyName || workspace?.name || "Cabinet Transparency",
+          name: result.user?.companyName || workspace?.name || "Entreprise",
           logoUrl: result.user?.companyLogoUrl || workspace?.logoUrl || null,
           role: result.user?.role || workspace?.role,
         },
@@ -138,14 +137,18 @@ export default function LoginPage() {
     const source = safeWorkspaceLogo(logoUrl);
     return (
       <span className="login-workspace-logo">
-        <Image
-          src={source}
-          alt={`Logo ${name}`}
-          width={160}
-          height={70}
-          unoptimized
-          className="login-workspace-logo-image"
-        />
+        {source ? (
+          <Image
+            src={source}
+            alt={`Logo ${name}`}
+            width={160}
+            height={70}
+            unoptimized
+            className="login-workspace-logo-image"
+          />
+        ) : (
+          <ReceiptText aria-label={`Logo ${name}`} />
+        )}
       </span>
     );
   }
@@ -154,16 +157,16 @@ export default function LoginPage() {
     <main className="login-layout">
       <aside className="login-intro" aria-label="Espace professionnel">
         <div className="login-intro-brand">
-          {companyLogo(activeWorkspace?.logoUrl, activeWorkspace?.name || "Cabinet Transparency")}
+          <span className="login-intro-mark" aria-hidden="true"><ReceiptText /></span>
           <span className="login-intro-brand-copy">
-            <span className="login-intro-overline">ESPACE PROFESSIONNEL</span>
-            <strong>{activeWorkspace?.name || "Cabinet Transparency"}</strong>
+            <span className="login-intro-overline">FACTURATION · GESTION CLIENT</span>
+            <strong>Facture Client</strong>
           </span>
         </div>
         <div className="login-intro-copy">
-          <p>GESTION DE CABINET</p>
-          <h2>{workspaces.length ? "Choisissez le bon espace." : pendingSession ? "Votre espace est prêt." : "Toute votre activité, dans un espace sécurisé."}</h2>
-          <p>Facturation, dossiers clients et suivi du cabinet, réunis dans une interface claire.</p>
+          <p>VOTRE ESPACE DE GESTION</p>
+          <h2>{workspaces.length ? "Choisissez votre entreprise." : pendingSession ? "Votre espace est prêt." : "La gestion de vos clients, simplement."}</h2>
+          <p>Retrouvez vos clients, factures et règlements dans une plateforme sécurisée et facile à utiliser.</p>
         </div>
         <div className="login-intro-footer">
           <span className="login-status-dot" /> Accès sécurisé · République Démocratique du Congo
@@ -171,17 +174,17 @@ export default function LoginPage() {
       </aside>
       <section className="login-card" aria-live="polite">
         <div className="login-brand">
-          <span className="login-brand-mark"><Building2 aria-hidden="true" /></span>
+          <span className="login-brand-mark"><ReceiptText aria-hidden="true" /></span>
           <div>
-            <p className="login-eyebrow">CABINET TRANSPARENCY</p>
-            <p className="login-brand-caption">Gestion professionnelle</p>
+            <p className="login-eyebrow">FACTURE CLIENT</p>
+            <p className="login-brand-caption">Gestion de facturation</p>
           </div>
         </div>
         {!workspaces.length && !pendingSession ? (
           <form onSubmit={submit} className="login-form">
             <div className="login-heading">
-              <p className="login-step-label">VOTRE ESPACE DE TRAVAIL</p>
-              <h1>Connexion au cabinet</h1>
+              <p className="login-step-label">ESPACE CLIENT</p>
+              <h1>Bienvenue</h1>
               <p>Connectez-vous avec les identifiants fournis par votre administrateur.</p>
             </div>
             {sessionExpired && (
@@ -199,12 +202,12 @@ export default function LoginPage() {
             </label>
             {error && <p role="alert" className="login-alert login-alert-error">{error}</p>}
             <button type="submit" disabled={saving} className="login-submit">
-              <span>{saving ? "Vérification…" : "Continuer"}</span>
+              <span>{saving ? "Vérification…" : "Se connecter"}</span>
               {!saving && <ArrowRight aria-hidden="true" />}
             </button>
             <div className="login-security-note">
               <ShieldCheck aria-hidden="true" />
-              <p>Connexion privée réservée aux membres autorisés du cabinet.</p>
+              <p>Connexion sécurisée · accès réservé aux utilisateurs autorisés.</p>
             </div>
           </form>
         ) : workspaces.length ? (
@@ -275,7 +278,7 @@ function safeWorkspaceLogo(value?: string | null) {
   if (value && (/^\/[^/]/.test(value) || /^data:image\/(?:jpeg|png|webp);base64,/i.test(value))) {
     return value;
   }
-  return "/branding/ctrs-logo.jpg";
+  return null;
 }
 
 function formatRole(role: string) {
