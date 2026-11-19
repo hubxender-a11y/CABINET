@@ -83,6 +83,7 @@ type PlatformOverview = {
     totalsByCurrency: CurrencyTotals[];
   };
   companies: PlatformCompany[];
+  recentActivity?: PlatformActivity[];
 };
 
 type PlatformActivityPage = {
@@ -247,6 +248,7 @@ export default function PlatformAdminPage() {
   const [activityPage, setActivityPage] = useState<PlatformActivityPage | null>(null);
   const [activityPageNumber, setActivityPageNumber] = useState(1);
   const [activityLoading, setActivityLoading] = useState(false);
+  const [activityFallback, setActivityFallback] = useState(false);
   const [usersLoading, setUsersLoading] = useState(true);
   const [savingCompany, setSavingCompany] = useState(false);
   const [companyEditorOpen, setCompanyEditorOpen] = useState(false);
@@ -293,7 +295,15 @@ export default function PlatformAdminPage() {
       !query || `${company.name} ${company.legalName}`.toLocaleLowerCase("fr-CD").includes(query),
     );
   }, [overview?.companies, search]);
-  const activities = activityPage?.items ?? [];
+  const fallbackActivities = (overview?.recentActivity ?? []).filter(
+    (event) => effectiveCompanyId === "all" || event.company.id === effectiveCompanyId,
+  );
+  const fallbackTotalPages = Math.ceil(fallbackActivities.length / 10);
+  const activities = activityPage?.items ?? (activityFallback
+    ? fallbackActivities.slice((activityPageNumber - 1) * 10, activityPageNumber * 10)
+    : []);
+  const activityTotalCount = activityPage?.totalCount ?? (activityFallback ? fallbackActivities.length : 0);
+  const activityTotalPages = Math.max(1, activityPage?.totalPages ?? fallbackTotalPages);
 
   function toggleCard(card: DashboardCard) {
     const cards = preferences.cards.includes(card)
@@ -303,7 +313,7 @@ export default function PlatformAdminPage() {
   }
 
   useEffect(() => {
-    if (activeTab !== "reports") return;
+    if (activeTab !== "reports" || activityFallback) return;
     const query = new URLSearchParams({ page: String(activityPageNumber), pageSize: "10" });
     if (effectiveCompanyId !== "all") query.set("companyId", effectiveCompanyId);
     let active = true;
@@ -317,12 +327,13 @@ export default function PlatformAdminPage() {
       .catch((caught: unknown) => {
         if (active) {
           setActivityPage(null);
-          setError(caught instanceof Error ? caught.message : "Impossible de charger le journal d’activité.");
+          if (overview?.recentActivity) setActivityFallback(true);
+          else setError(caught instanceof Error ? caught.message : "Impossible de charger le journal d’activité.");
         }
       })
       .finally(() => { if (active) setActivityLoading(false); });
     return () => { active = false; };
-  }, [activeTab, activityPageNumber, effectiveCompanyId]);
+  }, [activeTab, activityFallback, activityPageNumber, effectiveCompanyId, overview?.recentActivity]);
 
   useEffect(() => {
     if (activeTab === "companies" && companyEditorOpen) {
@@ -689,11 +700,11 @@ export default function PlatformAdminPage() {
           {!activityLoading && !activities.length && <p className="platform-admin-empty">Aucune activité enregistrée pour ce filtre.</p>}
         </div>
         <div className="platform-admin-pagination" aria-label="Pagination des activités">
-          <span>{activityPage?.totalCount ? `${(activityPage.page - 1) * activityPage.pageSize + 1}–${Math.min(activityPage.page * activityPage.pageSize, activityPage.totalCount)} sur ${activityPage.totalCount}` : "0 activité"}</span>
+          <span>{activityTotalCount ? `${(activityPage?.page ? activityPage.page - 1 : activityPageNumber - 1) * (activityPage?.pageSize ?? 10) + 1}–${Math.min((activityPage?.page ?? activityPageNumber) * (activityPage?.pageSize ?? 10), activityTotalCount)} sur ${activityTotalCount}` : "0 activité"}</span>
           <div>
             <button type="button" onClick={() => setActivityPageNumber((page) => Math.max(1, page - 1))} disabled={activityLoading || activityPageNumber <= 1} aria-label="Page précédente"><ChevronLeft size={16} /> Précédent</button>
-            <span>Page {activityPage?.page ?? activityPageNumber} / {Math.max(1, activityPage?.totalPages ?? 1)}</span>
-            <button type="button" onClick={() => setActivityPageNumber((page) => page + 1)} disabled={activityLoading || !activityPage || activityPage.page >= activityPage.totalPages} aria-label="Page suivante">Suivant <ChevronRight size={16} /></button>
+            <span>Page {activityPage?.page ?? activityPageNumber} / {activityTotalPages}</span>
+            <button type="button" onClick={() => setActivityPageNumber((page) => page + 1)} disabled={activityLoading || activityPageNumber >= activityTotalPages} aria-label="Page suivante">Suivant <ChevronRight size={16} /></button>
           </div>
         </div>
         <p className="platform-admin-footnote">Les activités affichées proviennent du journal d’audit de chaque entreprise. Les écritures financières ne sont pas modifiables depuis cette vue.</p>
