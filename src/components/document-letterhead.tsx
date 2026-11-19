@@ -1,4 +1,5 @@
 import Image from "next/image";
+import type { CSSProperties } from "react";
 import {
   companyDisplayName,
   useCompanyProfile,
@@ -22,10 +23,24 @@ export function DocumentLetterhead() {
   const { profile } = useCompanyProfile();
   const companyName = companyDisplayName(profile);
   const usesDefaultBrand = isDefaultBrand(companyName, Boolean(profile));
+  const logoUrl = profile?.logoUrl?.trim();
+  const brandStyle = {
+    "--document-primary": profile?.primaryColor || "#003367",
+    "--document-accent": profile?.accentColor || "#ffae00",
+  } as CSSProperties;
 
   return (
-    <header className="document-letterhead">
-      {usesDefaultBrand ? (
+    <header className="document-letterhead" style={brandStyle}>
+      {logoUrl ? (
+        <Image
+          src={logoUrl}
+          alt={`Logo ${companyName}`}
+          width={373}
+          height={94}
+          unoptimized
+          className="document-letterhead-logo"
+        />
+      ) : usesDefaultBrand ? (
         <Image
           src="/branding/ctrs-logo.jpg"
           alt="Cabinet Transparency"
@@ -43,7 +58,10 @@ export function DocumentLetterhead() {
   );
 }
 
-export function DocumentFooterWave({ fill = "#003367" }: { fill?: string }) {
+export function DocumentFooterWave({ fill }: { fill?: string }) {
+  const { profile } = useCompanyProfile();
+  const primary = fill || profile?.primaryColor || "#003367";
+  const accent = profile?.accentColor || "#ffae00";
   return (
     <svg
       className="document-footer-wave"
@@ -51,9 +69,9 @@ export function DocumentFooterWave({ fill = "#003367" }: { fill?: string }) {
       preserveAspectRatio="none"
       aria-hidden="true"
     >
-      <path d="M0 0 Q87 26 210 4 L210 50 L0 50 Z" fill="#ffae00" />
+      <path d="M0 0 Q87 26 210 4 L210 50 L0 50 Z" fill={accent} />
       <path d="M0 4.5 Q87 29 210 5 L210 50 L0 50 Z" fill="#ffffff" />
-      <path d="M0 6 Q87 31 210 6.5 L210 50 L0 50 Z" fill={fill} />
+      <path d="M0 6 Q87 31 210 6.5 L210 50 L0 50 Z" fill={primary} />
     </svg>
   );
 }
@@ -62,6 +80,10 @@ export function DocumentFooter() {
   const { profile } = useCompanyProfile();
   const companyName = companyDisplayName(profile);
   const usesDefaultBrand = isDefaultBrand(companyName, Boolean(profile));
+  const brandStyle = {
+    "--document-primary": profile?.primaryColor || "#142b48",
+    "--document-accent": profile?.accentColor || "#ffcc00",
+  } as CSSProperties;
   const legalName =
     usesDefaultBrand
       ? defaultLegalName
@@ -89,7 +111,7 @@ export function DocumentFooter() {
   ].filter(Boolean);
 
   return (
-    <footer className="document-footer">
+    <footer className="document-footer" style={brandStyle}>
       <div className="document-footer-content">
         <p className="document-footer-legal">
           {legalName}

@@ -19,6 +19,16 @@ export class PlatformAdminController {
     return this.platformAdmin.overview();
   }
 
+  @Get('activities')
+  @ApiOperation({ summary: 'Read paginated cross-company audit activity' })
+  activities(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('companyId') companyId?: string,
+  ) {
+    return this.platformAdmin.activities(page, pageSize, companyId);
+  }
+
   @Get('users')
   @ApiOperation({ summary: 'Read users across company workspaces' })
   users(@Query('companyId') companyId?: string) {

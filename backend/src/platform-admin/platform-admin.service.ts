@@ -17,6 +17,47 @@ const trackedCompanyCounts = {
 export class PlatformAdminService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async activities(pageValue?: string, pageSizeValue?: string, companyId?: string) {
+    const parsedPage = Number.parseInt(pageValue ?? '1', 10);
+    const parsedPageSize = Number.parseInt(pageSizeValue ?? '10', 10);
+    const page = Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1;
+    const pageSize = Number.isFinite(parsedPageSize)
+      ? Math.min(50, Math.max(5, parsedPageSize))
+      : 10;
+    const where = companyId ? { companyId } : undefined;
+    const [totalCount, events] = await Promise.all([
+      this.prisma.auditLog.count({ where }),
+      this.prisma.auditLog.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          action: true,
+          details: true,
+          createdAt: true,
+          company: { select: { id: true, legalName: true, tradeName: true } },
+          user: { select: { name: true, email: true } },
+        },
+      }),
+    ]);
+
+    return {
+      items: events.map((event) => ({
+        ...event,
+        company: {
+          id: event.company.id,
+          name: event.company.tradeName || event.company.legalName,
+        },
+      })),
+      page,
+      pageSize,
+      totalCount,
+      totalPages: Math.ceil(totalCount / pageSize),
+    };
+  }
+
   async users(companyId?: string) {
     const memberships = await this.prisma.companyMembership.findMany({
       where: companyId ? { companyId } : undefined,
@@ -71,7 +112,6 @@ export class PlatformAdminService {
       invoiceTotals,
       paymentTotals,
       orderStatuses,
-      recentActivity,
       activityToday,
       userCount,
     ] = await Promise.all([
@@ -108,18 +148,6 @@ export class PlatformAdminService {
       this.prisma.paymentOrder.groupBy({
         by: ['companyId', 'status'],
         _count: { _all: true },
-      }),
-      this.prisma.auditLog.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-        select: {
-          id: true,
-          action: true,
-          details: true,
-          createdAt: true,
-          company: { select: { id: true, legalName: true, tradeName: true } },
-          user: { select: { name: true, email: true } },
-        },
       }),
       this.prisma.auditLog.count({ where: { createdAt: { gte: today } } }),
       this.prisma.user.count({ where: { isActive: true } }),
@@ -240,13 +268,6 @@ export class PlatformAdminService {
         ),
       },
       companies: companyRows,
-      recentActivity: recentActivity.map((event) => ({
-        ...event,
-        company: {
-          id: event.company.id,
-          name: event.company.tradeName || event.company.legalName,
-        },
-      })),
     };
   }
 }
