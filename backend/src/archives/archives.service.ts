@@ -433,6 +433,9 @@ export class ArchivesService {
           },
         });
         return created;
+      }, {
+        maxWait: 10_000,
+        timeout: 30_000,
       })
       .catch((error: unknown) => {
         if (
