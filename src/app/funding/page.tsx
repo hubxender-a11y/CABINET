@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Banknote, Check, CircleAlert, RefreshCw, Wallet } from "lucide-react";
+import { Fragment, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Banknote, Check, CircleAlert, Landmark, RefreshCw, Wallet } from "lucide-react";
 import { useWorkspaceStore } from "@/components/workspace-store";
 import { useCompanyProfile } from "@/components/company-profile";
 import { apiRequest } from "@/lib/api";
@@ -28,9 +28,10 @@ type CashMovement = {
   description: string;
   reference?: string | null;
   sourceType: string;
-  cashAccount: { name: string; currency: Currency };
+  cashAccount: { name: string; currency: Currency; accountType: string };
 };
 type Treasury = { accounts: CashAccount[]; movements: CashMovement[] };
+type EntryAccountFilter = "ALL" | "CASH" | "BANK";
 
 export default function FundingPage() {
   const { databaseConnected } = useWorkspaceStore();
@@ -41,6 +42,8 @@ export default function FundingPage() {
     movements: [],
   });
   const [userRole, setUserRole] = useState("");
+  const [entryAccountFilter, setEntryAccountFilter] =
+    useState<EntryAccountFilter>("ALL");
   const [dateOverride, setDateOverride] = useState<string | null>(null);
   const date = dateOverride ?? today;
   const [currency, setCurrency] = useState<Currency>("USD");
@@ -95,8 +98,16 @@ export default function FundingPage() {
     "CASHIER",
   ].includes(userRole);
   const fundingMovements = useMemo(
-    () => treasury.movements.filter((movement) => movement.direction === "IN"),
-    [treasury.movements],
+    () =>
+      treasury.movements.filter(
+        (movement) =>
+          movement.direction === "IN" &&
+          (entryAccountFilter === "ALL" ||
+            (entryAccountFilter === "BANK"
+              ? ["BANK_TRANSFER", "CARD"].includes(movement.cashAccount.accountType)
+              : movement.cashAccount.accountType === entryAccountFilter)),
+      ),
+    [entryAccountFilter, treasury.movements],
   );
   const exchangeRate = Number(profile?.exchangeRateCdfPerUsd ?? 0);
   const usdCash = treasury.accounts.find(
@@ -229,7 +240,7 @@ export default function FundingPage() {
             Approvisionnements
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Tous les fonds reçus et leur solde disponible pour les OP.
+            Les espèces alimentent le disponible OP. Les virements restent suivis en banque.
           </p>
         </div>
         <button
@@ -261,37 +272,37 @@ export default function FundingPage() {
         {databaseConnected ? "Caisse connectée" : "Serveur indisponible"}
       </div>
 
-      <section className="grid gap-4 sm:grid-cols-2">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {(["USD", "CDF"] as const).map((code) => {
           const account = treasury.accounts.find(
             (item) => item.currency === code && item.accountType === "CASH",
           );
+          const bankBalance = treasury.accounts
+            .filter((item) => item.currency === code && ["BANK_TRANSFER", "CARD"].includes(item.accountType))
+            .reduce((sum, item) => sum + Number(item.balance), 0);
           return (
-            <article
-              key={code}
-              className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Disponible OP · {code}
-                  </p>
-                  <p className="mt-1 text-2xl font-semibold text-slate-900">
-                    {formatMoney(
-                      Number(account?.paymentOrderAvailable ?? 0),
-                      code,
-                    )}
-                  </p>
+            <Fragment key={code}>
+              <article className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
+                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Disponible OP · {code}</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900">{formatMoney(Number(account?.paymentOrderAvailable ?? 0), code)}</p>
+                  </div>
+                  <span className="rounded-xl bg-blue-50 p-3 text-blue-700"><Wallet className="h-5 w-5" /></span>
                 </div>
-                <span className="rounded-xl bg-blue-50 p-3 text-blue-700">
-                  <Wallet className="h-5 w-5" />
-                </span>
-              </div>
-              <p className="px-5 py-3 text-xs text-slate-500">
-                Solde de caisse ·{" "}
-                {formatMoney(Number(account?.balance ?? 0), code)}
-              </p>
-            </article>
+                <p className="px-5 py-3 text-xs text-slate-500">Espèces en caisse · {formatMoney(Number(account?.balance ?? 0), code)}</p>
+              </article>
+              <article className="overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm">
+                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-teal-700">En banque · {code}</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900">{formatMoney(bankBalance, code)}</p>
+                  </div>
+                  <span className="rounded-xl bg-teal-50 p-3 text-teal-700"><Landmark className="h-5 w-5" /></span>
+                </div>
+                <p className="px-5 py-3 text-xs text-slate-500">Solde saisi · hors disponible OP</p>
+              </article>
+            </Fragment>
           );
         })}
       </section>
@@ -430,16 +441,33 @@ export default function FundingPage() {
         )}
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="font-semibold text-slate-900">
-                Livre des entrées
+                Journal des encaissements
               </h2>
               <p className="mt-1 text-xs text-slate-500">
                 {loading
                   ? "Chargement…"
                   : `${fundingMovements.length} mouvement(s)`}
               </p>
+            </div>
+            <div className="inline-flex w-fit max-w-full flex-wrap gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label="Filtrer les encaissements par compte">
+              {([
+                ["ALL", "Tous"],
+                ["CASH", "Caisse"],
+                ["BANK", "Banque"],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={entryAccountFilter === value}
+                  onClick={() => setEntryAccountFilter(value)}
+                  className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${entryAccountFilter === value ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
           {fundingMovements.length ? (

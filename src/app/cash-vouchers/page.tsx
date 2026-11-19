@@ -87,6 +87,7 @@ type CashMovement = {
     accountType: string;
   };
 };
+type TreasuryAccountFilter = "ALL" | "CASH" | "BANK";
 type Treasury = { accounts: CashAccount[]; movements: CashMovement[] };
 type TreasuryPeriod = {
   from: string;
@@ -94,6 +95,15 @@ type TreasuryPeriod = {
   accounts: PeriodCashAccount[];
   movements: CashMovement[];
 };
+
+function matchesAccountFilter(
+  accountType: string,
+  filter: TreasuryAccountFilter,
+) {
+  if (filter === "ALL") return true;
+  if (filter === "BANK") return ["BANK_TRANSFER", "CARD"].includes(accountType);
+  return accountType === filter;
+}
 
 function amountInWords(value: string, currency: Currency) {
   const number = Number(value);
@@ -211,7 +221,11 @@ export default function CashVouchersPage() {
   const [periodData, setPeriodData] = useState<TreasuryPeriod | null>(null);
   const [periodCompletedKey, setPeriodCompletedKey] = useState("");
   const [printData, setPrintData] = useState<
-    (TreasuryPeriod & { printedAt: string }) | null
+    (TreasuryPeriod & {
+      printedAt: string;
+      accountFilter: TreasuryAccountFilter;
+      movementBalances: Array<CashMovement & { balanceAfter: number }>;
+    }) | null
   >(null);
   const [printDocument, setPrintDocument] = useState<
     "ledger" | "treasury" | null
@@ -226,6 +240,8 @@ export default function CashVouchersPage() {
   const [currency, setCurrency] = useState<Currency>("CDF");
   const [reference, setReference] = useState("");
   const [query, setQuery] = useState("");
+  const [accountFilter, setAccountFilter] =
+    useState<TreasuryAccountFilter>("CASH");
   const [loading, setLoading] = useState(true);
   const isLoading = databaseConnected && loading;
   const [userRole, setUserRole] = useState("");
@@ -410,6 +426,7 @@ export default function CashVouchersPage() {
   const periodTotals = useMemo(() => {
     const totals: Record<string, { entries: number; exits: number }> = {};
     for (const movement of selectedPeriodData?.movements ?? []) {
+      if (!matchesAccountFilter(movement.cashAccount.accountType, accountFilter)) continue;
       const total = totals[movement.cashAccountId] ?? { entries: 0, exits: 0 };
       total[movement.direction === "IN" ? "entries" : "exits"] += Number(
         movement.amount,
@@ -417,8 +434,12 @@ export default function CashVouchersPage() {
       totals[movement.cashAccountId] = total;
     }
     return totals;
-  }, [selectedPeriodData]);
-  const displayedMovements = selectedPeriodData ? periodMovementBalances : [];
+  }, [accountFilter, selectedPeriodData]);
+  const displayedMovements = selectedPeriodData
+    ? periodMovementBalances.filter(
+        (movement) => matchesAccountFilter(movement.cashAccount.accountType, accountFilter),
+      )
+    : [];
 
   async function submitVoucher(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -561,9 +582,19 @@ export default function CashVouchersPage() {
     }
     setError("");
     setPrintSaving(true);
+    const filteredMovements = periodMovementBalances.filter(
+      (movement) => matchesAccountFilter(movement.cashAccount.accountType, accountFilter),
+    );
+    const filteredAccounts = selectedPeriodData.accounts.filter(
+      (account) => matchesAccountFilter(account.accountType, accountFilter),
+    );
     flushSync(() => {
       setPrintData({
         ...selectedPeriodData,
+        accounts: filteredAccounts,
+        movements: filteredMovements,
+        movementBalances: filteredMovements,
+        accountFilter,
         printedAt: new Date().toISOString(),
       });
       setPrintDocument(kind);
@@ -1218,9 +1249,11 @@ export default function CashVouchersPage() {
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center">
           <div>
-            <h2 className="font-semibold text-slate-900">Livre de caisse</h2>
+            <h2 className="font-semibold text-slate-900">
+              {accountFilter === "BANK" ? "Journal bancaire" : accountFilter === "ALL" ? "Livre de trésorerie" : "Livre de caisse"}
+            </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Journal des entrées, sorties et soldes après chaque mouvement.
+              {accountFilter === "BANK" ? "Suivez les virements reçus sans les confondre avec les espèces." : accountFilter === "ALL" ? "Journal des entrées, sorties et soldes de tous les comptes." : "Journal des entrées, sorties et soldes de caisse."}
             </p>
           </div>
           <button
@@ -1235,10 +1268,10 @@ export default function CashVouchersPage() {
             }
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <Printer className="h-4 w-4" /> Imprimer le livre
+            <Printer className="h-4 w-4" /> Imprimer le journal
           </button>
         </div>
-        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-[1fr_1fr_180px_auto] sm:items-end">
           <label className="block text-sm font-medium text-slate-700">
             Période · du
             <input
@@ -1259,6 +1292,18 @@ export default function CashVouchersPage() {
               className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
             />
           </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Compte
+            <select
+              value={accountFilter}
+              onChange={(event) => setAccountFilter(event.target.value as TreasuryAccountFilter)}
+              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            >
+              <option value="CASH">Caisse</option>
+              <option value="BANK">Banque</option>
+              <option value="ALL">Tous les comptes</option>
+            </select>
+          </label>
           <div className="pb-2 text-sm text-slate-500" aria-live="polite">
             {!periodStart || !periodEnd
               ? "Sélectionnez les deux dates pour consulter ou imprimer."
@@ -1267,11 +1312,11 @@ export default function CashVouchersPage() {
                 : selectedPeriodLoading
                   ? "Chargement de la période…"
                   : selectedPeriodData
-                    ? `${selectedPeriodData.movements.length} mouvement${selectedPeriodData.movements.length > 1 ? "s" : ""} sur la période`
+                    ? `${displayedMovements.length} mouvement${displayedMovements.length > 1 ? "s" : ""} sur la période`
                     : "Aucune donnée de période disponible."}
           </div>
         </div>
-        {periodLoadedForSelection && selectedPeriodData?.movements.length ? (
+        {periodLoadedForSelection && displayedMovements.length ? (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -1352,8 +1397,12 @@ export default function CashVouchersPage() {
             {selectedPeriodLoading
               ? "Chargement des mouvements…"
               : selectedPeriodValid
-                ? "Aucun mouvement de caisse sur cette période."
-                : "Sélectionnez une période pour afficher le livre de caisse."}
+                ? accountFilter === "BANK"
+                  ? "Aucun virement bancaire sur cette période."
+                  : accountFilter === "CASH"
+                    ? "Aucun mouvement de caisse sur cette période."
+                    : "Aucun mouvement de trésorerie sur cette période."
+                : "Sélectionnez une période pour afficher le livre."}
           </p>
         )}
       </section>
@@ -1371,14 +1420,14 @@ export default function CashVouchersPage() {
               <div className="cash-period-print-title">
                 <div>
                   <p>Trésorerie · Journal des mouvements</p>
-                  <h1>LIVRE DE CAISSE</h1>
+                  <h1>{printData.accountFilter === "BANK" ? "JOURNAL BANCAIRE" : printData.accountFilter === "ALL" ? "LIVRE DE TRÉSORERIE" : "LIVRE DE CAISSE"}</h1>
                 </div>
                 <strong>
                   {formatDate(printData.from)} — {formatDate(printData.to)}
                 </strong>
               </div>
               <p className="cash-period-print-note">
-                Tous les comptes et modes d’encaissement · du{" "}
+                {printData.accountFilter === "BANK" ? "Banque · virements et cartes" : printData.accountFilter === "CASH" ? "Mouvements de caisse" : "Tous les comptes"} · du{" "}
                 {formatDate(printData.from)} au {formatDate(printData.to)}
               </p>
               <table>
@@ -1393,7 +1442,7 @@ export default function CashVouchersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {periodMovementBalances.map((movement) => (
+                  {printData.movementBalances.map((movement) => (
                     <tr key={movement.id}>
                       <td>{formatDate(movement.date)}</td>
                       <td>

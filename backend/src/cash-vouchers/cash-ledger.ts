@@ -109,11 +109,19 @@ export async function getPaymentOrderFundingBalance(
 ) {
   const sourceAccount = await transaction.cashAccount.findFirst({
     where: { id: cashAccountId, companyId },
-    select: { currency: true },
+    select: { currency: true, accountType: true },
   });
-  if (!sourceAccount) return new Prisma.Decimal(0);
+  // OP funds are the funds actually held in cash. Bank receipts remain part
+  // of treasury, but must never increase the cash available for an OP.
+  if (!sourceAccount || sourceAccount.accountType !== 'CASH')
+    return new Prisma.Decimal(0);
   const accounts = await transaction.cashAccount.findMany({
-    where: { companyId, currency: sourceAccount.currency, isActive: true },
+    where: {
+      companyId,
+      currency: sourceAccount.currency,
+      accountType: 'CASH',
+      isActive: true,
+    },
     select: { id: true },
   });
   const rows = await transaction.cashMovement.groupBy({

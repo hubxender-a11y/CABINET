@@ -67,6 +67,8 @@ export class CashVouchersService {
       await Promise.all([
         ensureCashAccount(transaction, companyId, 'CDF'),
         ensureCashAccount(transaction, companyId, 'USD'),
+        ensureTreasuryAccount(transaction, companyId, 'CDF', 'BANK_TRANSFER'),
+        ensureTreasuryAccount(transaction, companyId, 'USD', 'BANK_TRANSFER'),
       ]);
       const accounts = await transaction.cashAccount.findMany({
         where: { companyId },
@@ -135,6 +137,8 @@ export class CashVouchersService {
       await Promise.all([
         ensureCashAccount(transaction, companyId, 'CDF'),
         ensureCashAccount(transaction, companyId, 'USD'),
+        ensureTreasuryAccount(transaction, companyId, 'CDF', 'BANK_TRANSFER'),
+        ensureTreasuryAccount(transaction, companyId, 'USD', 'BANK_TRANSFER'),
       ]);
       const accounts = await transaction.cashAccount.findMany({
         where: { companyId },
