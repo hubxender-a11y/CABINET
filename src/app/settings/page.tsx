@@ -57,6 +57,7 @@ function toChanges(profile: CompanyProfile): CompanyProfileChanges {
   return {
     legalName: profile.legalName,
     tradeName: profile.tradeName,
+    logoUrl: profile.logoUrl,
     rccm: profile.rccm,
     nin: profile.nin,
     nif: profile.nif,
@@ -269,6 +270,38 @@ function PlatformCompaniesPanel({ refreshProfile }: { refreshProfile: () => Prom
   );
 }
 
+const maxCompanyLogoDataUrlLength = 70_000;
+
+function optimizeCompanyLogo(file: File) {
+  if (!file.type.startsWith("image/")) return Promise.reject(new Error("Sélectionnez une image pour le logo."));
+  if (file.size > 5 * 1024 * 1024) return Promise.reject(new Error("Le logo ne peut pas dépasser 5 Mo."));
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Impossible de lire le logo."));
+    reader.onload = () => {
+      const image = new window.Image();
+      image.onerror = () => reject(new Error("Le fichier sélectionné ne peut pas être décodé comme une image."));
+      image.onload = () => {
+        const scale = Math.min(1, 720 / image.width, 420 / image.height);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        if (!context) return reject(new Error("Impossible de préparer le logo."));
+        context.fillStyle = "#ffffff"; context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        for (const quality of [0.9, 0.82, 0.74, 0.66, 0.58, 0.5, 0.42]) {
+          const dataUrl = canvas.toDataURL("image/jpeg", quality);
+          if (dataUrl.length <= maxCompanyLogoDataUrlLength) return resolve(dataUrl);
+        }
+        reject(new Error("Ce logo est trop détaillé. Choisissez une image plus simple."));
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 const maxSignatureDataUrlLength = 70_000;
 
 function optimizeSignatureImage(file: File) {
@@ -425,6 +458,21 @@ export default function SettingsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleCompanyLogo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError(""); setMessage("");
+    try {
+      const logoUrl = await optimizeCompanyLogo(file);
+      updateField("logoUrl", logoUrl);
+      notify({ type: "info", title: "Logo prêt", message: "Enregistrez les paramètres pour l’utiliser à la connexion." });
+    } catch (caught) {
+      const reason = caught instanceof Error ? caught.message : "Impossible de préparer le logo.";
+      setError(reason);
+      notify({ type: "error", title: "Logo refusé", message: reason });
+    } finally { event.target.value = ""; }
   }
 
   async function handleSignatureImage(event: ChangeEvent<HTMLInputElement>) {
@@ -596,6 +644,19 @@ export default function SettingsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               {renderFields(identityFields)}
               {renderFields(registrationFields)}
+            </div>
+            <div className="mt-5 grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              <label className="space-y-2 text-sm font-medium text-slate-700">
+                Logo affiché à la connexion
+                <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void handleCompanyLogo(event)} className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:font-medium file:text-blue-700" />
+                <span className="block text-xs font-normal leading-5 text-slate-500">JPG, PNG ou WebP · 5 Mo maximum. Le logo est optimisé avant son enregistrement.</span>
+              </label>
+              {draft.logoUrl ? (
+                <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <Image src={draft.logoUrl} alt={`Logo ${displayName}`} width={150} height={72} unoptimized className="h-[72px] w-[150px] rounded-lg bg-white object-contain p-2" />
+                  <button type="button" onClick={() => updateField("logoUrl", null)} className="text-sm font-medium text-rose-700 hover:text-rose-800">Retirer</button>
+                </div>
+              ) : <div className="grid h-[88px] w-[160px] place-items-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 text-center text-xs text-slate-500">Logo par défaut</div>}
             </div>
           </section>
 

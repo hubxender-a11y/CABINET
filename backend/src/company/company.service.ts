@@ -13,6 +13,7 @@ const companyFields = {
   id: true,
   legalName: true,
   tradeName: true,
+  logoUrl: true,
   rccm: true,
   nin: true,
   nif: true,
@@ -368,6 +369,7 @@ export class CompanyService {
       ...(dto.tradeName !== undefined
         ? { tradeName: dto.tradeName?.trim() || null }
         : {}),
+      ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl } : {}),
       ...(dto.rccm !== undefined ? { rccm: dto.rccm?.trim() || null } : {}),
       ...(dto.nin !== undefined ? { nin: dto.nin?.trim() || null } : {}),
       ...(dto.nif !== undefined ? { nif: dto.nif?.trim() || null } : {}),

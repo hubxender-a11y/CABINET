@@ -7782,3 +7782,536 @@ summary:focus-visible {
     transition: none !important;
   }
 }
+
+
+/* Secure, tenant-aware sign-in */
+.app-login {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  overflow: auto;
+  padding: clamp(0.75rem, 3vw, 2.5rem);
+  background:
+    radial-gradient(ellipse at 10% 5%, rgb(209 157 45 / 13%), transparent 30rem),
+    radial-gradient(ellipse at 90% 95%, rgb(17 68 103 / 9%), transparent 34rem),
+    #f2f5f7;
+}
+
+.app-login > .login-layout {
+  display: grid;
+  width: min(100%, 72rem);
+  min-height: min(43rem, calc(100dvh - 3rem));
+  grid-template-columns: minmax(0, 0.92fr) minmax(28rem, 1.08fr);
+  overflow: hidden;
+  border: 1px solid #e2e8ed;
+  border-radius: 1.6rem;
+  background: #fff;
+  box-shadow: 0 28px 80px rgb(20 38 52 / 13%), 0 5px 18px rgb(20 38 52 / 5%);
+}
+
+.app-login .login-intro {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2.5rem;
+  overflow: hidden;
+  padding: clamp(2rem, 4vw, 3.5rem);
+  color: #fff;
+  background:
+    radial-gradient(circle at 87% 82%, rgb(221 165 52 / 22%), transparent 18rem),
+    linear-gradient(145deg, #102a40 0%, #123d58 57%, #0d314a 100%);
+}
+
+.app-login .login-intro::before {
+  position: absolute;
+  z-index: -1;
+  top: 31%;
+  right: -13rem;
+  width: 33rem;
+  height: 33rem;
+  border: 1px solid rgb(245 198 112 / 22%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2.4rem rgb(245 198 112 / 5%), 0 0 0 4.8rem rgb(245 198 112 / 4%);
+  content: "";
+  pointer-events: none;
+}
+
+.login-intro-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  min-width: 0;
+  letter-spacing: normal;
+}
+
+.login-intro-brand-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+
+.login-intro-brand-copy strong {
+  overflow: hidden;
+  font-size: 0.96rem;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-intro-overline {
+  color: #e4bf76;
+  font-size: 0.6rem;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+}
+
+.login-workspace-logo {
+  display: grid;
+  width: 3.9rem;
+  height: 3.9rem;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #e8edf0;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 4px 14px rgb(16 39 56 / 10%);
+}
+
+.login-workspace-logo-image {
+  width: 100%;
+  height: 100%;
+  padding: 0.3rem;
+  object-fit: contain;
+}
+
+.app-login .login-intro-copy {
+  max-width: 31rem;
+  margin-block: auto;
+}
+
+.app-login .login-intro-copy p:first-child {
+  color: #e9c578;
+  font-size: 0.67rem;
+  font-weight: 750;
+  letter-spacing: 0.19em;
+}
+
+.app-login .login-intro-copy h2 {
+  max-width: 11ch;
+  margin-block: 1rem 1.15rem;
+  color: #fff;
+  font-size: clamp(2.15rem, 4.3vw, 3.6rem);
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  line-height: 1.02;
+}
+
+.app-login .login-intro-copy p:last-child {
+  max-width: 27rem;
+  color: #cfdae0;
+  font-size: 0.96rem;
+  line-height: 1.75;
+}
+
+.app-login .login-intro-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #b9cbd3;
+  font-size: 0.75rem;
+}
+
+.login-status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #83ca9a;
+  box-shadow: 0 0 0 0.22rem rgb(131 202 154 / 15%);
+}
+
+.app-login .login-card {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  flex-direction: column;
+  align-self: stretch;
+  justify-content: center;
+  gap: 2.25rem;
+  padding: clamp(2rem, 5vw, 4.75rem);
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: none;
+}
+
+.app-login .login-brand {
+  gap: 0.8rem;
+  padding: 0;
+  border: 0;
+}
+
+.login-brand-mark {
+  display: grid;
+  width: 2.7rem;
+  height: 2.7rem;
+  place-items: center;
+  border-radius: 0.85rem;
+  background: #f8f1e2;
+  color: #b58019;
+}
+
+.login-brand-mark svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.login-brand-caption {
+  margin-top: 0.15rem;
+  color: #72808b;
+  font-size: 0.78rem;
+}
+
+.login-form {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.app-login .login-heading {
+  padding: 0 0 0.4rem;
+}
+
+.login-step-label {
+  color: #a77a23;
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+}
+
+.app-login .login-heading h1 {
+  margin-top: 0.65rem;
+  color: #172c3a;
+  font-size: clamp(1.65rem, 3vw, 2.15rem);
+  font-weight: 720;
+  letter-spacing: -0.045em;
+  line-height: 1.1;
+}
+
+.app-login .login-heading > p:last-child {
+  margin-top: 0.7rem;
+  color: #72808b;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.login-field {
+  display: grid;
+  gap: 0.48rem;
+  color: #344754;
+  font-size: 0.79rem;
+  font-weight: 650;
+}
+
+.login-field input {
+  min-height: 3.15rem;
+  border: 1px solid #dce4e9;
+  border-radius: 0.8rem;
+  outline: none;
+  background: #fbfcfd;
+  padding: 0.75rem 0.9rem;
+  color: #192e3c;
+  font-size: 0.9rem;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.login-field input::placeholder {
+  color: #a3afb8;
+}
+
+.login-field input:focus {
+  border-color: #287e9f;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgb(40 126 159 / 12%);
+}
+
+.app-login .login-submit {
+  display: flex;
+  min-height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  border: 1px solid #113c55;
+  border-radius: 0.85rem;
+  background: #123e59;
+  padding: 0.85rem 1rem;
+  color: #fff;
+  font-size: 0.87rem;
+  font-weight: 700;
+  box-shadow: 0 8px 18px rgb(18 62 89 / 16%);
+  transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.app-login .login-submit svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.app-login .login-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #174f70;
+  box-shadow: 0 12px 23px rgb(18 62 89 / 20%);
+}
+
+.app-login .login-submit:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.app-login .login-security-note {
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem 0;
+  border: 0;
+  border-top: 1px solid #edf1f3;
+  border-radius: 0;
+  background: transparent;
+  color: #7c8992;
+  font-size: 0.75rem;
+}
+
+.app-login .login-security-note svg {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  color: #a77a23;
+}
+
+.login-alert {
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.login-alert-warning {
+  border-color: #f0d7a2;
+  background: #fff9eb;
+  color: #76530e;
+}
+
+.login-alert-error {
+  border-color: #f3d0ce;
+  background: #fff5f4;
+  color: #a5362f;
+}
+
+.login-workspace-list {
+  display: grid;
+  gap: 0.7rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.1rem 0.15rem 0.1rem 0;
+}
+
+.login-workspace-option {
+  display: flex;
+  width: 100%;
+  min-height: 5.3rem;
+  align-items: center;
+  gap: 0.8rem;
+  border: 1px solid #e0e7eb;
+  border-radius: 0.95rem;
+  background: #fff;
+  padding: 0.7rem;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.login-workspace-option:hover {
+  border-color: #a7bdc9;
+  background: #fbfdfe;
+}
+
+.login-workspace-option.is-selected {
+  border-color: #1c637f;
+  background: #f4fafc;
+  box-shadow: 0 0 0 2px rgb(28 99 127 / 10%);
+}
+
+.login-workspace-option .login-workspace-logo {
+  width: 3.7rem;
+  height: 3.7rem;
+  border-radius: 0.75rem;
+}
+
+.login-workspace-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 0.3rem;
+}
+
+.login-workspace-copy strong {
+  overflow: hidden;
+  color: #1c3341;
+  font-size: 0.87rem;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-workspace-copy small {
+  color: #7d8991;
+  font-size: 0.73rem;
+}
+
+.login-workspace-check {
+  display: grid;
+  width: 1.45rem;
+  height: 1.45rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #d7e0e5;
+  border-radius: 50%;
+  color: transparent;
+}
+
+.login-workspace-check svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.is-selected .login-workspace-check {
+  border-color: #1c637f;
+  background: #1c637f;
+  color: #fff;
+}
+
+.login-workspace-confirmation {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  border: 1px solid #dce7eb;
+  border-radius: 1rem;
+  background: linear-gradient(130deg, #f7fbfc, #fff);
+  padding: 1rem;
+}
+
+.login-workspace-confirmation .login-workspace-logo {
+  width: 4.2rem;
+  height: 4.2rem;
+}
+
+.login-workspace-confirmation > div {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 0.32rem;
+}
+
+.login-workspace-confirmation > div span {
+  color: #9a7a3a;
+  font-size: 0.6rem;
+  font-weight: 750;
+  letter-spacing: 0.15em;
+}
+
+.login-workspace-confirmation > div strong {
+  overflow-wrap: anywhere;
+  color: #183342;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.login-workspace-confirmation > div small {
+  color: #7d8991;
+  font-size: 0.74rem;
+}
+
+.login-confirmation-check {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  color: #38865c;
+}
+
+.login-back-link {
+  display: inline-flex;
+  min-height: 2.3rem;
+  align-items: center;
+  justify-self: center;
+  gap: 0.4rem;
+  border: 0;
+  background: transparent;
+  color: #62727c;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.login-back-link:hover {
+  color: #143e58;
+}
+
+.login-back-link svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+@media screen and (max-width: 767px) {
+  .app-login {
+    padding: 0;
+    background: #fff;
+  }
+
+  .app-login > .login-layout {
+    min-height: 100dvh;
+    grid-template-columns: minmax(0, 1fr);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .app-login .login-intro {
+    min-height: 13rem;
+    gap: 1.5rem;
+    padding: 1.35rem 1.3rem 1.5rem;
+  }
+
+  .app-login .login-intro-copy {
+    margin: 0;
+  }
+
+  .app-login .login-intro-copy h2 {
+    max-width: 17ch;
+    margin-block: 0.45rem;
+    font-size: clamp(1.45rem, 6vw, 2rem);
+  }
+
+  .app-login .login-intro-copy p:last-child,
+  .app-login .login-intro-footer {
+    display: none;
+  }
+
+  .app-login .login-card {
+    gap: 1.6rem;
+    justify-content: flex-start;
+    padding: 1.65rem 1.3rem 2.25rem;
+  }
+
+  .app-login .login-brand {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-field input,
+  .app-login .login-submit,
+  .login-workspace-option {
+    transition: none;
+  }
+}

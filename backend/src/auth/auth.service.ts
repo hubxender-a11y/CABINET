@@ -22,7 +22,7 @@ export class AuthService {
           select: {
             companyId: true,
             role: true,
-            company: { select: { legalName: true, tradeName: true } },
+            company: { select: { legalName: true, tradeName: true, logoUrl: true } },
           },
         },
       },
@@ -68,7 +68,7 @@ export class AuthService {
     }
     if (user.isPlatformAdmin) {
       const companies = await this.prisma.company.findMany({
-        select: { id: true, legalName: true, tradeName: true },
+        select: { id: true, legalName: true, tradeName: true, logoUrl: true },
         orderBy: { legalName: 'asc' },
       });
       if (!companies.length) {
@@ -80,6 +80,7 @@ export class AuthService {
           companies: companies.map((company) => ({
             id: company.id,
             name: company.tradeName || company.legalName,
+            logoUrl: company.logoUrl,
             role: 'PLATFORM_SUPER_ADMIN' as const,
           })),
         };
@@ -102,6 +103,7 @@ export class AuthService {
         companies: user.memberships.map(({ companyId, role, company }) => ({
           id: companyId,
           name: company.tradeName || company.legalName,
+          logoUrl: company.logoUrl,
           role,
         })),
       };
@@ -123,7 +125,7 @@ export class AuthService {
     if (!user?.isActive) throw new UnauthorizedException('Session invalide.');
     if (user.isPlatformAdmin) {
       const companies = await this.prisma.company.findMany({
-        select: { id: true, legalName: true, tradeName: true },
+        select: { id: true, legalName: true, tradeName: true, logoUrl: true },
         orderBy: { legalName: 'asc' },
       });
       return companies.map((company) => ({
@@ -137,7 +139,7 @@ export class AuthService {
       select: {
         companyId: true,
         role: true,
-        company: { select: { legalName: true, tradeName: true } },
+        company: { select: { legalName: true, tradeName: true, logoUrl: true } },
       },
       orderBy: { company: { legalName: 'asc' } },
     });
@@ -157,7 +159,7 @@ export class AuthService {
     if (user.isPlatformAdmin) {
       const company = await this.prisma.company.findUnique({
         where: { id: companyId },
-        select: { id: true, legalName: true, tradeName: true },
+        select: { id: true, legalName: true, tradeName: true, logoUrl: true },
       });
       if (!company) throw new UnauthorizedException('Entreprise introuvable.');
       return this.issueSession(user, {
@@ -171,7 +173,7 @@ export class AuthService {
       select: {
         companyId: true,
         role: true,
-        company: { select: { legalName: true, tradeName: true } },
+        company: { select: { legalName: true, tradeName: true, logoUrl: true } },
       },
     });
     if (!membership) {
@@ -185,7 +187,7 @@ export class AuthService {
     membership: {
       companyId: string;
       role: import('@prisma/client').UserRole;
-      company: { legalName: string; tradeName: string | null };
+      company: { legalName: string; tradeName: string | null; logoUrl: string | null };
     },
   ) {
     const accessToken = await this.jwt.signAsync({
@@ -207,6 +209,7 @@ export class AuthService {
         role: membership.role,
         companyId: membership.companyId,
         companyName: membership.company.tradeName || membership.company.legalName,
+        companyLogoUrl: membership.company.logoUrl,
       },
     };
   }

@@ -1,15 +1,32 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { ArrowRight, BriefcaseBusiness, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Building2, Check, ShieldCheck } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { setSessionToken } from "@/lib/session";
+
+type WorkspaceChoice = {
+  id: string;
+  name: string;
+  role?: string;
+  logoUrl?: string | null;
+};
 
 type LoginResponse = {
   accessToken?: string;
   requiresCompanySelection?: boolean;
-  companies?: { id: string; name: string; role: string }[];
+  companies?: WorkspaceChoice[];
+  user?: {
+    companyName?: string;
+    companyLogoUrl?: string | null;
+    role?: string;
+  };
+};
+
+type PendingSession = {
+  accessToken: string;
+  workspace: WorkspaceChoice;
 };
 
 export default function LoginPage() {
@@ -18,8 +35,15 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
-  const [companies, setCompanies] = useState<LoginResponse["companies"]>([]);
-  const [companyId, setCompanyId] = useState("");
+  const [workspaces, setWorkspaces] = useState<WorkspaceChoice[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const [pendingSession, setPendingSession] = useState<PendingSession | null>(null);
+
+  const selectedWorkspace = useMemo(
+    () => workspaces.find(({ id }) => id === selectedWorkspaceId) ?? workspaces[0],
+    [selectedWorkspaceId, workspaces],
+  );
+  const activeWorkspace = pendingSession?.workspace ?? selectedWorkspace;
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -39,6 +63,10 @@ export default function LoginPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    await authenticate();
+  }
+
+  async function authenticate(companyId?: string) {
     setError("");
     setSaving(true);
     try {
@@ -47,13 +75,29 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password, ...(companyId ? { companyId } : {}) }),
       });
       if (result.requiresCompanySelection) {
-        setCompanies(result.companies ?? []);
-        setCompanyId(result.companies?.[0]?.id ?? "");
-      } else if (result.accessToken) {
-        setSessionToken(result.accessToken);
-      } else {
-        throw new Error("La session de travail n’a pas été créée.");
+        const options = result.companies ?? [];
+        if (!options.length) throw new Error("Aucun espace de travail n’est associé à ce compte.");
+        setWorkspaces(options);
+        setSelectedWorkspaceId(options[0].id);
+        setPendingSession(null);
+        return;
       }
+      if (!result.accessToken) throw new Error("La session de travail n’a pas été créée.");
+
+      const workspace = companyId
+        ? selectedWorkspace
+        : undefined;
+      setPassword("");
+      setWorkspaces([]);
+      setPendingSession({
+        accessToken: result.accessToken,
+        workspace: {
+          id: companyId ?? "current",
+          name: result.user?.companyName || workspace?.name || "Cabinet Transparency",
+          logoUrl: result.user?.companyLogoUrl || workspace?.logoUrl || null,
+          role: result.user?.role || workspace?.role,
+        },
+      });
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -65,101 +109,174 @@ export default function LoginPage() {
     }
   }
 
+  function enterWorkspace() {
+    if (!pendingSession) return;
+    setSessionToken(pendingSession.accessToken);
+  }
+
+  function changeAccount() {
+    setWorkspaces([]);
+    setSelectedWorkspaceId("");
+    setPendingSession(null);
+    setPassword("");
+    setError("");
+  }
+
+  function companyLogo(logoUrl?: string | null, name = "Entreprise") {
+    const source = safeWorkspaceLogo(logoUrl);
+    return (
+      <span className="login-workspace-logo">
+        <Image
+          src={source}
+          alt={`Logo ${name}`}
+          width={160}
+          height={70}
+          unoptimized
+          className="login-workspace-logo-image"
+        />
+      </span>
+    );
+  }
+
   return (
     <main className="login-layout">
-      <aside className="login-intro" aria-label="Cabinet Transparency">
+      <aside className="login-intro" aria-label="Espace professionnel">
         <div className="login-intro-brand">
-          <span><BriefcaseBusiness aria-hidden="true" /></span>
-          Cabinet Transparency
+          {companyLogo(activeWorkspace?.logoUrl, activeWorkspace?.name || "Cabinet Transparency")}
+          <span className="login-intro-brand-copy">
+            <span className="login-intro-overline">ESPACE PROFESSIONNEL</span>
+            <strong>{activeWorkspace?.name || "Cabinet Transparency"}</strong>
+          </span>
         </div>
         <div className="login-intro-copy">
-          <p>ESPACE PROFESSIONNEL</p>
-          <h2>Le bureau numérique de votre cabinet.</h2>
-          <p>Dossiers clients, facturation, règlements et archives réunis au même endroit.</p>
+          <p>GESTION DE CABINET</p>
+          <h2>{workspaces.length ? "Choisissez le bon espace." : pendingSession ? "Votre espace est prêt." : "Toute votre activité, dans un espace sécurisé."}</h2>
+          <p>Facturation, dossiers clients et suivi du cabinet, réunis dans une interface claire.</p>
         </div>
-        <p className="login-intro-footer">Cabinet Transparency · République Démocratique du Congo</p>
+        <div className="login-intro-footer">
+          <span className="login-status-dot" /> Accès sécurisé · République Démocratique du Congo
+        </div>
       </aside>
-      <form
-        onSubmit={submit}
-        className="login-card space-y-5"
-      >
+      <section className="login-card" aria-live="polite">
         <div className="login-brand">
-          <Image
-            src="/branding/ctrs-logo.jpg"
-            alt="Cabinet Transparency"
-            width={369}
-            height={85}
-            priority
-            className="app-brand-logo"
-            style={{ width: "100%", height: "auto" }}
-          />
+          <span className="login-brand-mark"><Building2 aria-hidden="true" /></span>
+          <div>
+            <p className="login-eyebrow">CABINET TRANSPARENCY</p>
+            <p className="login-brand-caption">Gestion professionnelle</p>
+          </div>
         </div>
-        <div className="login-heading">
-          <p className="login-eyebrow">Espace sécurisé</p>
-          <h1 className="mt-2 text-2xl font-semibold text-slate-900">
-            Connexion au cabinet
-          </h1>
-          <p className="mt-2 text-sm text-slate-500">
-            Utilisez le compte d’équipe créé par l’administrateur du cabinet.
-          </p>
-        </div>
-        {sessionExpired && (
-          <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-            Votre session a expiré. Reconnectez-vous pour reprendre votre travail.
-          </p>
-        )}
-        <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-          Adresse email
-          <input
-            required
-            autoComplete="username"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
-          />
-        </label>
-        {companies && companies.length > 0 && (
-          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-            Espace de travail
-            <select
-              required
-              value={companyId}
-              onChange={(event) => setCompanyId(event.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-            >
-              {companies.map((company) => (
-                <option key={company.id} value={company.id}>{company.name}</option>
-              ))}
-            </select>
-            <span className="block text-xs font-normal text-slate-500">Vos données resteront séparées dans chaque entreprise.</span>
-          </label>
-        )}
-        <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-          Mot de passe
-          <input
-            required
-            autoComplete="current-password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
-          />
-        </label>
-        {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
-        <button
-          type="submit"
-          disabled={saving}
-          className="login-submit w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          <span>{saving ? "Connexion…" : "Se connecter"}</span>
-          {!saving && <ArrowRight className="h-4 w-4" />}
-        </button>
-        <div className="login-security-note">
-          <ShieldCheck className="h-4 w-4 shrink-0" />
-          <p>Aucun compte public ne peut être créé depuis cette page.</p>
-        </div>
-      </form>
+        {!workspaces.length && !pendingSession ? (
+          <form onSubmit={submit} className="login-form">
+            <div className="login-heading">
+              <p className="login-step-label">VOTRE ESPACE DE TRAVAIL</p>
+              <h1>Connexion au cabinet</h1>
+              <p>Connectez-vous avec les identifiants fournis par votre administrateur.</p>
+            </div>
+            {sessionExpired && (
+              <p role="alert" className="login-alert login-alert-warning">
+                Votre session a expiré. Reconnectez-vous pour reprendre votre travail.
+              </p>
+            )}
+            <label className="login-field">
+              <span>Adresse e-mail</span>
+              <input required autoComplete="username" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nom@entreprise.cd" />
+            </label>
+            <label className="login-field">
+              <span>Mot de passe</span>
+              <input required autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Votre mot de passe" />
+            </label>
+            {error && <p role="alert" className="login-alert login-alert-error">{error}</p>}
+            <button type="submit" disabled={saving} className="login-submit">
+              <span>{saving ? "Vérification…" : "Continuer"}</span>
+              {!saving && <ArrowRight aria-hidden="true" />}
+            </button>
+            <div className="login-security-note">
+              <ShieldCheck aria-hidden="true" />
+              <p>Connexion privée réservée aux membres autorisés du cabinet.</p>
+            </div>
+          </form>
+        ) : workspaces.length ? (
+          <div className="login-form">
+            <div className="login-heading">
+              <p className="login-step-label">SÉLECTION DE L’ESPACE</p>
+              <h1>Où souhaitez-vous travailler&nbsp;?</h1>
+              <p>Votre compte peut accéder à plusieurs entreprises. Vérifiez le logo et le nom avant de continuer.</p>
+            </div>
+            <div className="login-workspace-list" role="radiogroup" aria-label="Choisir une entreprise">
+              {workspaces.map((workspace) => {
+                const selected = workspace.id === selectedWorkspaceId;
+                return (
+                  <button
+                    type="button"
+                    key={workspace.id}
+                    role="radio"
+                    aria-checked={selected}
+                    className={`login-workspace-option${selected ? " is-selected" : ""}`}
+                    onClick={() => setSelectedWorkspaceId(workspace.id)}
+                  >
+                    {companyLogo(workspace.logoUrl, workspace.name)}
+                    <span className="login-workspace-copy">
+                      <strong>{workspace.name}</strong>
+                      <small>{workspace.role ? formatRole(workspace.role) : "Espace autorisé"}</small>
+                    </span>
+                    <span className="login-workspace-check"><Check aria-hidden="true" /></span>
+                  </button>
+                );
+              })}
+            </div>
+            {error && <p role="alert" className="login-alert login-alert-error">{error}</p>}
+            <button type="button" disabled={saving || !selectedWorkspace} onClick={() => void authenticate(selectedWorkspace?.id)} className="login-submit">
+              <span>{saving ? "Connexion…" : `Continuer vers ${selectedWorkspace?.name ?? "l’espace"}`}</span>
+              {!saving && <ArrowRight aria-hidden="true" />}
+            </button>
+            <button type="button" onClick={changeAccount} className="login-back-link"><ArrowLeft aria-hidden="true" /> Changer de compte</button>
+          </div>
+        ) : pendingSession ? (
+          <div className="login-form">
+            <div className="login-heading">
+              <p className="login-step-label">ESPACE CONFIRMÉ</p>
+              <h1>Vous allez rejoindre&nbsp;:</h1>
+              <p>Vérifiez l’entreprise avant d’ouvrir votre espace de travail.</p>
+            </div>
+            <div className="login-workspace-confirmation">
+              {companyLogo(pendingSession.workspace.logoUrl, pendingSession.workspace.name)}
+              <div>
+                <span>ENTREPRISE</span>
+                <strong>{pendingSession.workspace.name}</strong>
+                {pendingSession.workspace.role && <small>{formatRole(pendingSession.workspace.role)}</small>}
+              </div>
+              <Check className="login-confirmation-check" aria-label="Entreprise confirmée" />
+            </div>
+            <button type="button" onClick={enterWorkspace} className="login-submit">
+              <span>Accéder à {pendingSession.workspace.name}</span>
+              <ArrowRight aria-hidden="true" />
+            </button>
+            <button type="button" onClick={changeAccount} className="login-back-link"><ArrowLeft aria-hidden="true" /> Se connecter avec un autre compte</button>
+          </div>
+        ) : null}
+      </section>
     </main>
   );
+}
+
+function safeWorkspaceLogo(value?: string | null) {
+  if (value && (/^\/[^/]/.test(value) || /^data:image\/(?:jpeg|png|webp);base64,/i.test(value))) {
+    return value;
+  }
+  return "/branding/ctrs-logo.jpg";
+}
+
+function formatRole(role: string) {
+  const labels: Record<string, string> = {
+    PLATFORM_SUPER_ADMIN: "Super-administrateur",
+    COMPANY_ADMIN: "Administrateur",
+    MANAGING_PARTNER: "Associé-gérant",
+    FINANCE_MANAGER: "Responsable des finances",
+    ACCOUNTANT: "Comptable",
+    SECRETARY: "Secrétaire",
+    CASHIER: "Caissier",
+    AUDITOR: "Auditeur",
+    VIEWER: "Consultation",
+  };
+  return labels[role] ?? "Espace autorisé";
 }
