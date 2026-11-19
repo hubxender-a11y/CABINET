@@ -119,6 +119,31 @@ const primaryNavigation = [
   },
 ];
 
+const platformNavigationGroups = [
+  {
+    label: "Plateforme",
+    icon: LayoutDashboard,
+    items: [
+      { href: "/platform-admin#overview", label: "Vue globale", icon: LayoutDashboard },
+      { href: "/platform-admin#companies", label: "Entreprises", icon: Building2 },
+      { href: "/platform-admin#activity", label: "Activités", icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Configuration",
+    icon: Settings,
+    items: [
+      { href: "/platform-admin#settings", label: "Préférences super-admin", icon: Settings },
+    ],
+  },
+];
+
+const platformPrimaryNavigation = [
+  { href: "/platform-admin#overview", label: "Vue globale", icon: LayoutDashboard, paths: ["/platform-admin"] },
+  { href: "/platform-admin#companies", label: "Entreprises", icon: Building2, paths: ["/platform-admin"] },
+  { href: "/platform-admin#activity", label: "Activités", icon: BarChart3, paths: ["/platform-admin"] },
+];
+
 function isActiveRoute(pathname: string, href: string) {
   return href === "/"
     ? pathname === "/"
@@ -142,15 +167,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [companies, setCompanies] = useState<{ id: string; name: string; role: string }[]>([]);
   const [switchingCompany, setSwitchingCompany] = useState(false);
   const [companySwitchError, setCompanySwitchError] = useState("");
+  const isPlatformAdmin = userRole === "PLATFORM_SUPER_ADMIN";
   const mobileMenuOpen = mobileMenuPath === pathname;
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuCloseButtonRef = useRef<HTMLButtonElement>(null);
-  const companyName = companyDisplayName(profile);
-  const location = companyLocation(profile);
-  const activePage =
-    allNavigationItems.find((item) => pathname === item.href) ??
-    allNavigationItems.find((item) => isActiveRoute(pathname, item.href));
-  const activeHref = activePage?.href;
+  const companyName = isPlatformAdmin ? "Administration globale" : companyDisplayName(profile);
+  const location = isPlatformAdmin ? "Toutes les entreprises" : companyLocation(profile);
+  const activePage = isPlatformAdmin
+    ? { href: "/platform-admin", label: "Vue globale", icon: LayoutDashboard }
+    : allNavigationItems.find((item) => pathname === item.href) ??
+      allNavigationItems.find((item) => isActiveRoute(pathname, item.href));
+  const activeHref = isPlatformAdmin ? "/platform-admin#overview" : activePage?.href;
   const visibleNavigationGroups = userRole === "MANAGING_PARTNER"
     ? navigationGroups.map((group) => ({
         ...group,
@@ -160,6 +187,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const visiblePrimaryNavigation = userRole === "MANAGING_PARTNER"
     ? managingPartnerNavigation
     : primaryNavigation;
+  const currentNavigationGroups = isPlatformAdmin
+    ? platformNavigationGroups
+    : visibleNavigationGroups;
+  const currentPrimaryNavigation = isPlatformAdmin
+    ? platformPrimaryNavigation
+    : visiblePrimaryNavigation;
 
   useEffect(() => {
     if (userRole !== "MANAGING_PARTNER") return;
@@ -168,8 +201,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname, router, userRole]);
 
   useEffect(() => {
+    if (
+      isPlatformAdmin &&
+      pathname !== "/login" &&
+      pathname !== "/platform-admin"
+    ) {
+      router.replace("/platform-admin");
+    }
+  }, [isPlatformAdmin, pathname, router]);
+
+  useEffect(() => {
     if (!getSessionToken()) return;
     let active = true;
+    let timer: number | undefined;
     const refreshNotifications = () => {
       void apiRequest<{ unreadCount: number }>("/notifications")
         .then((data) => {
@@ -178,16 +222,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         .catch(() => undefined);
     };
     void apiRequest<{ role: string }>("/auth/me")
-      .then((user) => { if (active) setUserRole(user.role); })
+      .then((user) => {
+        if (!active) return;
+        setUserRole(user.role);
+        if (user.role === "PLATFORM_SUPER_ADMIN") {
+          setUnreadNotifications(0);
+          return;
+        }
+        refreshNotifications();
+        timer = window.setInterval(refreshNotifications, 30_000);
+      })
       .catch(() => undefined);
     void apiRequest<{ id: string; name: string; role: string }[]>("/auth/companies")
       .then((available) => { if (active) setCompanies(available); })
       .catch(() => undefined);
-    refreshNotifications();
-    const timer = window.setInterval(refreshNotifications, 30_000);
     return () => {
       active = false;
-      window.clearInterval(timer);
+      if (timer) window.clearInterval(timer);
     };
   }, [pathname]);
 
@@ -272,7 +323,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-frame">
       <div className="app-layout">
         <aside className="app-sidebar print:hidden">
-          {companies.length > 1 && (
+          {companies.length > 1 && !isPlatformAdmin && (
             <div className="px-3 pt-3">
               <label className="sr-only" htmlFor="active-company">Entreprise active</label>
               <select
@@ -289,12 +340,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {companySwitchError && <p role="alert" className="px-1 pt-1 text-xs text-rose-700">{companySwitchError}</p>}
             </div>
           )}
-          <Link href="/settings" className="app-workspace-card">
+          <Link href={isPlatformAdmin ? "/platform-admin#settings" : "/settings"} className="app-workspace-card">
             <span className="app-workspace-avatar">
               {companyName.slice(0, 1).toLocaleUpperCase("fr")}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="app-workspace-label">Cabinet comptable</span>
+              <span className="app-workspace-label">{isPlatformAdmin ? "CONSOLE SUPER-ADMIN" : "Cabinet comptable"}</span>
               <span className="app-workspace-name">{companyName}</span>
               <span className="app-workspace-location">{location}</span>
             </span>
@@ -303,11 +354,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <nav className="app-navigation" aria-label="Navigation principale">
             <p className="app-navigation-overline">Menu principal</p>
-            {visibleNavigationGroups.map((group) => {
+            {currentNavigationGroups.map((group) => {
               const groupActive = group.items.some(({ href }) =>
                 isActiveRoute(pathname, href),
               );
-              const expanded = expandedGroups[group.label] ?? groupActive;
+              const expanded = expandedGroups[group.label] ?? (isPlatformAdmin || groupActive);
               return (
                 <div key={group.label} className="app-navigation-group">
                   <button
@@ -362,8 +413,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="app-sidebar-footer">
             <div className="app-currency-chip">
               <span className="app-live-dot" />
-              Devise principale
-              <strong>{profile?.currencyCode ?? "CDF"}</strong>
+              {isPlatformAdmin ? "Périmètre" : "Devise principale"}
+              <strong>{isPlatformAdmin ? "Global" : profile?.currencyCode ?? "CDF"}</strong>
             </div>
             <button type="button" onClick={logout} className="app-logout-link">
               <LogOut className="h-4 w-4" />
@@ -385,7 +436,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="app-content">
           <header className="app-topbar print:hidden">
             <Link
-              href="/"
+              href={isPlatformAdmin ? "/platform-admin" : "/"}
               className="app-shell-brand"
               aria-label="Cabinet Transparency, accueil"
             >
@@ -399,7 +450,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               />
             </Link>
             <div className="app-mobile-brand">
-              <Link href="/" aria-label="Cabinet Transparency, accueil">
+              <Link href={isPlatformAdmin ? "/platform-admin" : "/"} aria-label="Cabinet Transparency, accueil">
                 <Image
                   src="/branding/ctrs-logo.jpg"
                   alt="Cabinet Transparency"
@@ -431,8 +482,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="app-primary-navigation"
               aria-label="Modules principaux"
             >
-              {visiblePrimaryNavigation.map(({ href, label, icon: Icon, paths }) => {
-                const active = isActiveModule(pathname, paths);
+              {currentPrimaryNavigation.map(({ href, label, icon: Icon, paths }) => {
+                const active = isPlatformAdmin ? label === "Vue globale" : isActiveModule(pathname, paths);
                 return (
                   <Link
                     key={href}
@@ -451,21 +502,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="app-location-pill">
                 {activePage?.label ?? location}
               </span>
+              {!isPlatformAdmin && (
+                <Link
+                  href="/notifications"
+                  className={`app-icon-action relative app-notification-bell ${unreadNotifications ? "has-unread" : ""}`}
+                  aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} non lue(s)` : "Notifications"}
+                  title="Notifications"
+                >
+                  <Bell className="h-4 w-4" />
+                  {unreadNotifications > 0 && (
+                    <span className="app-notification-count absolute -right-1 -top-1 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                      {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                    </span>
+                  )}
+                </Link>
+              )}
               <Link
-                href="/notifications"
-                className={`app-icon-action relative app-notification-bell ${unreadNotifications ? "has-unread" : ""}`}
-                aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} non lue(s)` : "Notifications"}
-                title="Notifications"
-              >
-                <Bell className="h-4 w-4" />
-                {unreadNotifications > 0 && (
-                  <span className="app-notification-count absolute -right-1 -top-1 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
-                    {unreadNotifications > 99 ? "99+" : unreadNotifications}
-                  </span>
-                )}
-              </Link>
-              <Link
-                href="/settings"
+                href={isPlatformAdmin ? "/platform-admin#settings" : "/settings"}
                 className="app-icon-action"
                 aria-label="Paramètres"
               >
@@ -522,26 +575,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="app-workspace-label">
-                      Cabinet comptable
+                      {isPlatformAdmin ? "CONSOLE SUPER-ADMIN" : "Cabinet comptable"}
                     </span>
                     <span className="app-workspace-name">{companyName}</span>
                     <span className="app-workspace-location">{location}</span>
                   </span>
                   <span className="app-mobile-currency">
-                    {profile?.currencyCode ?? "CDF"}
+                    {isPlatformAdmin ? "Global" : profile?.currencyCode ?? "CDF"}
                   </span>
                 </div>
-                <Link
-                  href="/notifications"
-                  onClick={() => setMobileMenuPath(null)}
-                  className="app-mobile-notifications-link"
-                >
-                  <Bell className="h-4 w-4" />
-                  <span>Notifications</span>
-                  {unreadNotifications > 0 && (
-                    <strong>{unreadNotifications > 99 ? "99+" : unreadNotifications}</strong>
-                  )}
-                </Link>
+                {!isPlatformAdmin && (
+                  <Link
+                    href="/notifications"
+                    onClick={() => setMobileMenuPath(null)}
+                    className="app-mobile-notifications-link"
+                  >
+                    <Bell className="h-4 w-4" />
+                    <span>Notifications</span>
+                    {unreadNotifications > 0 && (
+                      <strong>{unreadNotifications > 99 ? "99+" : unreadNotifications}</strong>
+                    )}
+                  </Link>
+                )}
                 <h2
                   className="app-mobile-navigation-title"
                   id="mobile-navigation-title"
@@ -552,11 +607,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className="app-mobile-navigation-content"
                   aria-label="Navigation principale"
                 >
-                  {visibleNavigationGroups.map((group) => {
+                  {currentNavigationGroups.map((group) => {
                     const groupActive = group.items.some(({ href }) =>
                       isActiveRoute(pathname, href),
                     );
-                    const expanded = expandedGroups[group.label] ?? groupActive;
+                    const expanded = expandedGroups[group.label] ?? (isPlatformAdmin || groupActive);
                     return (
                       <section
                         key={group.label}

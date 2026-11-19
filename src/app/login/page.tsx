@@ -2,9 +2,10 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Building2, Check, ShieldCheck } from "lucide-react";
 import { apiRequest } from "@/lib/api";
-import { setSessionToken } from "@/lib/session";
+import { sessionRole, setSessionToken } from "@/lib/session";
 
 type WorkspaceChoice = {
   id: string;
@@ -30,6 +31,7 @@ type PendingSession = {
 };
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -83,6 +85,16 @@ export default function LoginPage() {
         return;
       }
       if (!result.accessToken) throw new Error("La session de travail n’a pas été créée.");
+
+      if (
+        result.user?.role === "PLATFORM_SUPER_ADMIN" ||
+        sessionRole(result.accessToken) === "PLATFORM_SUPER_ADMIN"
+      ) {
+        setPassword("");
+        setSessionToken(result.accessToken);
+        router.replace("/platform-admin");
+        return;
+      }
 
       const workspace = companyId
         ? selectedWorkspace

@@ -6,6 +6,7 @@ import {
   expireSession,
   getSessionToken,
   sessionExpiration,
+  sessionRole,
   SESSION_EXPIRED_EVENT,
   subscribeToSession,
 } from "@/lib/session";
@@ -66,7 +67,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
       if (pathname !== "/") query.set("next", pathname + window.location.search);
       router.replace(query.size ? `/login?${query}` : "/login");
     } else if (isLogin && token) {
-      router.replace(returnPath());
+      router.replace(
+        sessionRole(token) === "PLATFORM_SUPER_ADMIN"
+          ? "/platform-admin"
+          : returnPath(),
+      );
     }
   }, [isLogin, pathname, router, token]);
 

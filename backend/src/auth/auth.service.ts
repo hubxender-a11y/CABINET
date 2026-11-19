@@ -74,17 +74,6 @@ export class AuthService {
       if (!companies.length) {
         throw new UnauthorizedException('Aucun espace de travail n’est disponible.');
       }
-      if (!dto.companyId && companies.length > 1) {
-        return {
-          requiresCompanySelection: true as const,
-          companies: companies.map((company) => ({
-            id: company.id,
-            name: company.tradeName || company.legalName,
-            logoUrl: company.logoUrl,
-            role: 'PLATFORM_SUPER_ADMIN' as const,
-          })),
-        };
-      }
       const company = dto.companyId
         ? companies.find(({ id }) => id === dto.companyId)
         : companies[0];
@@ -208,7 +197,10 @@ export class AuthService {
         name: user.name,
         role: membership.role,
         companyId: membership.companyId,
-        companyName: membership.company.tradeName || membership.company.legalName,
+        companyName:
+          membership.role === 'PLATFORM_SUPER_ADMIN'
+            ? 'Administration globale'
+            : membership.company.tradeName || membership.company.legalName,
         companyLogoUrl: membership.company.logoUrl,
       },
     };
