@@ -189,7 +189,7 @@ export class PaymentsService {
 
           return payment;
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10000, timeout: 20000 },
       );
     } catch (error) {
       if (
@@ -270,7 +270,7 @@ export class PaymentsService {
             customer: { select: { name: true } },
           },
         });
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10000, timeout: 20000 });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
         throw new BadRequestException('Le règlement a changé pendant l’opération. Actualisez puis réessayez.');
