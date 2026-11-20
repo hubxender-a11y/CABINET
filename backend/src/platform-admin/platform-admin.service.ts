@@ -1,5 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma, UserRole } from '@prisma/client';
+import { hash } from 'bcryptjs';
 import { PrismaService } from '../database/prisma.service';
+import { getCompanyId } from '../database/company-context';
+import { CreatePlatformAdminDto, CreatePlatformUserDto } from './platform-admin.dto';
 
 const trackedCompanyCounts = {
   memberships: true,
@@ -16,6 +25,155 @@ const trackedCompanyCounts = {
 @Injectable()
 export class PlatformAdminService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async createUser(dto: CreatePlatformUserDto, actorId: string) {
+    if (dto.role === UserRole.PLATFORM_SUPER_ADMIN) {
+      throw new BadRequestException(
+        'Utilisez le formulaire dédié pour créer un super-admin.',
+      );
+    }
+
+    const email = dto.email.trim().toLowerCase();
+    const passwordHash = dto.password ? await hash(dto.password, 12) : null;
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        const company = await transaction.company.findUnique({
+          where: { id: dto.companyId },
+          select: { id: true, legalName: true, tradeName: true, isActive: true },
+        });
+        if (!company) throw new NotFoundException('Entreprise introuvable.');
+        if (!company.isActive) {
+          throw new BadRequestException('Réactivez cette entreprise avant d’y ajouter un utilisateur.');
+        }
+
+        const existing = await transaction.user.findUnique({
+          where: { email },
+          select: { id: true, email: true, name: true, isActive: true, isPlatformAdmin: true, createdAt: true },
+        });
+        let user: { id: string; email: string; name: string; isActive: boolean; createdAt: Date };
+
+        if (existing) {
+          if (!existing.isActive) {
+            throw new BadRequestException('Réactivez ce compte avant de lui attribuer un nouvel accès.');
+          }
+          if (existing.isPlatformAdmin) {
+            throw new ConflictException('Ce compte est super-admin. Son accès global ne peut pas être remplacé par un rôle d’entreprise.');
+          }
+          const membership = await transaction.companyMembership.findUnique({
+            where: { userId_companyId: { userId: existing.id, companyId: company.id } },
+            select: { id: true },
+          });
+          if (membership) {
+            throw new ConflictException('Ce compte a déjà un accès à cette entreprise.');
+          }
+          await transaction.companyMembership.create({
+            data: { userId: existing.id, companyId: company.id, role: dto.role },
+          });
+          user = existing;
+        } else {
+          if (!dto.name?.trim()) {
+            throw new BadRequestException('Le nom complet est requis pour créer un nouveau compte.');
+          }
+          if (!passwordHash) {
+            throw new BadRequestException('Un mot de passe provisoire d’au moins 14 caractères est requis pour créer un compte.');
+          }
+          user = await transaction.user.create({
+            data: {
+              email,
+              name: dto.name.trim(),
+              passwordHash,
+              memberships: { create: { companyId: company.id, role: dto.role } },
+            },
+            select: { id: true, email: true, name: true, isActive: true, createdAt: true },
+          });
+        }
+
+        await transaction.auditLog.create({
+          data: {
+            companyId: company.id,
+            userId: actorId,
+            action: existing ? 'PLATFORM_COMPANY_MEMBER_ADDED' : 'PLATFORM_COMPANY_MEMBER_CREATED',
+            details: { userId: user.id, email, role: dto.role },
+          },
+        });
+
+        return {
+          ...user,
+          role: dto.role,
+          company: { id: company.id, name: company.tradeName || company.legalName, isActive: company.isActive },
+        };
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Un accès existe déjà pour cette adresse dans cette entreprise.');
+      }
+      throw error;
+    }
+  }
+
+  async createAdmin(dto: CreatePlatformAdminDto, actorId: string) {
+    const email = dto.email.trim().toLowerCase();
+    const passwordHash = dto.password ? await hash(dto.password, 12) : null;
+
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('platform-admin-roster'), 0)`;
+        const existing = await transaction.user.findUnique({
+          where: { email },
+          select: { id: true, email: true, name: true, isActive: true, isPlatformAdmin: true, createdAt: true },
+        });
+        let admin: { id: string; email: string; name: string; isActive: boolean; createdAt: Date };
+        let action: string;
+
+        if (existing) {
+          if (!existing.isActive) {
+            throw new BadRequestException('Réactivez ce compte avant de lui attribuer le rôle super-admin.');
+          }
+          if (existing.isPlatformAdmin) {
+            throw new ConflictException('Ce compte est déjà super-admin de la plateforme.');
+          }
+          admin = await transaction.user.update({
+            where: { id: existing.id },
+            data: { isPlatformAdmin: true },
+            select: { id: true, email: true, name: true, isActive: true, createdAt: true },
+          });
+          action = 'PLATFORM_ADMIN_GRANTED';
+        } else {
+          if (!dto.name?.trim()) {
+            throw new BadRequestException('Le nom complet est requis pour créer un nouveau super-admin.');
+          }
+          if (!passwordHash) {
+            throw new BadRequestException('Un mot de passe provisoire d’au moins 14 caractères est requis pour créer le super-admin.');
+          }
+          admin = await transaction.user.create({
+            data: {
+              email,
+              name: dto.name.trim(),
+              passwordHash,
+              isPlatformAdmin: true,
+            },
+            select: { id: true, email: true, name: true, isActive: true, createdAt: true },
+          });
+          action = 'PLATFORM_ADMIN_CREATED';
+        }
+
+        await transaction.auditLog.create({
+          data: {
+            companyId: getCompanyId(),
+            userId: actorId,
+            action,
+            details: { userId: admin.id, email },
+          },
+        });
+        return admin;
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Cette adresse e-mail possède déjà un compte.');
+      }
+      throw error;
+    }
+  }
 
   async activities(pageValue?: string, pageSizeValue?: string, companyId?: string) {
     const parsedPage = Number.parseInt(pageValue ?? '1', 10);

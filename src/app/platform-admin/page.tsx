@@ -23,6 +23,11 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  UserPlus,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  KeyRound,
 } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { setSessionToken } from "@/lib/session";
@@ -113,6 +118,38 @@ type PlatformUser = {
   isPlatformAdmin: boolean;
   company: { id: string; name: string; isActive: boolean };
 };
+
+type PlatformAdmin = { id: string; name: string; email: string; isActive: boolean };
+type PlatformUserRole =
+  | "COMPANY_ADMIN"
+  | "MANAGING_PARTNER"
+  | "FINANCE_MANAGER"
+  | "ACCOUNTANT"
+  | "CASHIER"
+  | "SALES_MANAGER"
+  | "STOCK_MANAGER"
+  | "AUDITOR"
+  | "VIEWER";
+
+const platformUserRoles: { value: PlatformUserRole; label: string }[] = [
+  { value: "COMPANY_ADMIN", label: "Administrateur du cabinet" },
+  { value: "MANAGING_PARTNER", label: "Associé-Gérant" },
+  { value: "FINANCE_MANAGER", label: "Responsable financier" },
+  { value: "ACCOUNTANT", label: "Comptable" },
+  { value: "CASHIER", label: "Secrétaire" },
+  { value: "SALES_MANAGER", label: "Responsable commercial" },
+  { value: "STOCK_MANAGER", label: "Gestionnaire de stock" },
+  { value: "AUDITOR", label: "Auditeur" },
+  { value: "VIEWER", label: "Lecture seule" },
+];
+
+function roleLabel(role: string) {
+  return platformUserRoles.find((option) => option.value === role)?.label ?? role.replaceAll("_", " ");
+}
+
+function temporaryPassword() {
+  return `Ct#${crypto.randomUUID()}aA9`;
+}
 
 type DashboardCard = "companies" | "users" | "invoices" | "payments" | "approvals" | "activity";
 type PlatformPreferences = { cards: DashboardCard[]; defaultCompanyId: string };
@@ -244,6 +281,19 @@ export default function PlatformAdminPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [platformUsers, setPlatformUsers] = useState<PlatformUser[]>([]);
+  const [platformAdmins, setPlatformAdmins] = useState<PlatformAdmin[]>([]);
+  const [userModalOpen, setUserModalOpen] = useState(false);
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [userSaving, setUserSaving] = useState(false);
+  const [userActionError, setUserActionError] = useState("");
+  const [userActionSuccess, setUserActionSuccess] = useState("");
+  const [showTemporaryPassword, setShowTemporaryPassword] = useState(false);
+  const [userSearch, setUserSearch] = useState("");
+  const [userCompanyFilter, setUserCompanyFilter] = useState("all");
+  const [userStatusFilter, setUserStatusFilter] = useState("all");
+  const [userPage, setUserPage] = useState(1);
+  const [userDraft, setUserDraft] = useState({ companyId: "", name: "", email: "", role: "ACCOUNTANT" as PlatformUserRole, password: "" });
+  const [adminDraft, setAdminDraft] = useState({ name: "", email: "", password: "" });
   const [activeTab, setActiveTab] = useState<PlatformTab>("overview");
   const [activityPage, setActivityPage] = useState<PlatformActivityPage | null>(null);
   const [activityPageNumber, setActivityPageNumber] = useState(1);
@@ -289,6 +339,35 @@ export default function PlatformAdminPage() {
   }, []);
 
   const selectedCompany = overview?.companies.find((company) => company.id === effectiveCompanyId) ?? null;
+  const knownAccount = useMemo(() => {
+    const email = adminDraft.email.trim().toLocaleLowerCase("fr-CD");
+    if (!email) return null;
+    return platformUsers.find((user) => user.email.toLocaleLowerCase("fr-CD") === email)
+      ?? platformAdmins.find((admin) => admin.email.toLocaleLowerCase("fr-CD") === email)
+      ?? null;
+  }, [adminDraft.email, platformAdmins, platformUsers]);
+  const knownCompanyUser = useMemo(() => {
+    const email = userDraft.email.trim().toLocaleLowerCase("fr-CD");
+    if (!email) return null;
+    return platformUsers.find((user) => user.email.toLocaleLowerCase("fr-CD") === email)
+      ?? platformAdmins.find((admin) => admin.email.toLocaleLowerCase("fr-CD") === email)
+      ?? null;
+  }, [platformAdmins, platformUsers, userDraft.email]);
+  const filteredPlatformUsers = useMemo(() => {
+    const query = userSearch.trim().toLocaleLowerCase("fr-CD");
+    return platformUsers.filter((user) => {
+      const matchesSearch = !query || `${user.name} ${user.email} ${user.company.name}`.toLocaleLowerCase("fr-CD").includes(query);
+      const matchesCompany = userCompanyFilter === "all" || user.company.id === userCompanyFilter;
+      const active = user.isActive && user.company.isActive;
+      const matchesStatus = userStatusFilter === "all" || (userStatusFilter === "active" ? active : !active);
+      return matchesSearch && matchesCompany && matchesStatus;
+    });
+  }, [platformUsers, userCompanyFilter, userSearch, userStatusFilter]);
+  const userPageSize = 10;
+  const userTotalPages = Math.max(1, Math.ceil(filteredPlatformUsers.length / userPageSize));
+  const paginatedPlatformUsers = filteredPlatformUsers.slice((userPage - 1) * userPageSize, userPage * userPageSize);
+  const uniqueUserCount = new Set(platformUsers.map((user) => user.id)).size;
+  const activeUserCount = new Set(platformUsers.filter((user) => user.isActive && user.company.isActive).map((user) => user.id)).size;
   const companies = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("fr-CD");
     return (overview?.companies ?? []).filter((company) =>
@@ -341,14 +420,93 @@ export default function PlatformAdminPage() {
     }
   }, [activeTab, companyEditorOpen]);
 
-  useEffect(() => {
-    let active = true;
-    apiRequest<PlatformUser[]>("/platform-admin/users")
-      .then((users) => { if (active) setPlatformUsers(users); })
-      .catch(() => { if (active) setPlatformUsers([]); })
-      .finally(() => { if (active) setUsersLoading(false); });
-    return () => { active = false; };
+  const loadPlatformUsers = useCallback(async () => {
+    setUsersLoading(true);
+    try {
+      const [users, admins] = await Promise.all([
+        apiRequest<PlatformUser[]>("/platform-admin/users"),
+        apiRequest<PlatformAdmin[]>("/company/platform/admins"),
+      ]);
+      setPlatformUsers(users);
+      setPlatformAdmins(admins);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Impossible de charger les utilisateurs et les super-admins.");
+    } finally {
+      setUsersLoading(false);
+    }
   }, []);
+
+  useEffect(() => { void Promise.resolve().then(loadPlatformUsers); }, [loadPlatformUsers]);
+
+  function openUserModal() {
+    const activeCompanies = (overview?.companies ?? []).filter((company) => company.isActive);
+    if (!activeCompanies.length) {
+      setError("Créez ou réactivez une entreprise avant d’ajouter un utilisateur.");
+      return;
+    }
+    const selectedActiveCompany = activeCompanies.find((company) => company.id === selectedCompanyId);
+    setUserDraft({ companyId: selectedActiveCompany?.id ?? activeCompanies[0].id, name: "", email: "", role: "ACCOUNTANT", password: "" });
+    setUserActionError("");
+    setUserActionSuccess("");
+    setShowTemporaryPassword(false);
+    setUserModalOpen(true);
+  }
+
+  function openAdminModal() {
+    setAdminDraft({ name: "", email: "", password: "" });
+    setUserActionError("");
+    setUserActionSuccess("");
+    setShowTemporaryPassword(false);
+    setAdminModalOpen(true);
+  }
+
+  async function createPlatformUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setUserSaving(true);
+    setUserActionError("");
+    setUserActionSuccess("");
+    try {
+      await apiRequest<PlatformUser>("/platform-admin/users", {
+        method: "POST",
+        body: JSON.stringify({
+          ...userDraft,
+          name: knownCompanyUser ? undefined : userDraft.name,
+          password: knownCompanyUser ? undefined : userDraft.password,
+        }),
+      });
+      setUserModalOpen(false);
+      setUserActionSuccess("L’accès a été ajouté à l’entreprise.");
+      await Promise.all([loadPlatformUsers(), loadOverview(true)]);
+    } catch (caught) {
+      setUserActionError(caught instanceof Error ? caught.message : "Impossible d’ajouter cet utilisateur.");
+    } finally {
+      setUserSaving(false);
+    }
+  }
+
+  async function createPlatformAdmin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setUserSaving(true);
+    setUserActionError("");
+    setUserActionSuccess("");
+    try {
+      await apiRequest<PlatformAdmin>("/platform-admin/admins", {
+        method: "POST",
+        body: JSON.stringify({
+          email: adminDraft.email,
+          name: knownAccount ? undefined : adminDraft.name,
+          password: knownAccount ? undefined : adminDraft.password,
+        }),
+      });
+      setAdminModalOpen(false);
+      setUserActionSuccess(knownAccount ? "Les droits super-admin ont été attribués." : "Le compte super-admin a été créé.");
+      await loadPlatformUsers();
+    } catch (caught) {
+      setUserActionError(caught instanceof Error ? caught.message : "Impossible d’ajouter ce super-admin.");
+    } finally {
+      setUserSaving(false);
+    }
+  }
 
   function editCompany(company: PlatformCompany) {
     setSelectedCompanyId(company.id);
@@ -660,21 +818,55 @@ export default function PlatformAdminPage() {
       </section>
 
       <section role="tabpanel" aria-labelledby="platform-tab-users" id="platform-panel-users" hidden={activeTab !== "users"} className="platform-admin-section scroll-mt-24">
-        <div className="platform-admin-section-heading"><div><p>ACCÈS AUX ESPACES</p><h2>Utilisateurs des entreprises</h2></div><span>{platformUsers.length} accès</span></div>
+        <div className="platform-admin-section-heading platform-admin-user-heading">
+          <div><p>ACCÈS AUX ESPACES</p><h2>Utilisateurs des entreprises</h2><span>Comptes, rôles et accès organisés par entreprise.</span></div>
+          <div className="platform-admin-user-actions">
+            <button type="button" onClick={openAdminModal} disabled={usersLoading}><ShieldCheck size={16} /> Ajouter super-admin</button>
+            <button type="button" className="is-primary" onClick={openUserModal} disabled={usersLoading || loading || !(overview?.companies.some((company) => company.isActive) ?? false)}><UserPlus size={16} /> Ajouter utilisateur</button>
+          </div>
+        </div>
+        {userActionSuccess && !userModalOpen && !adminModalOpen && <p role="status" className="platform-admin-success">{userActionSuccess}</p>}
+        <div className="platform-admin-user-metrics">
+          <article><span>Accès entreprise</span><strong>{platformUsers.length}</strong><small>Rôles attribués</small></article>
+          <article><span>Utilisateurs uniques</span><strong>{uniqueUserCount}</strong><small>Comptes distincts</small></article>
+          <article><span>Actifs</span><strong>{activeUserCount}</strong><small>Au moins un accès actif</small></article>
+          <article><span>Super-admins</span><strong>{platformAdmins.length}</strong><small>Contrôle global</small></article>
+        </div>
+        <div className="platform-admin-user-toolbar">
+          <label className="platform-admin-search"><Search size={17} aria-hidden="true" /><input value={userSearch} onChange={(event) => { setUserPage(1); setUserSearch(event.target.value); }} placeholder="Rechercher un nom, e-mail ou entreprise" /></label>
+          <select aria-label="Filtrer par entreprise" className="platform-admin-select" value={userCompanyFilter} onChange={(event) => { setUserPage(1); setUserCompanyFilter(event.target.value); }}>
+            <option value="all">Toutes les entreprises</option>
+            {(overview?.companies ?? []).map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+          </select>
+          <select aria-label="Filtrer par état du compte" className="platform-admin-select" value={userStatusFilter} onChange={(event) => { setUserPage(1); setUserStatusFilter(event.target.value); }}>
+            <option value="all">Tous les statuts</option><option value="active">Actifs</option><option value="inactive">Inactifs ou entreprise archivée</option>
+          </select>
+        </div>
         <div className="platform-admin-users-table">
           <div className="platform-admin-users-head"><span>Utilisateur</span><span>Entreprise</span><span>Rôle</span><span>Statut</span><span /></div>
-          {usersLoading ? <p className="platform-admin-empty">Chargement des utilisateurs…</p> : platformUsers.map((user) => (
+          {usersLoading ? <p className="platform-admin-empty">Chargement des utilisateurs…</p> : paginatedPlatformUsers.map((user) => (
             <div className="platform-admin-user-row" key={`${user.id}-${user.company.id}`}>
               <div><strong>{user.name}</strong><small>{user.email}</small></div>
-              <span>{user.company.name}</span>
-              <span className="platform-admin-user-role">{user.isPlatformAdmin ? "Super-admin" : user.role.replaceAll("_", " ").toLocaleLowerCase("fr-CD")}</span>
+              <span className="platform-admin-user-company">{user.company.name}</span>
+              <span className="platform-admin-user-role">{user.isPlatformAdmin ? "Super-admin" : roleLabel(user.role)}</span>
               <span className={`platform-admin-user-status ${user.isActive && user.company.isActive ? "is-active" : "is-inactive"}`}>{!user.company.isActive ? "Entreprise archivée" : user.isActive ? "Actif" : "Désactivé"}</span>
               <button type="button" disabled={!user.company.isActive} onClick={() => void openCompany(user.company.id, "/users")} aria-label={`Gérer l’équipe de ${user.company.name}`} title={user.company.isActive ? "Gérer les accès de cette entreprise" : "Entreprise archivée"}><UserRoundCog size={16} /></button>
             </div>
           ))}
-          {!usersLoading && !platformUsers.length && <p className="platform-admin-empty">Aucun utilisateur rattaché aux entreprises.</p>}
+          {!usersLoading && !filteredPlatformUsers.length && <p className="platform-admin-empty">Aucun utilisateur pour ces filtres.</p>}
         </div>
-        <p className="platform-admin-footnote">L’action « Gérer » ouvre l’équipe de l’entreprise sélectionnée pour modifier les rôles et accès dans son contexte.</p>
+        <div className="platform-admin-pagination" aria-label="Pagination des utilisateurs">
+          <span>{filteredPlatformUsers.length ? `${(userPage - 1) * userPageSize + 1}–${Math.min(userPage * userPageSize, filteredPlatformUsers.length)} sur ${filteredPlatformUsers.length} accès` : "0 accès"}</span>
+          <div><button type="button" onClick={() => setUserPage((page) => Math.max(1, page - 1))} disabled={usersLoading || userPage <= 1} aria-label="Page précédente"><ChevronLeft size={16} /> Précédent</button><span>Page {userPage} / {userTotalPages}</span><button type="button" onClick={() => setUserPage((page) => Math.min(userTotalPages, page + 1))} disabled={usersLoading || userPage >= userTotalPages} aria-label="Page suivante">Suivant <ChevronRight size={16} /></button></div>
+        </div>
+        <p className="platform-admin-footnote">Un même utilisateur peut avoir plusieurs accès, un par entreprise. L’action « Gérer » ouvre l’équipe concernée; elle ne change pas les droits du compte global.</p>
+        <section className="platform-admin-roster-card" aria-labelledby="platform-admin-roster-title">
+          <div className="platform-admin-roster-heading"><div><span className="platform-admin-roster-icon"><ShieldCheck size={18} /></span><div><p>CONTRÔLE GLOBAL</p><h3 id="platform-admin-roster-title">Super-administrateurs de la plateforme</h3></div></div><span>{platformAdmins.length} compte(s)</span></div>
+          <div className="platform-admin-roster-list">
+            {platformAdmins.map((admin) => <article key={admin.id}><span className="platform-admin-roster-avatar">{admin.name.trim().slice(0, 1).toLocaleUpperCase("fr-CD")}</span><div><strong>{admin.name}</strong><small>{admin.email}</small></div><span className={`platform-admin-user-status ${admin.isActive ? "is-active" : "is-inactive"}`}>{admin.isActive ? "Actif" : "Désactivé"}</span></article>)}
+            {!usersLoading && !platformAdmins.length && <p className="platform-admin-empty">Aucun super-admin n’est enregistré.</p>}
+          </div>
+        </section>
       </section>
 
       <section role="tabpanel" aria-labelledby="platform-tab-reports" id="platform-panel-reports" hidden={activeTab !== "reports"} className="platform-admin-section scroll-mt-24">
@@ -749,6 +941,37 @@ export default function PlatformAdminPage() {
           </article>
         </div>
       </section>
+
+      {userModalOpen && (
+        <div className="platform-admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setUserModalOpen(false); }}>
+          <section className="platform-admin-modal" role="dialog" aria-modal="true" aria-labelledby="platform-user-modal-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape" && !userSaving) setUserModalOpen(false); }}>
+            <header className="platform-admin-modal-heading"><span className="platform-admin-modal-icon"><UserPlus size={19} /></span><div><p>NOUVEL ACCÈS ENTREPRISE</p><h2 id="platform-user-modal-title">Ajouter un utilisateur</h2></div><button type="button" onClick={() => setUserModalOpen(false)} disabled={userSaving} aria-label="Fermer"><X size={18} /></button></header>
+            <form onSubmit={createPlatformUser} className="platform-admin-modal-form">
+              <label>Entreprise<select required value={userDraft.companyId} onChange={(event) => setUserDraft({ ...userDraft, companyId: event.target.value })}><option value="" disabled>Sélectionner une entreprise</option>{(overview?.companies ?? []).filter((company) => company.isActive).map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
+              <label>E-mail du compte<input required type="email" autoComplete="email" maxLength={160} value={userDraft.email} onChange={(event) => setUserDraft({ ...userDraft, email: event.target.value })} placeholder="nom@entreprise.cd" /></label>
+              {knownCompanyUser ? <div className="platform-admin-modal-info"><Check size={16} /><span>Compte existant détecté ({knownCompanyUser.name}). Le mot de passe ne sera pas modifié; seul l’accès à l’entreprise sélectionnée sera ajouté.</span></div> : <label>Nom complet<input required minLength={2} maxLength={120} autoComplete="name" value={userDraft.name} onChange={(event) => setUserDraft({ ...userDraft, name: event.target.value })} placeholder="Prénom et nom" /></label>}
+              <label>Rôle dans l’entreprise<select required value={userDraft.role} onChange={(event) => setUserDraft({ ...userDraft, role: event.target.value as PlatformUserRole })}>{platformUserRoles.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select></label>
+              {!knownCompanyUser && <label>Mot de passe provisoire<div className="platform-admin-password-field"><input required minLength={14} maxLength={200} autoComplete="new-password" type={showTemporaryPassword ? "text" : "password"} value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="14 caractères minimum" /><button type="button" onClick={() => setShowTemporaryPassword((shown) => !shown)} aria-label={showTemporaryPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}>{showTemporaryPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button><button type="button" onClick={() => { setUserDraft({ ...userDraft, password: temporaryPassword() }); setShowTemporaryPassword(true); }}><KeyRound size={15} /> Générer</button></div><small>Transmettez ce mot de passe en privé à la personne concernée.</small></label>}
+              {userActionError && <p role="alert" className="platform-admin-modal-error">{userActionError}</p>}
+              <div className="platform-admin-modal-actions"><button type="button" className="is-cancel" onClick={() => setUserModalOpen(false)} disabled={userSaving}>Annuler</button><button type="submit" disabled={userSaving}>{userSaving ? "Enregistrement…" : knownCompanyUser ? "Ajouter cet accès" : "Créer l’utilisateur"}</button></div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {adminModalOpen && (
+        <div className="platform-admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setAdminModalOpen(false); }}>
+          <section className="platform-admin-modal" role="dialog" aria-modal="true" aria-labelledby="platform-admin-modal-title" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape" && !userSaving) setAdminModalOpen(false); }}>
+            <header className="platform-admin-modal-heading"><span className="platform-admin-modal-icon is-violet"><ShieldCheck size={19} /></span><div><p>CONTRÔLE GLOBAL</p><h2 id="platform-admin-modal-title">Ajouter un super-admin</h2></div><button type="button" onClick={() => setAdminModalOpen(false)} disabled={userSaving} aria-label="Fermer"><X size={18} /></button></header>
+            <form onSubmit={createPlatformAdmin} className="platform-admin-modal-form">
+              <label>E-mail du compte<input required type="email" autoComplete="email" maxLength={160} value={adminDraft.email} onChange={(event) => setAdminDraft({ ...adminDraft, email: event.target.value })} placeholder="nom@entreprise.cd" /></label>
+              {knownAccount ? <div className="platform-admin-modal-info"><Check size={16} /><span>Compte existant détecté ({knownAccount.name}). Ses identifiants et ses accès entreprise restent inchangés; les droits super-admin seront ajoutés.</span></div> : <><label>Nom complet<input required minLength={2} maxLength={120} autoComplete="name" value={adminDraft.name} onChange={(event) => setAdminDraft({ ...adminDraft, name: event.target.value })} placeholder="Prénom et nom" /></label><label>Mot de passe provisoire<div className="platform-admin-password-field"><input required minLength={14} maxLength={200} autoComplete="new-password" type={showTemporaryPassword ? "text" : "password"} value={adminDraft.password} onChange={(event) => setAdminDraft({ ...adminDraft, password: event.target.value })} placeholder="14 caractères minimum" /><button type="button" onClick={() => setShowTemporaryPassword((shown) => !shown)} aria-label={showTemporaryPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}>{showTemporaryPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button><button type="button" onClick={() => { setAdminDraft({ ...adminDraft, password: temporaryPassword() }); setShowTemporaryPassword(true); }}><KeyRound size={15} /> Générer</button></div><small>Le nouveau compte aura accès au tableau global et aux entreprises.</small></label></>}
+              {userActionError && <p role="alert" className="platform-admin-modal-error">{userActionError}</p>}
+              <div className="platform-admin-modal-actions"><button type="button" className="is-cancel" onClick={() => setAdminModalOpen(false)} disabled={userSaving}>Annuler</button><button type="submit" disabled={userSaving}>{userSaving ? "Enregistrement…" : knownAccount ? "Attribuer le rôle" : "Créer le super-admin"}</button></div>
+            </form>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
