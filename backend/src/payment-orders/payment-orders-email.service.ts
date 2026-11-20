@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { connect as connectTls, TLSSocket } from 'node:tls';
 import { PrismaService } from '../database/prisma.service';
 
 export type PaymentOrderEmailStatus = 'sent' | 'not_configured' | 'failed';
@@ -122,6 +123,151 @@ function htmlEscape(value: string) {
   })[character] ?? character);
 }
 
+type SmtpReply = { code: number; message: string };
+
+function smtpReplyReader(socket: TLSSocket) {
+  let buffer = '';
+  let lines: string[] = [];
+  let queued: SmtpReply[] = [];
+  let pending: ((reply: SmtpReply) => void) | null = null;
+  let failed: Error | null = null;
+  socket.on('data', (chunk: Buffer | string) => {
+    buffer += chunk.toString();
+    const parts = buffer.split('\r\n');
+    buffer = parts.pop() ?? '';
+    for (const line of parts) {
+      if (!line) continue;
+      lines.push(line);
+      if (/^\d{3} /.test(line)) {
+        const reply = { code: Number(line.slice(0, 3)), message: lines.join('\n') };
+        lines = [];
+        if (pending) {
+          const resolve = pending;
+          pending = null;
+          resolve(reply);
+        } else queued.push(reply);
+      }
+    }
+  });
+  socket.on('error', (error) => {
+    failed = error;
+    pending = null;
+  });
+  return () => {
+    if (failed) return Promise.reject(failed);
+    const reply = queued.shift();
+    if (reply) return Promise.resolve(reply);
+    return new Promise<SmtpReply>((resolve, reject) => {
+      pending = resolve;
+      socket.once('error', reject);
+    });
+  };
+}
+
+function smtpAddress(from: string, user: string) {
+  const match = from.match(/<([^<>]+)>/);
+  const address = (match?.[1] ?? from).trim();
+  if (address.toLowerCase() !== user.toLowerCase()) {
+    throw new Error('OP_EMAIL_FROM doit utiliser la même adresse que GMAIL_USER.');
+  }
+  return address;
+}
+
+function mimeHeader(value: string) {
+  return `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`;
+}
+
+function base64Lines(value: Buffer | string) {
+  const encoded = Buffer.isBuffer(value) ? value.toString('base64') : Buffer.from(value, 'utf8').toString('base64');
+  return encoded.match(/.{1,76}/g)?.join('\r\n') ?? '';
+}
+
+async function sendWithGmail(input: {
+  user: string;
+  appPassword: string;
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+  attachments: Array<{ filename: string; content: Buffer; contentType: string }>;
+}) {
+  const fromAddress = smtpAddress(input.from, input.user);
+  const socket = connectTls({ host: 'smtp.gmail.com', port: 465, servername: 'smtp.gmail.com' });
+  socket.setTimeout(15000, () => socket.destroy(new Error('Délai de connexion Gmail dépassé.')));
+  const nextReply = smtpReplyReader(socket);
+  const awaitTls = new Promise<void>((resolve, reject) => {
+    socket.once('secureConnect', resolve);
+    socket.once('error', reject);
+  });
+  await awaitTls;
+  const expect = async (accepted: number[]) => {
+    const reply = await nextReply();
+    if (!accepted.includes(reply.code)) throw new Error(`Gmail SMTP ${reply.code}: ${reply.message.slice(0, 400)}`);
+    return reply;
+  };
+  const command = async (value: string, accepted: number[]) => {
+    socket.write(`${value}\r\n`);
+    return expect(accepted);
+  };
+  const clean = (value: string) => value.replace(/[\r\n]/g, ' ').trim();
+  const alternative = `alt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const mixed = `mix-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const displayName = input.from.match(/^\s*([^<>]+)\s*</)?.[1]?.trim();
+  const fromHeader = displayName ? `=?UTF-8?B?${Buffer.from(displayName, 'utf8').toString('base64')}?= <${fromAddress}>` : fromAddress;
+  const mime: string[] = [
+    `From: ${fromHeader}`,
+    `To: ${input.to}`,
+    `Subject: ${mimeHeader(clean(input.subject))}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${mixed}"`,
+    '',
+    `--${mixed}`,
+    `Content-Type: multipart/alternative; boundary="${alternative}"`,
+    '',
+    `--${alternative}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    base64Lines(input.text),
+    `--${alternative}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    base64Lines(input.html),
+    `--${alternative}--`,
+  ];
+  for (const attachment of input.attachments) {
+    const safeName = clean(attachment.filename).replace(/["\\]/g, '_');
+    const contentType = /^[\w.+-]+\/[\w.+-]+$/.test(attachment.contentType) ? attachment.contentType : 'application/octet-stream';
+    mime.push(
+      `--${mixed}`,
+      `Content-Type: ${contentType}; name="${safeName.replace(/[^\x20-\x7E]/g, '_')}"`,
+      `Content-Disposition: attachment; filename="${safeName.replace(/[^\x20-\x7E]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(safeName)}`,
+      'Content-Transfer-Encoding: base64',
+      '',
+      base64Lines(attachment.content),
+    );
+  }
+  mime.push(`--${mixed}--`);
+  try {
+    await expect([220]);
+    await command('EHLO facture-client.local', [250]);
+    await command('AUTH LOGIN', [334]);
+    await command(Buffer.from(input.user).toString('base64'), [334]);
+    await command(Buffer.from(input.appPassword.replace(/\s/g, '')).toString('base64'), [235]);
+    await command(`MAIL FROM:<${fromAddress}>`, [250]);
+    await command(`RCPT TO:<${input.to}>`, [250, 251]);
+    await command('DATA', [354]);
+    const message = mime.join('\r\n').replace(/(^|\r\n)\./g, '$1..');
+    socket.write(`${message}\r\n.\r\n`);
+    await expect([250]);
+    await command('QUIT', [221]);
+  } finally {
+    socket.end();
+  }
+}
+
 @Injectable()
 export class PaymentOrdersEmailService {
   constructor(private readonly prisma: PrismaService) {}
@@ -131,12 +277,21 @@ export class PaymentOrdersEmailService {
     submittedBy: string,
     attempt = 'initial',
   ): Promise<PaymentOrderEmailStatus> {
+    const provider = process.env.OP_EMAIL_PROVIDER?.trim().toLowerCase() || 'gmail';
+    const gmailUser = process.env.GMAIL_USER?.trim() || 'xenderhub@gmail.com';
+    const gmailAppPassword = process.env.GMAIL_APP_PASSWORD?.trim();
     const apiKey = process.env.RESEND_API_KEY?.trim();
-    const from = process.env.OP_EMAIL_FROM?.trim();
+    const from = provider === 'gmail'
+      ? `Facture Client <${gmailUser}>`
+      : process.env.OP_EMAIL_FROM?.trim() ?? '';
     let status: PaymentOrderEmailStatus = 'not_configured';
     let failure: string | null = null;
 
-    if (apiKey && from) {
+    const configured = provider === 'gmail'
+      ? Boolean(gmailUser && gmailAppPassword)
+      : provider === 'resend' && Boolean(apiKey && process.env.OP_EMAIL_FROM?.trim());
+
+    if (configured) {
       try {
         const order = await this.prisma.paymentOrder.findUnique({
           where: { id },
@@ -159,14 +314,14 @@ export class PaymentOrdersEmailService {
           reason: order.reason,
           companyName,
         });
-        const attachments = [{
+        const attachments: Array<{ filename: string; content: Buffer; content_type: string }> = [{
           filename: `OP-${order.orderNumber.replace(/[^\w.-]/g, '-')}.pdf`,
-          content: pdf.toString('base64'),
+          content: pdf,
           content_type: 'application/pdf',
         }];
         if (order.attachment) attachments.push({
           filename: order.attachment.fileName.replace(/[\r\n]/g, '_'),
-          content: Buffer.from(order.attachment.data).toString('base64'),
+          content: Buffer.from(order.attachment.data),
           content_type: order.attachment.mimeType,
         });
         const subject = `Pour examen · ${order.orderNumber} · ${companyName}`;
@@ -186,12 +341,23 @@ export class PaymentOrdersEmailService {
           companyName,
         ].join('\n');
         const html = `<p>Monsieur l’Associé-Gérant,</p><p>Nous vous transmettons pour examen l’ordre de paiement <strong>${htmlEscape(order.orderNumber)}</strong> de la société <strong>${htmlEscape(companyName)}</strong>.</p><p><strong>Bénéficiaire :</strong> ${htmlEscape(order.beneficiary)}<br><strong>Montant :</strong> ${htmlEscape(amount)}<br><strong>Motif :</strong> ${htmlEscape(order.reason)}<br><strong>Préparé par :</strong> ${htmlEscape(requesterName)}</p><p>L’OP en PDF et l’état de besoin sont joints à ce courriel. Nous vous prions d’examiner le dossier et d’enregistrer votre approbation ou votre rejet dans la plateforme. L’ordre reste en attente de votre décision.</p><p>Avec nos salutations respectueuses,<br>${htmlEscape(companyName)}</p>`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
-        try {
+        if (provider === 'gmail' && gmailAppPassword) {
+          await sendWithGmail({
+            user: gmailUser,
+            appPassword: gmailAppPassword,
+            from,
+            to: 'ligbakelo@yahoo.fr',
+            subject,
+            text,
+            html,
+            attachments: attachments.map((attachment) => ({
+              ...attachment,
+              contentType: attachment.content_type,
+            })),
+          });
+        } else if (provider === 'resend' && apiKey && process.env.OP_EMAIL_FROM?.trim()) {
           const response = await fetch('https://api.resend.com/emails', {
             method: 'POST',
-            signal: controller.signal,
             headers: {
               Authorization: `Bearer ${apiKey}`,
               'Content-Type': 'application/json',
@@ -203,17 +369,22 @@ export class PaymentOrdersEmailService {
               subject,
               text,
               html,
-              attachments,
+              attachments: attachments.map((attachment) => ({
+                filename: attachment.filename,
+                content: attachment.content.toString('base64'),
+                content_type: attachment.content_type,
+              })),
             }),
+            signal: AbortSignal.timeout(15000),
           });
           if (!response.ok) {
             const result = await response.json().catch(() => ({}));
             throw new Error(`Service e-mail (${response.status}) : ${JSON.stringify(result).slice(0, 500)}`);
           }
-          status = 'sent';
-        } finally {
-          clearTimeout(timeout);
+        } else {
+          throw new Error(`Fournisseur e-mail non reconnu ou mal configuré: ${provider}`);
         }
+        status = 'sent';
       } catch (error) {
         status = 'failed';
         failure = error instanceof Error ? error.message.slice(0, 1000) : 'Erreur e-mail inconnue.';
@@ -234,7 +405,7 @@ export class PaymentOrdersEmailService {
               recipient: 'ligbakelo@yahoo.fr',
               status,
               ...(failure ? { error: failure } : {}),
-              ...(status === 'not_configured' ? { reason: 'RESEND_API_KEY ou OP_EMAIL_FROM non configuré' } : {}),
+              ...(status === 'not_configured' ? { reason: 'GMAIL_APP_PASSWORD requis pour le fournisseur Gmail par défaut, ou configurez Resend.' } : {}),
             },
           },
         });
@@ -252,9 +423,10 @@ export class PaymentOrdersEmailService {
       take: 500,
       select: { id: true, companyId: true, orderNumber: true, createdAt: true },
     });
-    const configured = Boolean(
-      process.env.RESEND_API_KEY?.trim() && process.env.OP_EMAIL_FROM?.trim(),
-    );
+    const provider = process.env.OP_EMAIL_PROVIDER?.trim().toLowerCase() || 'gmail';
+    const configured = provider === 'gmail'
+      ? Boolean((process.env.GMAIL_USER?.trim() || 'xenderhub@gmail.com') && process.env.GMAIL_APP_PASSWORD?.trim())
+      : provider === 'resend' && Boolean(process.env.RESEND_API_KEY?.trim() && process.env.OP_EMAIL_FROM?.trim());
     if (!configured) {
       return {
         configured: false,
@@ -262,7 +434,9 @@ export class PaymentOrdersEmailService {
         sent: 0,
         skippedAlreadySent: 0,
         failed: 0,
-        message: 'Configurez RESEND_API_KEY et OP_EMAIL_FROM dans Render avant de renvoyer les OP.',
+        message: provider === 'gmail'
+          ? 'Ajoutez GMAIL_APP_PASSWORD dans Render. Le compte d’envoi par défaut est xenderhub@gmail.com.'
+          : 'Configurez RESEND_API_KEY et OP_EMAIL_FROM dans Render avant de renvoyer les OP.',
       };
     }
     if (!pending.length) {

@@ -29,6 +29,12 @@ services:
         generateValue: true
       - key: FRONTEND_ORIGIN
         sync: false
+      - key: OP_EMAIL_PROVIDER
+        value: gmail
+      - key: GMAIL_USER
+        value: xenderhub@gmail.com
+      - key: GMAIL_APP_PASSWORD
+        sync: false
       - key: ADMIN_EMAIL
         value: service@ctrs.cd
       - key: PLATFORM_ADMIN_EMAIL
