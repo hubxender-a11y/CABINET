@@ -8689,11 +8689,81 @@ summary:focus-visible {
 .platform-admin-error { padding: .8rem 1rem; border: 1px solid #f1c6c8; border-radius: .8rem; background: #fff5f5; color: #a43440; font-size: .82rem; }
 .platform-admin-loading, .platform-admin-empty { padding: 1rem; color: #8490a0; font-size: .78rem; }
 
+.platform-admin-user-heading { align-items: center; }
+.platform-admin-user-heading > div:first-child > span { display: block; margin-top: .35rem; color: #7b8797; font-size: .75rem; }
+.platform-admin-user-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.platform-admin-user-actions button { display: inline-flex; align-items: center; justify-content: center; gap: .42rem; padding: .64rem .82rem; border: 1px solid #dce5ee; border-radius: .72rem; background: #fff; color: #244d6c; font-size: .72rem; font-weight: 740; transition: .18s ease; }
+.platform-admin-user-actions button:hover { border-color: #9dbbd0; background: #f3f8fb; transform: translateY(-1px); }
+.platform-admin-user-actions button.is-primary { border-color: #0b5785; background: #0b5785; color: #fff; box-shadow: 0 5px 12px rgb(11 87 133 / 17%); }
+.platform-admin-user-actions button.is-primary:hover { background: #08476f; }
+.platform-admin-user-actions button:disabled { cursor: wait; opacity: .5; }
+.platform-admin-user-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; margin-bottom: 1rem; }
+.platform-admin-user-metrics article { display: grid; gap: .18rem; padding: .85rem .95rem; border: 1px solid #e4eaf1; border-radius: .85rem; background: linear-gradient(140deg, #f8fbfd, #fff); }
+.platform-admin-user-metrics span { color: #7b899a; font-size: .68rem; font-weight: 650; }
+.platform-admin-user-metrics strong { color: #173d5d; font-size: 1.25rem; font-weight: 800; }
+.platform-admin-user-metrics small { color: #9aa4b1; font-size: .63rem; }
+.platform-admin-user-toolbar { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(11rem, .4fr) minmax(12rem, .45fr); gap: .55rem; margin-bottom: .7rem; }
+.platform-admin-user-toolbar .platform-admin-search { width: 100%; }
+.platform-admin-user-toolbar .platform-admin-select { min-width: 0; }
+.platform-admin-success { margin: 0 0 .8rem; padding: .7rem .85rem; border: 1px solid #c7e7d2; border-radius: .75rem; background: #f0fbf4; color: #286a3c; font-size: .76rem; font-weight: 650; }
+.platform-admin-user-company { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-admin-user-row { min-height: 3.65rem; }
+.platform-admin-user-row:hover { background: #fbfdff; }
+.platform-admin-user-role { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-admin-roster-card { margin-top: 1.1rem; padding: 1rem; border: 1px solid #e3eaf2; border-radius: 1rem; background: linear-gradient(145deg, #fbfaff, #fff 60%); }
+.platform-admin-roster-heading, .platform-admin-roster-heading > div { display: flex; align-items: center; gap: .65rem; }
+.platform-admin-roster-heading { justify-content: space-between; margin-bottom: .75rem; }
+.platform-admin-roster-heading > div > div { display: grid; gap: .12rem; }
+.platform-admin-roster-heading p { margin: 0; color: #8a7baa; font-size: .58rem; font-weight: 800; letter-spacing: .11em; }
+.platform-admin-roster-heading h3 { margin: 0; color: #283653; font-size: .84rem; font-weight: 780; }
+.platform-admin-roster-heading > span:last-child { color: #76839a; font-size: .68rem; }
+.platform-admin-roster-icon { display: grid; width: 2.2rem; height: 2.2rem; place-items: center; border-radius: .7rem; background: #f0eafd; color: #7456a6; }
+.platform-admin-roster-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
+.platform-admin-roster-list article { display: flex; align-items: center; gap: .58rem; min-width: 0; padding: .58rem .65rem; border: 1px solid #ece8f5; border-radius: .72rem; background: #fff; }
+.platform-admin-roster-list article > div { min-width: 0; flex: 1; }
+.platform-admin-roster-list article strong, .platform-admin-roster-list article small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-admin-roster-list article strong { color: #2c3c55; font-size: .7rem; }
+.platform-admin-roster-list article small { margin-top: .1rem; color: #8590a0; font-size: .63rem; }
+.platform-admin-roster-avatar { display: grid; width: 1.9rem; height: 1.9rem; flex: 0 0 auto; place-items: center; border-radius: .65rem; background: #f1edfa; color: #70529f; font-size: .75rem; font-weight: 800; }
+.platform-admin-modal-backdrop { position: fixed; z-index: 2000; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 1rem; background: rgb(8 22 42 / 58%); backdrop-filter: blur(5px); animation: platform-modal-fade .18s ease-out; }
+.platform-admin-modal { width: min(100%, 34rem); max-height: min(92vh, 52rem); overflow: auto; border: 1px solid rgb(255 255 255 / 75%); border-radius: 1.2rem; background: #fff; box-shadow: 0 28px 80px rgb(6 21 42 / 32%); animation: platform-modal-rise .22s ease-out; }
+.platform-admin-modal-heading { position: sticky; z-index: 1; top: 0; display: flex; align-items: center; gap: .75rem; padding: 1.05rem 1.2rem; border-bottom: 1px solid #edf1f5; background: rgb(255 255 255 / 96%); backdrop-filter: blur(8px); }
+.platform-admin-modal-icon { display: grid; width: 2.55rem; height: 2.55rem; flex: 0 0 auto; place-items: center; border-radius: .82rem; background: #e8f4fb; color: #0b5a87; }
+.platform-admin-modal-icon.is-violet { background: #f0eafd; color: #7251a5; }
+.platform-admin-modal-heading > div { min-width: 0; flex: 1; }
+.platform-admin-modal-heading p { margin: 0; color: #8290a1; font-size: .6rem; font-weight: 800; letter-spacing: .11em; }
+.platform-admin-modal-heading h2 { margin: .2rem 0 0; color: #142f4b; font-size: 1.04rem; font-weight: 800; letter-spacing: -.02em; }
+.platform-admin-modal-heading > button { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: .62rem; color: #738195; }
+.platform-admin-modal-heading > button:hover { background: #f0f3f6; }
+.platform-admin-modal-form { display: grid; gap: .86rem; padding: 1.15rem 1.2rem 1.2rem; }
+.platform-admin-modal-form > label { display: grid; gap: .38rem; color: #53677c; font-size: .71rem; font-weight: 720; }
+.platform-admin-modal-form input, .platform-admin-modal-form select { width: 100%; min-width: 0; height: 2.65rem; padding: .62rem .72rem; border: 1px solid #dfe7ef; border-radius: .68rem; background: #fff; color: #233c53; font-size: .76rem; outline: none; }
+.platform-admin-modal-form input:focus, .platform-admin-modal-form select:focus { border-color: #73a9cb; box-shadow: 0 0 0 3px rgb(17 104 154 / 10%); }
+.platform-admin-modal-form small { color: #8794a3; font-size: .64rem; font-weight: 450; line-height: 1.45; }
+.platform-admin-modal-info { display: flex; align-items: flex-start; gap: .5rem; padding: .72rem .78rem; border: 1px solid #cde8d7; border-radius: .75rem; background: #f1faf4; color: #3e6e4b; font-size: .69rem; line-height: 1.5; }
+.platform-admin-modal-info svg { flex: 0 0 auto; margin-top: .06rem; }
+.platform-admin-password-field { display: flex; min-width: 0; align-items: center; gap: .28rem; }
+.platform-admin-password-field input { flex: 1; }
+.platform-admin-password-field button { display: inline-flex; height: 2.55rem; flex: 0 0 auto; align-items: center; justify-content: center; gap: .3rem; padding: 0 .55rem; border: 1px solid #e0e7ee; border-radius: .62rem; background: #f9fbfc; color: #49677f; font-size: .64rem; font-weight: 700; }
+.platform-admin-password-field button:hover { background: #eef5f9; }
+.platform-admin-modal-error { margin: 0; padding: .7rem .78rem; border: 1px solid #f0c9cd; border-radius: .72rem; background: #fff5f5; color: #a13944; font-size: .7rem; line-height: 1.45; }
+.platform-admin-modal-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .25rem; padding-top: .85rem; border-top: 1px solid #edf1f5; }
+.platform-admin-modal-actions button { display: inline-flex; min-height: 2.4rem; align-items: center; justify-content: center; gap: .35rem; padding: .55rem .82rem; border: 1px solid #0b5785; border-radius: .68rem; background: #0b5785; color: #fff; font-size: .71rem; font-weight: 750; }
+.platform-admin-modal-actions button.is-cancel { border-color: #dfe6ed; background: #fff; color: #617286; }
+.platform-admin-modal-actions button:hover:not(:disabled) { filter: brightness(.96); }
+.platform-admin-modal-actions button:disabled { cursor: wait; opacity: .58; }
+@keyframes platform-modal-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes platform-modal-rise { from { opacity: 0; transform: translateY(10px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
 @media (max-width: 900px) {
   .platform-admin-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .platform-admin-company-layout { grid-template-columns: 1fr; }
   .platform-admin-company-list { max-height: 19rem; }
   .platform-admin-settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .platform-admin-user-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .platform-admin-user-toolbar { grid-template-columns: 1fr 1fr; }
+  .platform-admin-user-toolbar .platform-admin-search { grid-column: 1 / -1; }
+  .platform-admin-roster-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 600px) {
@@ -8705,6 +8775,16 @@ summary:focus-visible {
   .platform-admin-pagination > div { width: 100%; justify-content: space-between; }
   .platform-admin-section-heading { align-items: flex-start; flex-direction: column; }
   .platform-admin-section-heading > span { align-self: flex-start; }
+  .platform-admin-user-heading { align-items: stretch; }
+  .platform-admin-user-actions { width: 100%; }
+  .platform-admin-user-actions button { flex: 1; }
+  .platform-admin-user-toolbar { grid-template-columns: 1fr; }
+  .platform-admin-user-toolbar .platform-admin-search { grid-column: auto; }
+  .platform-admin-modal-backdrop { padding: .6rem; }
+  .platform-admin-modal { max-height: 95vh; border-radius: 1rem; }
+  .platform-admin-modal-heading, .platform-admin-modal-form { padding-left: .9rem; padding-right: .9rem; }
+  .platform-admin-password-field { flex-wrap: wrap; }
+  .platform-admin-password-field input { flex-basis: 100%; }
   .platform-admin-search { width: 100%; }
   .platform-admin-metrics, .platform-admin-currency-grid, .platform-admin-settings-grid { grid-template-columns: 1fr; }
   .platform-admin-currency-card { grid-template-columns: 1fr 1fr; }
