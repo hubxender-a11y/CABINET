@@ -46,6 +46,12 @@ export class PlatformAdminController {
     return this.platformAdmin.createUser(dto, request.user!.sub);
   }
 
+  @Post('payment-orders/resend-pending-emails')
+  @ApiOperation({ summary: 'Resend pending payment orders to the managing partner by email' })
+  resendPendingPaymentOrderEmails(@Req() request: AuthenticatedRequest) {
+    return this.platformAdmin.resendPendingPaymentOrderEmails(request.user!.sub);
+  }
+
   @Post('admins')
   @ApiOperation({ summary: 'Create a platform super-admin or promote an existing account' })
   createAdmin(

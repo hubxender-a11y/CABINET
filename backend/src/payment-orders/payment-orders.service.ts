@@ -14,6 +14,7 @@ import {
 } from '../cash-vouchers/cash-ledger';
 import { amountInWords } from './amount-in-words';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PaymentOrdersEmailService } from './payment-orders-email.service';
 import type {
   CreatePaymentOrderDto,
   RejectPaymentOrderDto,
@@ -26,6 +27,7 @@ export class PaymentOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly orderEmail: PaymentOrdersEmailService,
   ) {}
 
   async list(companyId: string) {
@@ -275,7 +277,7 @@ export class PaymentOrdersService {
     const year = parsedDate.getUTCFullYear();
     const words = amountInWords(amount, dto.currency);
 
-    return this.prisma.$transaction(async (transaction) => {
+    const createdOrder = await this.prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`
         WITH advisory_lock AS MATERIALIZED (
           SELECT pg_advisory_xact_lock(hashtext(${`payment-order:${companyId}`}), CAST(${year} AS INTEGER))
@@ -421,6 +423,11 @@ export class PaymentOrdersService {
       maxWait: 10_000,
       timeout: 30_000,
     });
+    const emailNotification = await this.orderEmail.sendSubmissionNotice(
+      createdOrder.id,
+      userId,
+    );
+    return { ...createdOrder, emailNotification };
   }
 
   async financeVisa(

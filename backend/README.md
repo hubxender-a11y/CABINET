@@ -43,4 +43,8 @@ npm test -- --runInBand
 - Le build retire ensuite les dépendances de développement afin de réduire la taille du service déployé.
 - Configurer les variables secrètes uniquement dans les tableaux de bord sécurisés des fournisseurs. Ne commitez aucun fichier `.env` et ne partagez pas les secrets dans le chat.
 
+### Notification e-mail des OP
+
+Chaque nouvelle OP est enregistrée « à examiner », puis l’API transmet un e-mail poli à `ligbakelo@yahoo.fr` avec le PDF de l’OP et l’état de besoin joint. L’OP reste en attente jusqu’à la décision enregistrée dans la plateforme. Configurez `RESEND_API_KEY` et `OP_EMAIL_FROM` dans Render; l’adresse d’expédition doit appartenir à un domaine validé par Resend. Le point de terminaison super-admin `POST /api/platform-admin/payment-orders/resend-pending-emails` permet ensuite de renvoyer les OP en attente qui n’ont pas déjà reçu le courriel.
+
 Le Blueprint est configuré temporairement sur Render Free à la demande du propriétaire. Ce niveau peut mettre le service en veille et n’est pas garanti pour un usage professionnel en production; passez à un plan adapté avant d’y traiter des données réelles. Les comptes Vercel Hobby peuvent être limités aux usages personnels/non commerciaux; vérifiez le plan applicable à votre cabinet.

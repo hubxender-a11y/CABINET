@@ -9,6 +9,7 @@ import { hash } from 'bcryptjs';
 import { PrismaService } from '../database/prisma.service';
 import { getCompanyId } from '../database/company-context';
 import { CreatePlatformAdminDto, CreatePlatformUserDto } from './platform-admin.dto';
+import { PaymentOrdersEmailService } from '../payment-orders/payment-orders-email.service';
 
 const trackedCompanyCounts = {
   memberships: true,
@@ -24,7 +25,14 @@ const trackedCompanyCounts = {
 
 @Injectable()
 export class PlatformAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly orderEmail: PaymentOrdersEmailService,
+  ) {}
+
+  resendPendingPaymentOrderEmails(actorId: string) {
+    return this.orderEmail.resendPendingSubmissionNotices(actorId);
+  }
 
   async createUser(dto: CreatePlatformUserDto, actorId: string) {
     if (dto.role === UserRole.PLATFORM_SUPER_ADMIN) {
