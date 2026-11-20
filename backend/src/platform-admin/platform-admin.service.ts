@@ -270,7 +270,7 @@ export class PlatformAdminService {
       invoiceTotals,
       paymentTotals,
       orderStatuses,
-      activityToday,
+      activityTodayByCompany,
       userCount,
     ] = await Promise.all([
       this.prisma.company.findMany({
@@ -307,7 +307,11 @@ export class PlatformAdminService {
         by: ['companyId', 'status'],
         _count: { _all: true },
       }),
-      this.prisma.auditLog.count({ where: { createdAt: { gte: today } } }),
+      this.prisma.auditLog.groupBy({
+        by: ['companyId'],
+        where: { createdAt: { gte: today } },
+        _count: { _all: true },
+      }),
       this.prisma.user.count({ where: { isActive: true } }),
     ]);
 
@@ -332,6 +336,10 @@ export class PlatformAdminService {
       ordersByCompany.set(row.companyId, rows);
     }
 
+    const activityByCompany = new Map(
+      activityTodayByCompany.map((row) => [row.companyId, row._count._all]),
+    );
+
     const companyRows = companies.map((company) => ({
       id: company.id,
       name: company.tradeName || company.legalName,
@@ -347,6 +355,7 @@ export class PlatformAdminService {
       subscription: company.subscription,
       counts: {
         users: company._count.memberships,
+        activityToday: activityByCompany.get(company.id) ?? 0,
         clients: company._count.customers,
         invoices: company._count.invoices,
         payments: company._count.payments,
@@ -412,7 +421,10 @@ export class PlatformAdminService {
           (sum, company) => sum + company.counts.pendingPaymentOrders,
           0,
         ),
-        activityToday,
+        activityToday: activityTodayByCompany.reduce(
+          (sum, row) => sum + row._count._all,
+          0,
+        ),
         totalsByCurrency: [...totalsByCurrency.entries()].map(
           ([currency, totals]) => ({
             currency,

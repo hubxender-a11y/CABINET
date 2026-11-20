@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -54,6 +54,7 @@ type PlatformCompany = {
   subscription: { plan: string; status: string; endAt: string | null } | null;
   counts: {
     users: number;
+    activityToday: number;
     clients: number;
     invoices: number;
     payments: number;
@@ -156,15 +157,15 @@ type PlatformPreferences = { cards: DashboardCard[]; defaultCompanyId: string };
 
 const preferenceKey = "cabinet-platform-dashboard-preferences";
 const cardLabels: Record<DashboardCard, string> = {
-  companies: "Entreprises suivies",
-  users: "Utilisateurs actifs",
+  companies: "Espace sélectionné",
+  users: "Accès utilisateurs",
   invoices: "Factures enregistrées",
   payments: "Encaissements",
   approvals: "OP à examiner",
-  activity: "Activité du jour",
+  activity: "Activité aujourd’hui",
 };
 const defaultCards: DashboardCard[] = ["companies", "users", "invoices", "payments", "approvals", "activity"];
-const defaultPreferences: PlatformPreferences = { cards: defaultCards, defaultCompanyId: "all" };
+const defaultPreferences: PlatformPreferences = { cards: defaultCards, defaultCompanyId: "" };
 let cachedPreferences: PlatformPreferences | null = null;
 
 function money(value: string | number, currency: string) {
@@ -243,7 +244,7 @@ function readPreferences(): PlatformPreferences {
     const parsed = JSON.parse(value) as Partial<PlatformPreferences>;
     return {
       cards: defaultCards.filter((card) => parsed.cards?.includes(card)),
-      defaultCompanyId: parsed.defaultCompanyId || "all",
+      defaultCompanyId: parsed.defaultCompanyId === "all" ? "" : parsed.defaultCompanyId ?? "",
     };
   } catch {
     return defaultPreferences;
@@ -304,7 +305,8 @@ export default function PlatformAdminPage() {
   const [companyEditorOpen, setCompanyEditorOpen] = useState(false);
   const [companyDraft, setCompanyDraft] = useState({ legalName: "", tradeName: "", email: "", city: "", primaryColor: "#e60000", accentColor: "#ffcc00", logoUrl: "" });
   const [newCompany, setNewCompany] = useState({ legalName: "", tradeName: "", email: "", city: "" });
-  const effectiveCompanyId = selectedCompanyId ?? "all";
+  const activeDashboardCompanyId = selectedCompanyId ?? preferences.defaultCompanyId;
+  const effectiveCompanyId = selectedCompanyId ?? (preferences.defaultCompanyId || "all");
 
   const loadOverview = useCallback(async (quiet = false) => {
     if (quiet) setRefreshing(true);
@@ -338,7 +340,7 @@ export default function PlatformAdminPage() {
     return () => { active = false; };
   }, []);
 
-  const selectedCompany = overview?.companies.find((company) => company.id === effectiveCompanyId) ?? null;
+  const selectedCompany = overview?.companies.find((company) => company.id === activeDashboardCompanyId) ?? null;
   const knownAccount = useMemo(() => {
     const email = adminDraft.email.trim().toLocaleLowerCase("fr-CD");
     if (!email) return null;
@@ -444,7 +446,7 @@ export default function PlatformAdminPage() {
       setError("Créez ou réactivez une entreprise avant d’ajouter un utilisateur.");
       return;
     }
-    const selectedActiveCompany = activeCompanies.find((company) => company.id === selectedCompanyId);
+    const selectedActiveCompany = activeCompanies.find((company) => company.id === activeDashboardCompanyId);
     setUserDraft({ companyId: selectedActiveCompany?.id ?? activeCompanies[0].id, name: "", email: "", role: "ACCOUNTANT", password: "" });
     setUserActionError("");
     setUserActionSuccess("");
@@ -615,14 +617,27 @@ export default function PlatformAdminPage() {
     }
   }
 
-  const summaryCards = [
-    { id: "companies" as const, label: cardLabels.companies, value: overview?.summary.companies ?? 0, icon: Building2, color: "blue" },
-    { id: "users" as const, label: cardLabels.users, value: overview?.summary.activeUsers ?? 0, icon: Users, color: "violet" },
-    { id: "invoices" as const, label: cardLabels.invoices, value: overview?.summary.invoices ?? 0, icon: ArrowUpRight, color: "teal" },
-    { id: "payments" as const, label: cardLabels.payments, value: (overview?.summary.totalsByCurrency ?? []).map(({ currency, payments }) => money(payments, currency)).join(" · ") || "—", icon: Wallet, color: "green" },
-    { id: "approvals" as const, label: cardLabels.approvals, value: overview?.summary.pendingPaymentOrders ?? 0, icon: ArrowDownRight, color: "amber" },
-    { id: "activity" as const, label: cardLabels.activity, value: overview?.summary.activityToday ?? 0, icon: Activity, color: "rose" },
-  ];
+  const selectedCurrencyTotals = useMemo(() => {
+    if (!selectedCompany) return [];
+    const totals = new Map<string, { invoices: string; paidInvoices: string; payments: string }>();
+    for (const row of selectedCompany.invoicesByCurrency) {
+      totals.set(row.currency, { invoices: row.invoiced, paidInvoices: row.paid, payments: "0" });
+    }
+    for (const row of selectedCompany.paymentsByCurrency) {
+      const current = totals.get(row.currency) ?? { invoices: "0", paidInvoices: "0", payments: "0" };
+      totals.set(row.currency, { ...current, payments: row.received });
+    }
+    return [...totals.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [selectedCompany]);
+
+  const summaryCards = selectedCompany ? [
+    { id: "companies" as const, label: cardLabels.companies, value: selectedCompany.isActive ? "1" : "Archivé", icon: Building2, color: "blue" },
+    { id: "users" as const, label: cardLabels.users, value: selectedCompany.counts.users, icon: Users, color: "violet" },
+    { id: "invoices" as const, label: cardLabels.invoices, value: selectedCompany.counts.invoices, icon: ArrowUpRight, color: "teal" },
+    { id: "payments" as const, label: cardLabels.payments, value: selectedCurrencyTotals.map(([currency, total]) => money(total.payments, currency)).join(" · ") || money(0, selectedCompany.currencyCode), icon: Wallet, color: "green" },
+    { id: "approvals" as const, label: cardLabels.approvals, value: selectedCompany.counts.pendingPaymentOrders, icon: ArrowDownRight, color: "amber" },
+    { id: "activity" as const, label: cardLabels.activity, value: selectedCompany.counts.activityToday, icon: Activity, color: "rose" },
+  ] : [];
 
   return (
     <main className="platform-admin-page space-y-8">
@@ -659,33 +674,49 @@ export default function PlatformAdminPage() {
       {error && <div role="alert" className="platform-admin-error">{error}</div>}
 
       <section id="platform-panel-overview" role="tabpanel" aria-labelledby="platform-tab-overview" hidden={activeTab !== "overview"} className="platform-admin-section scroll-mt-24">
-        <div className="platform-admin-section-heading">
-          <div><p>INDICATEURS CONSOLIDÉS</p><h2>La plateforme, en un regard</h2></div>
-          {overview && <span>Actualisé {dateTime(overview.generatedAt)}</span>}
+        <div className="platform-admin-section-heading platform-admin-overview-heading">
+          <div><p>ESPACE SÉLECTIONNÉ</p><h2>Activité de l’entreprise</h2><span>Les indicateurs et montants suivent l’entreprise choisie.</span></div>
+          <label className="platform-admin-company-picker"><span>Entreprise</span><select aria-label="Choisir une entreprise pour les indicateurs" value={activeDashboardCompanyId} onChange={(event) => setSelectedCompanyId(event.target.value || null)} disabled={loading || !overview?.companies.length}>
+            <option value="">Sélectionner une entreprise</option>
+            {(overview?.companies ?? []).map((company) => <option key={company.id} value={company.id}>{company.name}{company.isActive ? "" : " · Archivée"}</option>)}
+          </select></label>
         </div>
         {loading && !overview ? (
-          <div className="platform-admin-loading">Chargement des activités de l’ensemble des entreprises…</div>
+          <div className="platform-admin-loading">Chargement des entreprises…</div>
+        ) : !overview?.companies.length ? (
+          <div className="platform-admin-company-prompt"><span className="platform-admin-settings-icon"><Building2 size={20} /></span><div><strong>Aucune entreprise à suivre</strong><p>Créez un espace pour consulter ses indicateurs ici.</p></div><button type="button" onClick={() => setActiveTab("companies")}>Ajouter une entreprise <ChevronRight size={16} /></button></div>
+        ) : !selectedCompany ? (
+          <div className="platform-admin-company-prompt"><span className="platform-admin-settings-icon"><Building2 size={20} /></span><div><strong>Choisissez une entreprise</strong><p>Les chiffres consolidés ne sont pas affichés. Sélectionnez un espace pour voir ses factures, encaissements et validations.</p></div></div>
         ) : (
-          <div className="platform-admin-metrics">
-            {summaryCards.filter((card) => preferences.cards.includes(card.id)).map(({ id, label, value, icon: Icon, color }) => (
-              <article className={`platform-admin-metric is-${color}`} key={id}>
-                <span className="platform-admin-metric-icon"><Icon size={18} /></span>
-                <span className="platform-admin-metric-label">{label}</span>
-                <strong>{value}</strong>
-                <small>Toutes les entreprises</small>
-              </article>
-            ))}
-          </div>
+          <>
+            <div className="platform-admin-selected-company" style={{ "--company-primary": selectedCompany.primaryColor, "--company-accent": selectedCompany.accentColor } as CSSProperties}>
+              <span className="platform-admin-selected-company-logo">{selectedCompany.logoUrl ? <Image src={selectedCompany.logoUrl} alt="" width={42} height={42} unoptimized /> : <Building2 size={20} />}</span>
+              <div><strong>{selectedCompany.name}</strong><span>{selectedCompany.city || selectedCompany.legalName}</span></div>
+              <span className={`platform-admin-company-state ${selectedCompany.isActive ? "" : "is-archived"}`}>{selectedCompany.isActive ? "Espace actif" : "Archivé"}</span>
+              {overview && <small>Mis à jour {dateTime(overview.generatedAt)}</small>}
+            </div>
+            <div className="platform-admin-metrics">
+              {summaryCards.filter((card) => preferences.cards.includes(card.id)).map(({ id, label, value, icon: Icon, color }) => (
+                <article className={`platform-admin-metric is-${color}`} key={id}>
+                  <span className="platform-admin-metric-icon"><Icon size={18} /></span>
+                  <span className="platform-admin-metric-label">{label}</span>
+                  <strong>{value}</strong>
+                  <small>{selectedCompany.name}</small>
+                </article>
+              ))}
+            </div>
+            <div className="platform-admin-currency-grid">
+              {selectedCurrencyTotals.map(([currency, total]) => (
+                <article className="platform-admin-currency-card" key={currency}>
+                  <div><span>Encaissements {currency}</span><strong>{money(total.payments, currency)}</strong></div>
+                  <div><span>Facturé</span><b>{money(total.invoices, currency)}</b></div>
+                  <div><span>Payé sur factures</span><b>{money(total.paidInvoices, currency)}</b></div>
+                </article>
+              ))}
+              {!selectedCurrencyTotals.length && <article className="platform-admin-currency-empty">Aucun mouvement financier enregistré pour cette entreprise.</article>}
+            </div>
+          </>
         )}
-        <div className="platform-admin-currency-grid">
-          {(overview?.summary.totalsByCurrency ?? []).map((total) => (
-            <article className="platform-admin-currency-card" key={total.currency}>
-              <div><span>Flux {total.currency}</span><strong>{money(total.payments, total.currency)}</strong></div>
-              <div><span>Facturé</span><b>{money(total.invoices, total.currency)}</b></div>
-              <div><span>Payé sur factures</span><b>{money(total.paidInvoices, total.currency)}</b></div>
-            </article>
-          ))}
-        </div>
       </section>
 
       <section role="tabpanel" aria-labelledby="platform-tab-companies" id="platform-panel-companies" hidden={activeTab !== "companies"} className="platform-admin-section scroll-mt-24">
@@ -904,14 +935,15 @@ export default function PlatformAdminPage() {
 
       <section id="settings" hidden={activeTab !== "overview"} className="platform-admin-section scroll-mt-24">
         <div className="platform-admin-section-heading">
-          <div><p>ESPACE PERSONNEL</p><h2>Configuration du super-admin</h2></div>
+          <div><p>ESPACE PERSONNEL</p><h2>Préférences du tableau de bord</h2><span>Vos réglages s’appliquent immédiatement à ce navigateur.</span></div>
           <Settings2 size={20} className="text-slate-400" />
         </div>
         <div className="platform-admin-settings-grid">
-          <article className="platform-admin-settings-card">
+          <article className="platform-admin-settings-card platform-admin-settings-cards">
             <span className="platform-admin-settings-icon"><Settings2 size={18} /></span>
-            <h3>Personnaliser les indicateurs</h3>
-            <p>Choisissez les cartes visibles dans votre tableau de bord.</p>
+            <div className="platform-admin-settings-card-title"><h3>Indicateurs visibles</h3><span>{preferences.cards.length} / {defaultCards.length}</span></div>
+            <p>Activez les informations utiles. Elles afficheront toujours les chiffres de l’entreprise sélectionnée.</p>
+            <div className="platform-admin-settings-progress"><i style={{ width: `${(preferences.cards.length / defaultCards.length) * 100}%` }} /></div>
             <div className="platform-admin-toggle-list">
               {defaultCards.map((card) => (
                 <label key={card} className="platform-admin-toggle-row">
@@ -920,24 +952,29 @@ export default function PlatformAdminPage() {
                 </label>
               ))}
             </div>
+            <div className="platform-admin-settings-actions"><button type="button" onClick={() => savePreferences({ ...preferences, cards: defaultCards })}>Tout afficher</button><button type="button" onClick={() => savePreferences({ ...preferences, cards: [] })}>Tout masquer</button></div>
           </article>
           <article className="platform-admin-settings-card">
             <span className="platform-admin-settings-icon"><Building2 size={18} /></span>
             <h3>Entreprise à l’ouverture</h3>
-            <p>Choisissez l’entreprise mise en évidence lors de votre prochaine connexion.</p>
-            <select value={preferences.defaultCompanyId} onChange={(event) => { savePreferences({ ...preferences, defaultCompanyId: event.target.value }); setSelectedCompanyId(event.target.value); }} className="platform-admin-select w-full">
-              <option value="all">Vue consolidée</option>
-              {(overview?.companies ?? []).map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+            <p>Choisissez l’espace pré-sélectionné. Vous pourrez le changer à tout moment dans le tableau de bord.</p>
+            <select value={preferences.defaultCompanyId} onChange={(event) => { savePreferences({ ...preferences, defaultCompanyId: event.target.value }); setSelectedCompanyId(null); }} className="platform-admin-select w-full">
+              <option value="">Choisir à chaque connexion</option>
+              {(overview?.companies ?? []).map((company) => <option key={company.id} value={company.id}>{company.name}{company.isActive ? "" : " · Archivée"}</option>)}
             </select>
-            <div className="platform-admin-config-note"><span className="platform-admin-live-dot" /> Préférences enregistrées dans ce navigateur.</div>
+            {overview?.companies.find((company) => company.id === preferences.defaultCompanyId) ? (() => {
+              const homeCompany = overview.companies.find((company) => company.id === preferences.defaultCompanyId)!;
+              return <div className="platform-admin-home-preview"><span className="platform-admin-home-preview-logo">{homeCompany.logoUrl ? <Image src={homeCompany.logoUrl} alt="" width={34} height={34} unoptimized /> : <Building2 size={17} />}</span><span><strong>{homeCompany.name}</strong><small>{homeCompany.city || homeCompany.legalName}</small></span><span className={`platform-admin-company-state ${homeCompany.isActive ? "" : "is-archived"}`}>{homeCompany.isActive ? "Active" : "Archivée"}</span></div>;
+            })() : <div className="platform-admin-home-empty"><span className="platform-admin-live-dot" /> Aucun espace n’est présélectionné.</div>}
+            <button type="button" className="platform-admin-settings-primary" onClick={() => { setSelectedCompanyId(preferences.defaultCompanyId || null); setActiveTab("overview"); }} disabled={!preferences.defaultCompanyId}>Ouvrir cet espace <ChevronRight size={16} /></button>
           </article>
-          <article className="platform-admin-settings-card platform-admin-config-summary">
+          <article className="platform-admin-settings-card platform-admin-settings-shortcuts">
             <span className="platform-admin-settings-icon"><Activity size={18} /></span>
-            <h3>État de la plateforme</h3>
-            <p>Indicateurs de suivi des espaces et des journaux d’activité.</p>
-            <div className="platform-admin-config-line"><span>Entreprises enregistrées</span><strong>{overview?.summary.companies ?? "—"}</strong></div>
-            <div className="platform-admin-config-line"><span>Utilisateurs actifs</span><strong>{overview?.summary.activeUsers ?? "—"}</strong></div>
-            <div className="platform-admin-config-line"><span>OP en attente</span><strong>{overview?.summary.pendingPaymentOrders ?? "—"}</strong></div>
+            <h3>Raccourcis de pilotage</h3>
+            <p>Accédez directement aux écrans de gestion et de suivi.</p>
+            <button type="button" onClick={() => setActiveTab("companies")}><Building2 size={16} /><span><strong>Gérer les entreprises</strong><small>{overview?.summary.companies ?? 0} espace(s) configuré(s)</small></span><ChevronRight size={16} /></button>
+            <button type="button" onClick={() => setActiveTab("users")}><Users size={16} /><span><strong>Gérer les accès</strong><small>{uniqueUserCount} utilisateur(s) d’entreprise</small></span><ChevronRight size={16} /></button>
+            <button type="button" onClick={() => setActiveTab("reports")}><Activity size={16} /><span><strong>Consulter les rapports</strong><small>Activités récentes par entreprise</small></span><ChevronRight size={16} /></button>
           </article>
         </div>
       </section>
