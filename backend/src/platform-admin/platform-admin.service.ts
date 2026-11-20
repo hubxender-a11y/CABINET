@@ -117,7 +117,12 @@ export class PlatformAdminService {
 
     try {
       return await this.prisma.$transaction(async (transaction) => {
-        await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('platform-admin-roster'), 0)`;
+        await transaction.$queryRaw`
+          WITH advisory_lock AS MATERIALIZED (
+            SELECT pg_advisory_xact_lock(hashtext('platform-admin-roster'), 0)
+          )
+          SELECT 1 FROM advisory_lock
+        `;
         const existing = await transaction.user.findUnique({
           where: { email },
           select: { id: true, email: true, name: true, isActive: true, isPlatformAdmin: true, createdAt: true },
