@@ -16,6 +16,7 @@ import {
   Paperclip,
   Pin,
   ExternalLink,
+  Mail,
 } from "lucide-react";
 import {
   DocumentFooter,
@@ -265,6 +266,7 @@ export default function PaymentOrdersPage() {
     string | null
   >(null);
   const [actingOrderId, setActingOrderId] = useState("");
+  const [emailingOrderId, setEmailingOrderId] = useState("");
   const [attachmentPreview, setAttachmentPreview] = useState<{
     orderId: string;
     fileName: string;
@@ -539,6 +541,24 @@ export default function PaymentOrdersPage() {
       setError(caught instanceof Error ? caught.message : "Action impossible.");
     } finally {
       setActingOrderId("");
+    }
+  }
+
+  async function emailOrder(order: PaymentOrder) {
+    if (!window.confirm(`Envoyer ${order.orderNumber} et ses pièces jointes à l’Associé-Gérant (ligbakelo@yahoo.fr) ?`)) return;
+    setError("");
+    setSuccess("");
+    setEmailingOrderId(order.id);
+    try {
+      const result = await apiRequest<{ sent: boolean; orderNumber: string }>(
+        `/payment-orders/${order.id}/email`,
+        { method: "POST" },
+      );
+      setSuccess(`${result.orderNumber} envoyé par e-mail à l’Associé-Gérant.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Envoi de l’e-mail impossible.");
+    } finally {
+      setEmailingOrderId("");
     }
   }
 
@@ -1011,6 +1031,15 @@ export default function PaymentOrdersPage() {
                       >
                         <Printer className="h-3.5 w-3.5" />
                         {order.attachment ? "Imprimer l’OP et l’état de besoin" : "Imprimer l’OP"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void emailOrder(order)}
+                        disabled={emailingOrderId === order.id}
+                        className={`${actionClass} disabled:cursor-wait disabled:opacity-60`}
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                        {emailingOrderId === order.id ? "Envoi…" : "Envoyer par mail"}
                       </button>
                       {order.cashVoucher?.status === "ISSUED" && (
                         <button

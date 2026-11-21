@@ -301,8 +301,16 @@ export class PaymentOrdersEmailService {
           },
         });
         if (!order) throw new Error('Ordre de paiement introuvable pour l’envoi e-mail.');
-        const creator = await this.prisma.user.findUnique({ where: { id: submittedBy }, select: { name: true } });
+        const creator = await this.prisma.user.findUnique({ where: { id: order.createdBy }, select: { name: true } });
         const companyName = order.company.tradeName || order.company.legalName;
+        const statusLabel: Record<string, string> = {
+          SUBMITTED: 'en attente d’examen',
+          FINANCE_APPROVED: 'en attente de la décision de l’Associé-Gérant',
+          APPROVED: 'approuvé',
+          PAID: 'payé',
+          REJECTED: 'rejeté',
+        };
+        const currentStatus = statusLabel[order.status] ?? 'à suivre';
         const pdf = makeOrderPdf({
           orderNumber: order.orderNumber,
           date: order.date,
@@ -324,23 +332,26 @@ export class PaymentOrdersEmailService {
           content: Buffer.from(order.attachment.data),
           content_type: order.attachment.mimeType,
         });
-        const subject = `Pour examen · ${order.orderNumber} · ${companyName}`;
+        const subject = `${order.status === 'SUBMITTED' || order.status === 'FINANCE_APPROVED' ? 'Pour examen' : 'Pour suivi'} · ${order.orderNumber} · ${companyName}`;
         const amount = `${order.currency} ${order.amount.toFixed(2)}`;
         const requesterName = creator?.name ?? 'l’équipe administrative';
         const text = [
           'Monsieur l’Associé-Gérant,',
           '',
-          `Nous vous transmettons pour examen l’ordre de paiement ${order.orderNumber} de la société ${companyName}.`,
+          `Nous vous transmettons l’ordre de paiement ${order.orderNumber} de la société ${companyName} pour examen et suivi.`,
           `Bénéficiaire : ${order.beneficiary}. Montant : ${amount}.`,
+          `Statut actuel : ${currentStatus}.`,
           `Motif : ${order.reason}`,
-          `Dossier préparé par ${requesterName}. L’OP et l’état de besoin sont joints à ce courriel.`,
+          `Dossier préparé par ${requesterName}. L’OP et ${order.attachment ? 'l’état de besoin' : 'ses pièces disponibles'} sont joints à ce courriel.`,
           '',
-          'Nous vous prions de bien vouloir examiner le dossier puis enregistrer votre approbation ou votre rejet dans la plateforme. L’ordre reste en attente de votre décision.',
+          order.status === 'SUBMITTED' || order.status === 'FINANCE_APPROVED'
+            ? 'Nous vous prions de bien vouloir examiner le dossier puis enregistrer votre approbation ou votre rejet dans la plateforme. L’ordre reste en attente de votre décision.'
+            : 'Ce message est une copie du dossier pour votre suivi. Le statut affiché correspond à la situation actuelle dans la plateforme.',
           '',
           'Avec nos salutations respectueuses,',
           companyName,
         ].join('\n');
-        const html = `<p>Monsieur l’Associé-Gérant,</p><p>Nous vous transmettons pour examen l’ordre de paiement <strong>${htmlEscape(order.orderNumber)}</strong> de la société <strong>${htmlEscape(companyName)}</strong>.</p><p><strong>Bénéficiaire :</strong> ${htmlEscape(order.beneficiary)}<br><strong>Montant :</strong> ${htmlEscape(amount)}<br><strong>Motif :</strong> ${htmlEscape(order.reason)}<br><strong>Préparé par :</strong> ${htmlEscape(requesterName)}</p><p>L’OP en PDF et l’état de besoin sont joints à ce courriel. Nous vous prions d’examiner le dossier et d’enregistrer votre approbation ou votre rejet dans la plateforme. L’ordre reste en attente de votre décision.</p><p>Avec nos salutations respectueuses,<br>${htmlEscape(companyName)}</p>`;
+        const html = `<p>Monsieur l’Associé-Gérant,</p><p>Nous vous transmettons l’ordre de paiement <strong>${htmlEscape(order.orderNumber)}</strong> de la société <strong>${htmlEscape(companyName)}</strong> pour examen et suivi.</p><p><strong>Bénéficiaire :</strong> ${htmlEscape(order.beneficiary)}<br><strong>Montant :</strong> ${htmlEscape(amount)}<br><strong>Statut :</strong> ${htmlEscape(currentStatus)}<br><strong>Motif :</strong> ${htmlEscape(order.reason)}<br><strong>Préparé par :</strong> ${htmlEscape(requesterName)}</p><p>L’OP en PDF et ${order.attachment ? 'l’état de besoin' : 'les pièces disponibles'} sont joints à ce courriel. ${order.status === 'SUBMITTED' || order.status === 'FINANCE_APPROVED' ? 'Nous vous prions d’examiner le dossier et d’enregistrer votre approbation ou votre rejet dans la plateforme. L’ordre reste en attente de votre décision.' : 'Ce message est une copie du dossier pour votre suivi. Le statut affiché correspond à la situation actuelle dans la plateforme.'}</p><p>Avec nos salutations respectueuses,<br>${htmlEscape(companyName)}</p>`;
         if (provider === 'gmail' && gmailAppPassword) {
           await sendWithGmail({
             user: gmailUser,
