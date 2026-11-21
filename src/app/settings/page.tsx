@@ -21,6 +21,7 @@ import {
 import { useNotifications } from "@/components/notification-provider";
 import { normalizeInvoiceTemplate } from "@/lib/invoice-template";
 import { DatabaseBackupPanel } from "@/components/database-backup-panel";
+import { MailSettingsPanel } from "@/components/mail-settings-panel";
 import { apiRequest } from "@/lib/api";
 import { setSessionToken } from "@/lib/session";
 
@@ -617,6 +618,8 @@ export default function SettingsPage() {
           </button>
         )}
       </div>
+
+      {settingsSection === "identity" && <MailSettingsPanel />}
 
       {settingsSection === "companies" && isPlatformAdmin ? (
         <PlatformCompaniesPanel refreshProfile={refreshProfile} />

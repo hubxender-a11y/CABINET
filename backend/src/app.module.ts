@@ -12,6 +12,7 @@ import { PaymentOrdersModule } from './payment-orders/payment-orders.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { MailSettingsModule } from './mail-settings/mail-settings.module';
 import { CompanyModule } from './company/company.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
@@ -42,6 +43,7 @@ import { APP_GUARD } from '@nestjs/core';
     ExpensesModule,
     CashVouchersModule,
     PaymentOrdersModule,
+    MailSettingsModule,
     FiscalIntegrationModule,
   ],
   providers: [
