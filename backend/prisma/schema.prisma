@@ -134,6 +134,8 @@ model Company {
   auditLogs             AuditLog[]
   subscription          Subscription?
   notifications         Notification[]
+  mailIntegration       CompanyEmailIntegration?
+  mailOAuthStates       MailOAuthState[]
 
   @@index([legalName])
 }
@@ -902,4 +904,25 @@ model Notification {
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([companyId, read, createdAt])
+}
+
+model CompanyEmailIntegration {
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String   @unique @db.Uuid
+  email                 String
+  encryptedRefreshToken String   @db.Text
+  connectedAt           DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model MailOAuthState {
+  id        String   @id @db.VarChar(64)
+  companyId String   @db.Uuid
+  userId    String   @db.Uuid
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }

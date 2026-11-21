@@ -29,6 +29,16 @@ services:
         generateValue: true
       - key: FRONTEND_ORIGIN
         sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_CALLBACK_URL
+        value: https://factura-rdc-api.onrender.com/api/mail-settings/google/callback
+      - key: APP_WEB_URL
+        value: https://facture-rdc.vercel.app
+      - key: EMAIL_TOKEN_ENCRYPTION_KEY
+        sync: false
       - key: OP_EMAIL_PROVIDER
         value: gmail
       - key: GMAIL_USER
