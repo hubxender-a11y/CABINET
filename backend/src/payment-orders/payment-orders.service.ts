@@ -60,6 +60,27 @@ export class PaymentOrdersService {
     }));
   }
 
+  async sendEmail(id: string, companyId: string, requestedBy: string) {
+    const order = await this.prisma.paymentOrder.findFirst({
+      where: { id, companyId },
+      select: { id: true, orderNumber: true },
+    });
+    if (!order) throw new NotFoundException('Ordre de paiement introuvable.');
+
+    const status = await this.orderEmail.sendSubmissionNotice(
+      order.id,
+      requestedBy,
+      `manual-${Date.now()}`,
+    );
+    if (status === 'not_configured') {
+      throw new BadRequestException('Le service e-mail n’est pas configuré.');
+    }
+    if (status === 'failed') {
+      throw new BadRequestException('L’envoi de l’e-mail a échoué. Vérifiez la configuration du serveur.');
+    }
+    return { sent: true, orderNumber: order.orderNumber, recipient: 'ligbakelo@yahoo.fr' };
+  }
+
   async configuration(
     companyId: string,
     year: number,

@@ -135,6 +135,20 @@ export class PaymentOrdersController {
     );
   }
 
+  @Post(':id/email')
+  @Roles(...requestRoles, UserRole.MANAGING_PARTNER)
+  @ApiOperation({ summary: 'Send a payment order and its attachment by email' })
+  sendEmail(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.paymentOrders.sendEmail(
+      id,
+      request.user!.companyId,
+      request.user!.sub,
+    );
+  }
+
   @Post(':id/reject')
   @Roles(UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER)
   @ApiOperation({ summary: 'Reject a payment order with a recorded reason' })

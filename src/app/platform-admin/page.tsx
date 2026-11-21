@@ -28,6 +28,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  Mail,
 } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { setSessionToken } from "@/lib/session";
@@ -98,6 +99,16 @@ type PlatformActivityPage = {
   pageSize: number;
   totalCount: number;
   totalPages: number;
+};
+
+type PendingPaymentOrderEmailResult = {
+  configured: boolean;
+  pending: number;
+  sent: number;
+  skippedAlreadySent: number;
+  failed: number;
+  remaining?: boolean;
+  message?: string;
 };
 
 type PlatformTab = "overview" | "companies" | "users" | "themes" | "reports";
@@ -300,6 +311,9 @@ export default function PlatformAdminPage() {
   const [activityPageNumber, setActivityPageNumber] = useState(1);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityFallback, setActivityFallback] = useState(false);
+  const [emailResendLoading, setEmailResendLoading] = useState(false);
+  const [emailResendMessage, setEmailResendMessage] = useState("");
+  const [emailResendError, setEmailResendError] = useState("");
   const [usersLoading, setUsersLoading] = useState(true);
   const [savingCompany, setSavingCompany] = useState(false);
   const [companyEditorOpen, setCompanyEditorOpen] = useState(false);
@@ -322,6 +336,37 @@ export default function PlatformAdminPage() {
       setRefreshing(false);
     }
   }, []);
+
+  async function resendPendingPaymentOrderEmails() {
+    if (emailResendLoading) return;
+    const confirmed = window.confirm(
+      "Renvoyer au Gérant les OP en attente de toutes les entreprises ? Les OP déjà envoyées seront ignorées.",
+    );
+    if (!confirmed) return;
+
+    setEmailResendLoading(true);
+    setEmailResendMessage("");
+    setEmailResendError("");
+    try {
+      const result = await apiRequest<PendingPaymentOrderEmailResult>(
+        "/platform-admin/payment-orders/resend-pending-emails",
+        { method: "POST" },
+      );
+      if (!result.configured) {
+        setEmailResendError(result.message || "Le service e-mail n’est pas configuré.");
+        return;
+      }
+      const tail = result.remaining ? " Les suivantes restent à traiter." : "";
+      setEmailResendMessage(
+        `Renvoi terminé : ${result.sent} envoyé(s), ${result.skippedAlreadySent} déjà transmis, ${result.failed} échec(s) sur ${result.pending} OP en attente.${tail}`,
+      );
+      await loadOverview(true);
+    } catch (caught) {
+      setEmailResendError(caught instanceof Error ? caught.message : "Impossible de renvoyer les OP en attente.");
+    } finally {
+      setEmailResendLoading(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -903,11 +948,19 @@ export default function PlatformAdminPage() {
       <section role="tabpanel" aria-labelledby="platform-tab-reports" id="platform-panel-reports" hidden={activeTab !== "reports"} className="platform-admin-section scroll-mt-24">
         <div className="platform-admin-section-heading">
           <div><p>RAPPORTS & JOURNAL DE LA PLATEFORME</p><h2>Rapports et activités récentes</h2></div>
-          <select value={effectiveCompanyId} onChange={(event) => { setActivityPageNumber(1); setSelectedCompanyId(event.target.value); }} aria-label="Filtrer les activités par entreprise" className="platform-admin-select">
-            <option value="all">Toutes les entreprises</option>
-            {(overview?.companies ?? []).map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
-          </select>
+          <div className="platform-admin-user-actions">
+            <select value={effectiveCompanyId} onChange={(event) => { setActivityPageNumber(1); setSelectedCompanyId(event.target.value); }} aria-label="Filtrer les activités par entreprise" className="platform-admin-select">
+              <option value="all">Toutes les entreprises</option>
+              {(overview?.companies ?? []).map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+            </select>
+            <button type="button" className="is-primary" onClick={() => void resendPendingPaymentOrderEmails()} disabled={emailResendLoading}>
+              <Mail size={16} /> {emailResendLoading ? "Envoi en cours…" : "Renvoyer les OP en attente"}
+            </button>
+          </div>
         </div>
+        {emailResendMessage && <p role="status" className="platform-admin-footnote">{emailResendMessage}</p>}
+        {emailResendError && <p role="alert" className="platform-admin-error">{emailResendError}</p>}
+        <p className="platform-admin-footnote">Le renvoi couvre toutes les entreprises et ignore les OP déjà transmises au Gérant.</p>
         <div className="platform-admin-activity-list" aria-live="polite">
           {activityLoading ? <p className="platform-admin-empty">Chargement du journal d’activité…</p> : activities.map((event) => (
             <article className="platform-admin-activity-row" key={event.id}>
