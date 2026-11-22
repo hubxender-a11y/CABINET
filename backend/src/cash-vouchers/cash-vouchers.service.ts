@@ -812,6 +812,152 @@ export class CashVouchersService {
     });
   }
 
+  async payApprovedOrderVoucher(
+    id: string,
+    companyId: string,
+    userId: string,
+  ) {
+    return this.prisma.$transaction(async (transaction) => {
+      const header = await transaction.cashVoucher.findFirst({
+        where: { id, companyId },
+        select: { id: true, cashAccountId: true, status: true },
+      });
+      if (!header) throw new NotFoundException('Bon de sortie introuvable.');
+      if (!header.cashAccountId) {
+        throw new ConflictException('Ce bon n’est lié à aucune caisse.');
+      }
+      await lockCashAccount(transaction, header.cashAccountId);
+      const voucher = await transaction.cashVoucher.findFirst({
+        where: { id, companyId },
+      });
+      if (!voucher) throw new NotFoundException('Bon de sortie introuvable.');
+      if (voucher.status !== 'READY_FOR_PAYMENT') {
+        throw new ConflictException(
+          'Ce bon n’est pas approuvé ou a déjà été payé.',
+        );
+      }
+
+      const linkedOrderHeader = await transaction.paymentOrder.findFirst({
+        where: { companyId, cashVoucherId: voucher.id },
+        select: { id: true, orderNumber: true, status: true },
+      });
+      if (
+        linkedOrderHeader &&
+        linkedOrderHeader.status !== PaymentOrderStatus.APPROVED
+      ) {
+        throw new ConflictException(
+          'L’OP liée n’est plus en attente de règlement. Vérifiez le dossier avant de libérer ce bon.',
+        );
+      }
+
+      const paymentDate = new Date();
+      const cashAccount = await ensureCashAccount(
+        transaction,
+        companyId,
+        voucher.currency as 'CDF' | 'USD',
+      );
+      if (cashAccount.id !== voucher.cashAccountId) {
+        throw new ConflictException('La caisse liée au bon a été modifiée.');
+      }
+      await assertPaymentOrderFundingAvailable(
+        transaction,
+        companyId,
+        cashAccount.id,
+        voucher.amount,
+        endOfDay(paymentDate),
+      );
+      await assertCashAvailable(
+        transaction,
+        companyId,
+        cashAccount.id,
+        voucher.amount,
+        endOfDay(paymentDate),
+      );
+
+      const approved = await transaction.cashVoucher.updateMany({
+        where: { id, companyId, status: 'READY_FOR_PAYMENT' },
+        data: {
+          status: 'ISSUED',
+          date: paymentDate,
+        },
+      });
+      if (approved.count !== 1) {
+        throw new ConflictException(
+          'Ce bon a été traité entre-temps. Actualisez le registre.',
+        );
+      }
+
+      await createCashMovement(transaction, {
+        companyId,
+        cashAccountId: cashAccount.id,
+        date: paymentDate,
+        direction: 'OUT',
+        amount: voucher.amount,
+        sourceType: 'CASH_VOUCHER',
+        sourceId: voucher.id,
+        description: `${voucher.category} · ${voucher.beneficiary} · ${voucher.reason}`,
+        reference: voucher.voucherNumber,
+      });
+      const linkedOrder = await transaction.paymentOrder.updateMany({
+        where: {
+          companyId,
+          cashVoucherId: voucher.id,
+          status: PaymentOrderStatus.APPROVED,
+        },
+        data: {
+          status: PaymentOrderStatus.PAID,
+          paidAt: paymentDate,
+          paidBy: userId,
+        },
+      });
+      if (linkedOrderHeader && linkedOrder.count !== 1) {
+        throw new ConflictException(
+          'Le statut de l’OP liée n’a pas pu être clôturé. La sortie a été annulée; actualisez le dossier.',
+        );
+      }
+      if (linkedOrderHeader) {
+        await transaction.auditLog.create({
+          data: {
+            companyId,
+            userId,
+            action: 'PAYMENT_ORDER_PAID',
+            details: {
+              paymentOrderId: linkedOrderHeader.id,
+              orderNumber: linkedOrderHeader.orderNumber,
+              voucherId: voucher.id,
+              voucherNumber: voucher.voucherNumber,
+              amount: voucher.amount.toString(),
+              currency: voucher.currency,
+            },
+          },
+        });
+      }
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'CASH_VOUCHER_PAID',
+          details: {
+            voucherId: voucher.id,
+            voucherNumber: voucher.voucherNumber,
+            amount: voucher.amount.toString(),
+            currency: voucher.currency,
+          },
+        },
+      });
+      await this.notifications.notifyRoles(
+        transaction,
+        companyId,
+        [UserRole.CASHIER],
+        `Bon de sortie payé · ${voucher.voucherNumber}`,
+        `Le bon ${voucher.voucherNumber} a été payé : ${voucher.amount.toString()} ${voucher.currency} au bénéfice de ${voucher.beneficiary}.`,
+        userId,
+      );
+      return transaction.cashVoucher.findUniqueOrThrow({ where: { id } });
+    });
+  }
+
+
   async approve(
     id: string,
     companyId: string,

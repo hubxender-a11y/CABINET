@@ -96,6 +96,20 @@ export class CashVouchersController {
     );
   }
 
+  @Post(':id/pay')
+  @Roles(...cashVoucherIssuers)
+  @ApiOperation({ summary: 'Pay a cash voucher already approved with its payment order' })
+  pay(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.vouchers.payApprovedOrderVoucher(
+      id,
+      request.user!.companyId,
+      request.user!.sub,
+    );
+  }
+
   @Post(':id/approve')
   @Roles(UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER)
   @ApiOperation({
