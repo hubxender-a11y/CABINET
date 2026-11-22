@@ -47,9 +47,10 @@ export function MailSettingsPanel() {
   }, []);
 
   useEffect(() => {
-    const isCompanyAdmin = sessionRole(window.localStorage.getItem("factura-access-token")) === "COMPANY_ADMIN";
-    setCanConfigure(isCompanyAdmin);
-    if (isCompanyAdmin) void refresh();
+    const role = sessionRole(window.localStorage.getItem("factura-access-token"));
+    const canManageCompanyMail = role === "COMPANY_ADMIN" || role === "PLATFORM_SUPER_ADMIN";
+    setCanConfigure(canManageCompanyMail);
+    if (canManageCompanyMail) void refresh();
     else setLoading(false);
   }, [refresh]);
 
