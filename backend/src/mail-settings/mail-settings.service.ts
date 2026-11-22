@@ -76,7 +76,11 @@ export class MailSettingsService {
     if (!stateRow) throw new BadRequestException('Cette demande de connexion Google a déjà été utilisée ou a expiré.');
     await this.prisma.mailOAuthState.delete({ where: { id: state } });
     if (stateRow.expiresAt.getTime() < Date.now()) throw new BadRequestException('La demande de connexion Google a expiré. Recommencez depuis les paramètres.');
-    const activeAdmin = await this.prisma.companyMembership.findFirst({
+    const platformAdmin = await this.prisma.user.findFirst({
+      where: { id: stateRow.userId, isActive: true, isPlatformAdmin: true },
+      select: { id: true },
+    });
+    const activeAdmin = platformAdmin ?? await this.prisma.companyMembership.findFirst({
       where: {
         companyId: stateRow.companyId,
         userId: stateRow.userId,
