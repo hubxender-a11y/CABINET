@@ -45,7 +45,7 @@ type CashVoucher = {
   cashAccountId: string;
   accountCode?: string | null;
   reference?: string | null;
-  status: "PENDING_APPROVAL" | "ISSUED" | "REJECTED" | "CANCELLED";
+  status: "PENDING_APPROVAL" | "READY_FOR_PAYMENT" | "ISSUED" | "REJECTED" | "CANCELLED";
   cancellationReason?: string | null;
   rejectionReason?: string | null;
   managerApprovalName?: string | null;
@@ -659,6 +659,21 @@ export default function CashVouchersPage() {
     }
   }
 
+  async function payVoucher(voucher: CashVoucher) {
+    if (!window.confirm(`Confirmez le paiement effectif du bon approuvé ${voucher.voucherNumber} ?`)) return;
+    setError("");
+    setSuccess("");
+    try {
+      const paid = await apiRequest<CashVoucher>(`/cash-vouchers/${voucher.id}/pay`, { method: "POST" });
+      setVouchers((current) => current.map((item) => item.id === paid.id ? paid : item));
+      await refreshTreasury();
+      setSelectedVoucher(paid);
+      setSuccess(`Bon ${paid.voucherNumber} payé · mouvement enregistré dans le livre de caisse.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Impossible d’enregistrer le paiement.");
+    }
+  }
+
   async function rejectVoucher(voucher: CashVoucher) {
     const rejectionReason = window.prompt(
       `Motif du rejet du bon ${voucher.voucherNumber} :`,
@@ -1146,7 +1161,9 @@ export default function CashVouchersPage() {
                             >
                               {voucher.status === "PENDING_APPROVAL"
                                 ? "En attente du visa"
-                                : voucher.status === "REJECTED"
+                                : voucher.status === "READY_FOR_PAYMENT"
+                                  ? "Approuvé · à payer"
+                                  : voucher.status === "REJECTED"
                                   ? "Rejeté"
                                   : voucher.status === "CANCELLED"
                                     ? "Annulé"
@@ -1199,6 +1216,16 @@ export default function CashVouchersPage() {
                                     <X className="h-3.5 w-3.5" /> Rejeter
                                   </button>
                                 </>
+                              )}
+                            {voucher.status === "READY_FOR_PAYMENT" &&
+                              ["COMPANY_ADMIN", "CASHIER", "SECRETARY", "FINANCE_MANAGER", "ACCOUNTANT"].includes(userRole) && (
+                                <button
+                                  type="button"
+                                  onClick={() => void payVoucher(voucher)}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-blue-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-800"
+                                >
+                                  <Check className="h-3.5 w-3.5" /> Payer
+                                </button>
                               )}
                             {(voucher.status === "ISSUED" ||
                               voucher.status === "CANCELLED") && (

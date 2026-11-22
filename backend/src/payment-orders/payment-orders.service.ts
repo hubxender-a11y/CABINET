@@ -848,7 +848,10 @@ export class PaymentOrdersService {
             cashAccountId: cashAccount.id,
             accountCode: cashAccount.code,
             reference: order.orderNumber,
-            status: 'PENDING_APPROVAL',
+            status: 'READY_FOR_PAYMENT',
+            managerApprovalName: name,
+            managerApprovalBy: userId,
+            managerApprovedAt: date,
           },
         });
         const linked = await transaction.paymentOrder.updateMany({
@@ -877,7 +880,7 @@ export class PaymentOrdersService {
               voucherNumber,
               amount: order.amount.toString(),
               currency: order.currency,
-              approvalRequired: true,
+              approvalRequired: false,
               createdByManagerApproval: true,
             },
           },
@@ -887,7 +890,7 @@ export class PaymentOrdersService {
           companyId,
           [UserRole.CASHIER],
           `OP approuvée · ${order.orderNumber}`,
-          `L’Associé-Gérant ${name} a signé l’OP. Le bon de sortie ${voucherNumber} est créé et attend sa validation de caisse avant le paiement.`,
+          `L’Associé-Gérant ${name} a signé l’OP. Le bon de sortie ${voucherNumber} est approuvé et prêt au paiement. La caisse sera débitée lors du paiement effectif.`,
           userId,
         );
       }
