@@ -45,7 +45,12 @@ export class MailSettingsController {
       }
       const result = await this.mail.completeAuthorization(code, state);
       return response.redirect(`${result.webUrl}/settings?mail=connected`);
-    } catch {
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error('Unknown Google OAuth callback error.');
+      console.error('Google OAuth callback failed.', {
+        name: error.name,
+        message: error.message.slice(0, 300),
+      });
       return response.redirect(`${fallback}/settings?mail=error`);
     }
   }
