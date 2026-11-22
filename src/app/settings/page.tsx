@@ -10,7 +10,7 @@ import {
 } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Building2, MapPin, Plus, RefreshCw, Save, ShieldCheck, Trash2 } from "lucide-react";
+import { Building2, Mail, MapPin, Plus, RefreshCw, Save, ShieldCheck, Trash2 } from "lucide-react";
 import {
   companyDisplayName,
   companyLocation,
@@ -379,14 +379,16 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [settingsSection, setSettingsSection] = useState<
-    "identity" | "companies" | "backups"
+    "identity" | "mail" | "companies" | "backups"
   >("identity");
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [canManageMail, setCanManageMail] = useState(false);
 
   useEffect(() => {
     void apiRequest<{ role: string; platformAdmin?: boolean }>("/auth/me")
       .then((user) => {
         setIsPlatformAdmin(Boolean(user.platformAdmin));
+        setCanManageMail(user.role === "COMPANY_ADMIN");
       })
       .catch(() => setIsPlatformAdmin(false));
   }, []);
@@ -597,6 +599,17 @@ export default function SettingsPage() {
         >
           Identité & paramètres
         </button>
+        {canManageMail && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={settingsSection === "mail"}
+            onClick={() => setSettingsSection("mail")}
+            className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "mail" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+          >
+            <Mail size={16} /> Courriel & Google
+          </button>
+        )}
         <button
           type="button"
           role="tab"
@@ -619,9 +632,9 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {settingsSection === "identity" && <MailSettingsPanel />}
-
-      {settingsSection === "companies" && isPlatformAdmin ? (
+      {settingsSection === "mail" ? (
+        <MailSettingsPanel />
+      ) : settingsSection === "companies" && isPlatformAdmin ? (
         <PlatformCompaniesPanel refreshProfile={refreshProfile} />
       ) : settingsSection === "backups" ? (
         <DatabaseBackupPanel />
