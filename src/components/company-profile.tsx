@@ -18,6 +18,7 @@ export type CompanyProfile = {
   id: string;
   legalName: string;
   tradeName: string | null;
+  logoUrl: string | null;
   rccm: string | null;
   nin: string | null;
   nif: string | null;
@@ -63,6 +64,7 @@ const hasConfiguredApi = Boolean(process.env.NEXT_PUBLIC_API_URL);
 const persistedProfileFields: (keyof CompanyProfileChanges)[] = [
   "legalName",
   "tradeName",
+  "logoUrl",
   "rccm",
   "nin",
   "nif",
@@ -327,7 +329,7 @@ export function displayCabinetName(name?: string | null) {
   const value = name?.trim();
   return value && !/^factur[ae][ _-]+rdc$/i.test(value)
     ? value
-    : "Cabinet Transparency";
+    : "Société";
 }
 
 export function companyDisplayName(profile: CompanyProfile | null) {

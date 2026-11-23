@@ -11,6 +11,7 @@ import {
   ArchiveListQueryDto,
   CreateArchiveBinderDto,
   CreateArchiveDocumentDto,
+  UpdateArchivePinsDto,
 } from './archives.dto';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -38,6 +39,7 @@ function metadataWhere(
     ...(query.category ? { category: query.category } : {}),
     ...(query.fiscalYear ? { fiscalYear: query.fiscalYear } : {}),
     ...(query.binderId ? { binderId: query.binderId } : {}),
+    ...(query.pinnedOnly === 'true' ? { isPinned: true } : {}),
     ...(search
       ? {
           OR: [
@@ -46,14 +48,22 @@ function metadataWhere(
             { binder: { contains: search, mode: 'insensitive' } },
             {
               archiveBinder: {
-                is: { name: { contains: search, mode: 'insensitive' } },
+                is: {
+                  OR: [
+                    { name: { contains: search, mode: 'insensitive' } },
+                    { personName: { contains: search, mode: 'insensitive' } },
+                  ],
+                },
               },
             },
             { period: { contains: search, mode: 'insensitive' } },
             { description: { contains: search, mode: 'insensitive' } },
+            { personName: { contains: search, mode: 'insensitive' } },
             {
               customer: {
-                is: { name: { contains: search, mode: 'insensitive' } },
+                is: {
+                  name: { contains: search, mode: 'insensitive' },
+                },
               },
             },
           ],
@@ -77,10 +87,10 @@ export class ArchivesService {
         id: true,
         name: true,
         category: true,
+        personName: true,
         fiscalYear: true,
         period: true,
         createdAt: true,
-        _count: { select: { documents: true } },
       },
       orderBy: [
         { fiscalYear: 'desc' },
@@ -89,9 +99,21 @@ export class ArchivesService {
         { name: 'asc' },
       ],
     });
-    return binders.map(({ _count, ...binder }) => ({
+    const documentCounts = await this.prisma.archiveDocument.groupBy({
+      by: ['binderId'],
+      where: {
+        companyId,
+        binderId: { in: binders.map((binder) => binder.id) },
+        deletedAt: null,
+      },
+      _count: { _all: true },
+    });
+    const countByBinderId = new Map(
+      documentCounts.map((item) => [item.binderId, item._count._all]),
+    );
+    return binders.map((binder) => ({
       ...binder,
-      documentCount: _count.documents,
+      documentCount: countByBinderId.get(binder.id) ?? 0,
     }));
   }
 
@@ -104,6 +126,12 @@ export class ArchivesService {
     if (!name) {
       throw new BadRequestException('Le nom du classeur est obligatoire.');
     }
+    const personName = dto.personName?.trim() || null;
+    if (dto.category === 'HR_CV' && !personName) {
+      throw new BadRequestException(
+        'Indiquez le nom de l’agent ou du stagiaire pour cette famille.',
+      );
+    }
 
     try {
       return await this.prisma.$transaction(async (transaction) => {
@@ -112,6 +140,7 @@ export class ArchivesService {
             companyId,
             name,
             category: dto.category,
+            personName,
             fiscalYear: dto.fiscalYear,
             period: dto.period?.trim() || '',
           },
@@ -119,6 +148,7 @@ export class ArchivesService {
             id: true,
             name: true,
             category: true,
+            personName: true,
             fiscalYear: true,
             period: true,
             createdAt: true,
@@ -133,6 +163,7 @@ export class ArchivesService {
               binderId: binder.id,
               name: binder.name,
               category: binder.category,
+              personName: binder.personName,
               fiscalYear: binder.fiscalYear,
               period: binder.period,
             },
@@ -167,13 +198,18 @@ export class ArchivesService {
         }
 
         const documentCount = await transaction.archiveDocument.count({
-          where: { companyId, binderId: id },
+          where: { companyId, binderId: id, deletedAt: null },
         });
         if (documentCount > 0) {
           throw new ConflictException(
-            'Ce classeur contient des documents, y compris dans la corbeille. Déplacez-les ou supprimez-les définitivement avant de supprimer le classeur.',
+            'Ce classeur contient encore des documents actifs. Déplacez-les ou mettez-les dans la corbeille avant de le supprimer.',
           );
         }
+
+        await transaction.archiveDocument.updateMany({
+          where: { companyId, binderId: id, deletedAt: { not: null } },
+          data: { binderId: null },
+        });
 
         await transaction.archiveBinder.delete({ where: { id } });
         await transaction.auditLog.create({
@@ -203,7 +239,11 @@ export class ArchivesService {
     return this.prisma.archiveDocument.findMany({
       where: metadataWhere(companyId, query, false),
       select: this.metadataSelect(),
-      orderBy: [{ fiscalYear: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [
+        { isPinned: 'desc' },
+        { fiscalYear: 'desc' },
+        { createdAt: 'desc' },
+      ],
       take: 300,
     });
   }
@@ -217,6 +257,62 @@ export class ArchivesService {
     });
   }
 
+  async setPinned(
+    dto: UpdateArchivePinsDto,
+    companyId: string,
+    userId: string,
+  ) {
+    return this.prisma.$transaction(async (transaction) => {
+      const documents = await transaction.archiveDocument.findMany({
+        where: {
+          companyId,
+          deletedAt: null,
+          id: { in: dto.documentIds },
+        },
+        select: { id: true, title: true },
+      });
+      if (documents.length !== dto.documentIds.length) {
+        throw new NotFoundException(
+          'Un ou plusieurs fichiers ne sont pas disponibles dans les archives de ce cabinet.',
+        );
+      }
+      const updated = await transaction.archiveDocument.updateMany({
+        where: {
+          companyId,
+          deletedAt: null,
+          id: { in: dto.documentIds },
+        },
+        data: { isPinned: dto.isPinned },
+      });
+      if (updated.count !== documents.length) {
+        throw new ConflictException(
+          'Un fichier a été modifié pendant la sélection. Actualisez les archives et réessayez.',
+        );
+      }
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: dto.isPinned
+            ? 'ARCHIVE_DOCUMENTS_PINNED'
+            : 'ARCHIVE_DOCUMENTS_UNPINNED',
+          details: {
+            documentIds: documents.map((document) => document.id),
+            titles: documents.map((document) => document.title),
+          },
+        },
+      });
+      return transaction.archiveDocument.findMany({
+        where: {
+          companyId,
+          deletedAt: null,
+          id: { in: dto.documentIds },
+        },
+        select: this.metadataSelect(),
+      });
+    });
+  }
+
   async create(
     dto: CreateArchiveDocumentDto,
     companyId: string,
@@ -227,6 +323,13 @@ export class ArchivesService {
         'Le titre et le nom du fichier sont obligatoires.',
       );
     }
+    const submittedPersonName = dto.personName?.trim() || null;
+    if (dto.category === 'HR_CV' && !submittedPersonName && !dto.binderId) {
+      throw new BadRequestException(
+        'Indiquez le nom de l’agent ou du stagiaire pour ce document.',
+      );
+    }
+    let personName = submittedPersonName;
     const extension = dto.originalName
       .trim()
       .toLowerCase()
@@ -269,12 +372,25 @@ export class ArchivesService {
           category: dto.category,
           fiscalYear: dto.fiscalYear,
         },
-        select: { id: true },
+        select: { id: true, personName: true },
       });
       if (!binder) {
         throw new NotFoundException(
           'Le classeur est introuvable dans cette famille et cet exercice.',
         );
+      }
+      if (
+        dto.category === 'HR_CV' &&
+        submittedPersonName &&
+        binder.personName?.toLocaleLowerCase('fr') !==
+          submittedPersonName.toLocaleLowerCase('fr')
+      ) {
+        throw new BadRequestException(
+          'Le nom doit correspondre à celui de l’agent ou du stagiaire du classeur.',
+        );
+      }
+      if (dto.category === 'HR_CV') {
+        personName = binder.personName || submittedPersonName;
       }
     }
 
@@ -284,6 +400,7 @@ export class ArchivesService {
           data: {
             companyId,
             customerId: dto.customerId,
+            personName,
             ...(dto.binderId ? { binderId: dto.binderId } : {}),
             category: dto.category,
             binder: dto.binder?.trim() || null,
@@ -465,6 +582,7 @@ export class ArchivesService {
       id: true,
       customerId: true,
       binderId: true,
+      personName: true,
       category: true,
       binder: true,
       fiscalYear: true,
@@ -476,6 +594,7 @@ export class ArchivesService {
       documentDate: true,
       description: true,
       deletedAt: true,
+      isPinned: true,
       createdAt: true,
       customer: { select: { id: true, name: true } },
       archiveBinder: {
@@ -483,6 +602,7 @@ export class ArchivesService {
           id: true,
           name: true,
           category: true,
+          personName: true,
           fiscalYear: true,
           period: true,
         },

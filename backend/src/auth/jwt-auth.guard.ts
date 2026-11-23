@@ -39,12 +39,57 @@ export class JwtAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException('Session expirée ou invalide.');
     }
-    if (
-      !payload.sub ||
-      payload.companyId !==
-        (process.env.DEFAULT_COMPANY_ID ??
-          '5eecf1f8-a90e-4e8f-a01b-6eaa7a7c8e20')
-    ) {
+    const defaultCompanyId =
+      process.env.DEFAULT_COMPANY_ID ?? '5eecf1f8-a90e-4e8f-a01b-6eaa7a7c8e20';
+    if (!payload.sub) {
+      throw new UnauthorizedException('Session invalide.');
+    }
+
+    if (payload.role === 'PLATFORM_SUPER_ADMIN') {
+      const platformMembership = await this.prisma.companyMembership.findFirst({
+        where: {
+          userId: payload.sub,
+          role: 'PLATFORM_SUPER_ADMIN',
+          user: { isActive: true },
+        },
+        select: { user: { select: { email: true, name: true } } },
+      });
+      if (!platformMembership) {
+        throw new UnauthorizedException('Session invalide.');
+      }
+      (request as AuthenticatedRequest).user = {
+        ...payload,
+        companyId: defaultCompanyId,
+        email: platformMembership.user.email,
+        name: platformMembership.user.name,
+        role: 'PLATFORM_SUPER_ADMIN',
+      };
+      return true;
+    }
+
+    if (payload.role === 'PLATFORM_MANAGING_PARTNER') {
+      const platformManagingPartner = await this.prisma.user.findFirst({
+        where: {
+          id: payload.sub,
+          isActive: true,
+          platformRole: 'PLATFORM_MANAGING_PARTNER',
+        },
+        select: { email: true, name: true },
+      });
+      if (!platformManagingPartner) {
+        throw new UnauthorizedException('Session invalide.');
+      }
+      (request as AuthenticatedRequest).user = {
+        ...payload,
+        companyId: defaultCompanyId,
+        email: platformManagingPartner.email,
+        name: platformManagingPartner.name,
+        role: 'PLATFORM_MANAGING_PARTNER',
+      };
+      return true;
+    }
+
+    if (payload.companyId !== defaultCompanyId) {
       throw new UnauthorizedException('Session invalide.');
     }
 

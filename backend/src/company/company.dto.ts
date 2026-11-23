@@ -23,6 +23,12 @@ export class UpdateCompanyDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(70000)
+  @Matches(/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/)
+  logoUrl?: string | null;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(80)
   rccm?: string | null;
 

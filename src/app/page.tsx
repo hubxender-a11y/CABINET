@@ -16,6 +16,7 @@ import {
   FileText,
   Landmark,
   Receipt,
+  ScrollText,
   Users,
   Wallet,
 } from "lucide-react";
@@ -27,6 +28,7 @@ import {
 } from "@/components/company-profile";
 import { formatMoney } from "@/lib/formatting";
 import { getReceivables, receivableLabels } from "@/lib/receivables";
+import { useOperationalAlerts } from "@/lib/use-operational-alerts";
 import { useKinshasaDate } from "@/lib/use-kinshasa-date";
 
 const moneyByCurrency = (
@@ -69,6 +71,13 @@ const moduleLinks = [
     metric: "Suivi des encaissements",
   },
   {
+    href: "/payment-orders",
+    label: "Ordres de paiement",
+    icon: ScrollText,
+    tone: "is-amber",
+    metric: "Demandes et visas de paiement",
+  },
+  {
     href: "/expenses",
     label: "Dépenses",
     icon: FileText,
@@ -84,10 +93,10 @@ const moduleLinks = [
   },
   {
     href: "/patrimoine",
-    label: "Patrimoine",
+    label: "Matériel du cabinet",
     icon: Building2,
     tone: "is-green",
-    metric: "Matériel & immobilisations",
+    metric: "Équipements, mobilier & affectations",
   },
   {
     href: "/documents",
@@ -109,6 +118,7 @@ export default function HomePage() {
   const { clients, invoices, databaseConnected, databaseError } =
     useWorkspaceStore();
   const { profile } = useCompanyProfile();
+  const operational = useOperationalAlerts();
   const primaryCurrency = profile?.currencyCode ?? "CDF";
   const cabinetName = companyDisplayName(profile);
   const [selectedClient, setSelectedClient] = useState("all");
@@ -227,7 +237,7 @@ export default function HomePage() {
           {
             label: "Factures clients",
             value: activeInvoices.length,
-            detail: `${certified} certifiée${certified === 1 ? "" : "s"}`,
+            detail: `${certified} certifiée${certified === 1 ? "" : "s"} · ${fiscalReviewCount} à examiner`,
             icon: FileText,
             tone: "is-violet",
           },
@@ -264,18 +274,20 @@ export default function HomePage() {
         })}
       </section>
 
-      <section className="grid gap-3 md:grid-cols-3" aria-label="Priorités du cabinet">
+      <section className="dashboard-attention-grid" aria-label="Éléments nécessitant un suivi">
         {[
-          { href: "/recouvrement", label: "Recouvrement", detail: `${overdueCount} en retard · ${dueTodayCount} à échéance aujourd’hui`, Icon: CalendarClock },
-          { href: "/fiscal", label: "Contrôle fiscal", detail: `${fiscalReviewCount} facture(s) à examiner`, Icon: Landmark },
-          { href: "/reports", label: "Clôture mensuelle", detail: "Consulter les registres et les contrôles", Icon: BarChart3 },
-        ].map(({ href, label, detail, Icon }) => (
-          <Link key={href} href={href} className="dashboard-priority-item">
-            <span className="dashboard-priority-icon is-amber"><Icon className="h-4 w-4" aria-hidden="true" /></span>
+          { href: "/payment-orders", label: "OP en cours", detail: "En attente de visa ou de paiement", count: operational.orderCount, Icon: ScrollText, tone: "is-violet" },
+          { href: "/recouvrement", label: "Factures non réglées", detail: `${overdueCount} en retard · ${dueTodayCount} à échéance aujourd’hui`, count: receivables.length, Icon: CalendarClock, tone: "is-amber" },
+          { href: "/cash-vouchers", label: "Bons de sortie caisse", detail: "Derniers bons émis", count: operational.voucherCount, Icon: Receipt, tone: "is-blue" },
+        ].map(({ href, label, detail, count, Icon, tone }) => (
+          <Link key={href} href={href} className={`dashboard-attention-card ${tone}`}>
+            <span className="dashboard-attention-orbit" aria-hidden="true" />
+            <span className="dashboard-attention-icon"><Icon className="h-5 w-5" aria-hidden="true" /></span>
             <span className="min-w-0 flex-1">
               <strong>{label}</strong>
-              <small>{!databaseConnected && href !== "/reports" ? "Données du cabinet à vérifier" : detail}</small>
+              <small>{!databaseConnected ? "Données à actualiser" : detail}</small>
             </span>
+            <span className="dashboard-attention-count">{count}</span>
             <ChevronRight className="h-4 w-4 text-slate-500" aria-hidden="true" />
           </Link>
         ))}
@@ -417,7 +429,27 @@ export default function HomePage() {
                     <ChevronRight className="h-4 w-4 text-slate-300" />
                   </Link>
               ))}
-              {!clientsToFollowUp.length && !receivables.length && (
+              {operational.activeOrders.slice(0, 2).map((order) => (
+                <Link key={order.id} href="/payment-orders" className="dashboard-priority-item dashboard-activity-alert">
+                  <span className="dashboard-priority-icon is-amber"><ScrollText className="h-4 w-4" /></span>
+                  <span className="min-w-0 flex-1">
+                    <strong>{order.orderNumber} · {order.beneficiary}</strong>
+                    <small>OP en cours · {formatMoney(order.amount, order.currency)}</small>
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-slate-300" />
+                </Link>
+              ))}
+              {operational.recentVouchers.slice(0, 1).map((voucher) => (
+                <Link key={voucher.id} href="/cash-vouchers" className="dashboard-priority-item dashboard-activity-alert">
+                  <span className="dashboard-priority-icon is-green"><Receipt className="h-4 w-4" /></span>
+                  <span className="min-w-0 flex-1">
+                    <strong>{voucher.voucherNumber} · {voucher.beneficiary}</strong>
+                    <small>Bon de sortie émis · {formatMoney(voucher.amount, voucher.currency)}</small>
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-slate-300" />
+                </Link>
+              ))}
+              {!clientsToFollowUp.length && !receivables.length && !operational.activeOrders.length && !operational.recentVouchers.length && (
                 <div className="dashboard-priority-empty">
                   <span className="dashboard-priority-icon is-green">
                     <CalendarClock className="h-4 w-4" />

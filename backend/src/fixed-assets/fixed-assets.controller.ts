@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   Param,
   ParseUUIDPipe,
   Post,
@@ -16,6 +17,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import {
   CreateFixedAssetDto,
   CreateFixedAssetMovementDto,
+  UpdateFixedAssetDto,
 } from './fixed-assets.dto';
 import { FixedAssetsService } from './fixed-assets.service';
 
@@ -38,6 +40,16 @@ export class FixedAssetsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.assets.create(dto, request.user!.companyId, request.user!.sub);
+  }
+
+  @Patch(':id')
+  @Roles(UserRole.COMPANY_ADMIN, UserRole.ACCOUNTANT, UserRole.FINANCE_MANAGER)
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateFixedAssetDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.assets.update(id, dto, request.user!.companyId, request.user!.sub);
   }
 
   @Post(':id/movements')

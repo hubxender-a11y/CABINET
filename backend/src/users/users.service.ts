@@ -10,7 +10,10 @@ import { PrismaService } from '../database/prisma.service';
 import { getCompanyId } from '../database/company-context';
 import { CreateUserDto, UpdateUserDto } from './users.dto';
 
-const forbiddenRoles = new Set<UserRole>([UserRole.PLATFORM_SUPER_ADMIN]);
+const forbiddenRoles = new Set<UserRole>([
+  UserRole.PLATFORM_SUPER_ADMIN,
+  UserRole.PLATFORM_MANAGING_PARTNER,
+]);
 
 @Injectable()
 export class UsersService {

@@ -3,14 +3,23 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { getCompanyId } from '../database/company-context';
+import {
+  createCashMovement,
+  ensureCashAccount,
+  lockCashAccount,
+} from '../cash-vouchers/cash-ledger';
 import { CreatePaymentDto } from './payments.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   list() {
     return this.prisma.payment.findMany({
@@ -72,6 +81,16 @@ export class PaymentsService {
               'La devise du paiement en espèces doit correspondre à celle de la facture.',
             );
           }
+
+          const cashAccount =
+            dto.method === 'CASH_CDF' || dto.method === 'CASH_USD'
+              ? await ensureCashAccount(
+                  transaction,
+                  companyId,
+                  invoice.currency as 'CDF' | 'USD',
+                )
+              : null;
+          if (cashAccount) await lockCashAccount(transaction, cashAccount.id);
           if (amount.add(invoice.paidAmount).gt(invoice.totalAmount)) {
             throw new BadRequestException(
               'Le règlement dépasse le solde restant de cette facture.',
@@ -110,6 +129,19 @@ export class PaymentsService {
             where: { id: invoice.id },
             data: { paidAmount: { increment: amount } },
           });
+          if (cashAccount) {
+            await createCashMovement(transaction, {
+              companyId,
+              cashAccountId: cashAccount.id,
+              date: payment.createdAt,
+              direction: 'IN',
+              amount,
+              sourceType: 'INVOICE_PAYMENT',
+              sourceId: payment.id,
+              description: `Règlement facture ${payment.invoice?.invoiceNumber ?? invoice.id}`,
+              reference: payment.reference,
+            });
+          }
           await transaction.auditLog.create({
             data: {
               companyId,
@@ -122,10 +154,21 @@ export class PaymentsService {
               },
             },
           });
+          await this.notifications.notifyRoles(
+            transaction,
+            companyId,
+            [UserRole.PLATFORM_MANAGING_PARTNER],
+            `Règlement reçu · facture ${payment.invoice?.invoiceNumber ?? invoice.id}`,
+            `${payment.customer?.name ?? 'Client'} · ${amount.toString()} ${invoice.currency} · ${payment.method}. Vérifiez le registre de caisse ou de banque.`,
+          );
 
           return payment;
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 10_000,
+          timeout: 20_000,
+        },
       );
     } catch (error) {
       if (
@@ -143,6 +186,146 @@ export class PaymentsService {
         throw new BadRequestException(
           'La facture a été réglée en même temps par une autre opération. Actualisez puis réessayez.',
         );
+      }
+      throw error;
+    }
+  }
+
+  async cancel(id: string, reason: string) {
+    const companyId = getCompanyId();
+    const cancellationReason = reason.trim();
+    if (cancellationReason.length < 3) {
+      throw new BadRequestException('Indiquez un motif d’annulation (3 caractères minimum).');
+    }
+
+    try {
+      return await this.prisma.$transaction(
+        async (transaction) => {
+          const payment = await transaction.payment.findFirst({
+            where: { id, companyId },
+            include: {
+              invoice: {
+                select: {
+                  id: true,
+                  invoiceNumber: true,
+                  currency: true,
+                  totalAmount: true,
+                  paidAmount: true,
+                },
+              },
+            },
+          });
+          if (!payment) throw new NotFoundException('Règlement introuvable.');
+          if (payment.status !== 'RECEIVED') {
+            throw new BadRequestException('Ce règlement est déjà annulé ou n’est plus actif.');
+          }
+
+          const originalCashMovement = await transaction.cashMovement.findFirst({
+            where: {
+              companyId,
+              sourceType: 'INVOICE_PAYMENT',
+              sourceId: payment.id,
+            },
+          });
+          if (originalCashMovement) {
+            await lockCashAccount(transaction, originalCashMovement.cashAccountId);
+          }
+
+          const cancelled = await transaction.payment.updateMany({
+            where: { id: payment.id, companyId, status: 'RECEIVED' },
+            data: { status: 'CANCELLED' },
+          });
+          if (cancelled.count !== 1) {
+            throw new BadRequestException('Ce règlement a déjà été annulé. Actualisez le registre.');
+          }
+
+          if (payment.invoiceId) {
+            const activePayments = await transaction.payment.findMany({
+              where: {
+                companyId,
+                invoiceId: payment.invoiceId,
+                status: 'RECEIVED',
+              },
+              select: { id: true, amount: true },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            });
+            let invoicePaidAmount = new Prisma.Decimal(0);
+            for (const activePayment of activePayments) {
+              invoicePaidAmount = invoicePaidAmount.add(activePayment.amount);
+              await transaction.payment.update({
+                where: { id: activePayment.id },
+                data: { invoicePaidAmountAfter: invoicePaidAmount },
+              });
+            }
+            await transaction.invoice.updateMany({
+              where: { id: payment.invoiceId, companyId },
+              data: { paidAmount: invoicePaidAmount },
+            });
+          }
+
+          if (originalCashMovement) {
+            await createCashMovement(transaction, {
+              companyId,
+              cashAccountId: originalCashMovement.cashAccountId,
+              date: new Date(),
+              direction: 'OUT',
+              amount: payment.amount,
+              sourceType: 'INVOICE_PAYMENT_REVERSAL',
+              sourceId: payment.id,
+              description: `Annulation du règlement facture ${payment.invoice?.invoiceNumber ?? payment.invoiceId ?? payment.id}`,
+              reference: payment.reference,
+            });
+          }
+
+          await transaction.auditLog.create({
+            data: {
+              companyId,
+              action: 'INVOICE_PAYMENT_CANCELLED',
+              details: {
+                paymentId: payment.id,
+                invoiceId: payment.invoiceId,
+                amount: payment.amount.toString(),
+                currency: payment.currency,
+                reason: cancellationReason,
+              },
+            },
+          });
+          await this.notifications.notifyRoles(
+            transaction,
+            companyId,
+            [UserRole.PLATFORM_MANAGING_PARTNER],
+            `Règlement annulé · facture ${payment.invoice?.invoiceNumber ?? payment.invoiceId ?? payment.id}`,
+            `${payment.amount.toString()} ${payment.currency}. Motif : ${cancellationReason}. Le solde caisse/banque et la facture ont été recalculés.`,
+          );
+
+          return transaction.payment.findFirstOrThrow({
+            where: { id: payment.id, companyId },
+            include: {
+              invoice: {
+                select: {
+                  id: true,
+                  invoiceNumber: true,
+                  currency: true,
+                  totalAmount: true,
+                  paidAmount: true,
+                },
+              },
+              customer: { select: { name: true } },
+            },
+          });
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 10_000,
+          timeout: 20_000,
+        },
+      );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2034'
+      ) {
+        throw new BadRequestException('Le règlement a changé pendant l’opération. Actualisez puis réessayez.');
       }
       throw error;
     }

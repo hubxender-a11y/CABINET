@@ -69,7 +69,7 @@ function editorPreview(element: InvoiceTemplateElement) {
   if (element.content && element.kind !== "image") return element.content;
   switch (element.id) {
     case "logo":
-      return "Cabinet Transparency";
+      return "Société";
     case "qr":
       return "QR";
     case "title":
@@ -1138,7 +1138,7 @@ export default function InvoiceTemplatePage() {
                       !element.content ? (
                         <DocumentLetterhead />
                       ) : element.kind === "builtin" && element.id === "qr" && !element.content ? (
-                        <QRCodeSVG className="invoice-editor-qr" value="Cabinet Transparency — aperçu du modèle" includeMargin aria-hidden="true" />
+                        <QRCodeSVG className="invoice-editor-qr" value="Société — aperçu du modèle" includeMargin aria-hidden="true" />
                       ) : element.kind === "builtin" && element.id === "items" && !element.content ? (
                         <table className="invoice-editor-sample-table">
                           <colgroup>

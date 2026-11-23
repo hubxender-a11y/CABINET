@@ -6,7 +6,9 @@ import {
   BadgeCheck,
   Building2,
   Clock3,
+  Pencil,
   Plus,
+  Printer,
   RefreshCw,
   Wrench,
 } from "lucide-react";
@@ -52,7 +54,7 @@ const movementOptions: { value: MovementType; label: string }[] = [
   { value: "TRANSFER", label: "Transfert de bureau" },
   { value: "MAINTENANCE", label: "Mise en maintenance" },
   { value: "RETURN", label: "Retour en service" },
-  { value: "DISPOSAL", label: "Sortie du patrimoine" },
+  { value: "DISPOSAL", label: "Sortie du parc" },
 ];
 
 function formatAmount(value: string | number, currency: string) {
@@ -74,7 +76,7 @@ function statusLabel(status: string) {
     ? "En service"
     : status === "MAINTENANCE"
       ? "En maintenance"
-      : "Sorti du patrimoine";
+      : "Sorti du parc";
 }
 
 export default function PatrimoinePage() {
@@ -86,6 +88,7 @@ export default function PatrimoinePage() {
   const [saving, setSaving] = useState(false);
   const [userRole, setUserRole] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [editingAsset, setEditingAsset] = useState<FixedAsset | null>(null);
   const [movementAsset, setMovementAsset] = useState<FixedAsset | null>(null);
   const [movementType, setMovementType] = useState<MovementType>("ASSIGNMENT");
   const [expandedAssetId, setExpandedAssetId] = useState("");
@@ -103,6 +106,9 @@ export default function PatrimoinePage() {
   const [notes, setNotes] = useState("");
   const [movementDescription, setMovementDescription] = useState("");
   const [movementDate, setMovementDate] = useState("");
+  const [reportFrom, setReportFrom] = useState("");
+  const [reportTo, setReportTo] = useState("");
+  const [reportNote, setReportNote] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -138,14 +144,14 @@ export default function PatrimoinePage() {
       });
   }, []);
 
-  async function createAsset(event: FormEvent<HTMLFormElement>) {
+  async function saveAsset(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError("");
     setMessage("");
     try {
-      await apiRequest("/fixed-assets", {
-        method: "POST",
+      await apiRequest(editingAsset ? `/fixed-assets/${editingAsset.id}` : "/fixed-assets", {
+        method: editingAsset ? "PATCH" : "POST",
         body: JSON.stringify({
           assetNumber: assetNumber.trim(),
           name: name.trim(),
@@ -155,30 +161,20 @@ export default function PatrimoinePage() {
           residualValue,
           usefulLifeMonths: Number(usefulLifeMonths),
           currency,
-          ...(serialNumber.trim() ? { serialNumber: serialNumber.trim() } : {}),
-          ...(assignedTo.trim() ? { assignedTo: assignedTo.trim() } : {}),
-          ...(location.trim() ? { location: location.trim() } : {}),
-          ...(notes.trim() ? { notes: notes.trim() } : {}),
+          serialNumber: serialNumber.trim(),
+          assignedTo: assignedTo.trim(),
+          location: location.trim(),
+          notes: notes.trim(),
         }),
       });
-      setAssetNumber("");
-      setName("");
-      setCategory("");
-      setSerialNumber("");
-      setAcquisitionCost("");
-      setResidualValue("0");
-      setUsefulLifeMonths("60");
-      setAssignedTo("");
-      setLocation("");
-      setNotes("");
-      setShowForm(false);
-      setMessage("Le bien a été ajouté au registre patrimonial.");
+      setMessage(editingAsset ? "La fiche matériel a été mise à jour." : "Le matériel a été ajouté au registre.");
+      resetAssetForm();
       await loadAssets();
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Impossible d’enregistrer ce bien.",
+          : "Impossible d’enregistrer ce matériel.",
       );
     } finally {
       setSaving(false);
@@ -208,7 +204,7 @@ export default function PatrimoinePage() {
       });
       setMovementAsset(null);
       setMovementDescription("");
-      setMessage("Le mouvement du bien a été enregistré.");
+      setMessage("Le mouvement du matériel a été enregistré.");
       await loadAssets();
     } catch (requestError) {
       setError(
@@ -219,6 +215,56 @@ export default function PatrimoinePage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function editAsset(asset: FixedAsset) {
+    setEditingAsset(asset);
+    setAssetNumber(asset.assetNumber);
+    setName(asset.name);
+    setCategory(asset.category);
+    setSerialNumber(asset.serialNumber ?? "");
+    setAcquiredAt(asset.acquiredAt.slice(0, 10));
+    setAcquisitionCost(asset.acquisitionCost);
+    setResidualValue(asset.residualValue);
+    setUsefulLifeMonths(String(asset.usefulLifeMonths));
+    setCurrency(asset.currency);
+    setAssignedTo(asset.assignedTo ?? "");
+    setLocation(asset.location ?? "");
+    setNotes(asset.notes ?? "");
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function resetAssetForm() {
+    setEditingAsset(null);
+    setAssetNumber("");
+    setName("");
+    setCategory("");
+    setSerialNumber("");
+    setAcquiredAt("");
+    setAcquisitionCost("");
+    setResidualValue("0");
+    setUsefulLifeMonths("60");
+    setCurrency("CDF");
+    setAssignedTo("");
+    setLocation("");
+    setNotes("");
+    setShowForm(false);
+  }
+
+  function printInventoryReport() {
+    if (!reportFrom || !reportTo || reportFrom > reportTo) {
+      setError("Choisissez une période valide pour l’état du matériel.");
+      return;
+    }
+    setError("");
+    document.body.classList.add("print-asset-report-mode");
+    window.addEventListener(
+      "afterprint",
+      () => document.body.classList.remove("print-asset-report-mode"),
+      { once: true },
+    );
+    window.print();
   }
 
   const activeCount = assets.filter(
@@ -236,6 +282,14 @@ export default function PatrimoinePage() {
     [asset.assetNumber, asset.name, asset.category, asset.serialNumber, asset.assignedTo, asset.location]
       .join(" ").toLocaleLowerCase("fr").includes(search),
   );
+  const periodMovements = assets.flatMap((asset) =>
+    asset.movements
+      .filter((movement) => {
+        const date = movement.movementDate.slice(0, 10);
+        return date >= reportFrom && date <= reportTo;
+      })
+      .map((movement) => ({ asset, movement })),
+  ).sort((a, b) => b.movement.movementDate.localeCompare(a.movement.movementDate));
   const activeValues = new Map<string, number>();
   for (const asset of assets) {
     if (asset.status === "DISPOSED") continue;
@@ -247,12 +301,12 @@ export default function PatrimoinePage() {
       <header className="asset-page-header">
         <div>
           <p className="asset-page-eyebrow">
-            Stock, matériel & patrimoine · biens durables
+            Équipements, mobilier & matériel du cabinet
           </p>
-          <h1>Patrimoine du cabinet</h1>
+          <h1>Matériel du cabinet</h1>
           <p>
-            Suivez les biens, leurs affectations et mouvements. La valeur nette
-            est indicative et ne génère pas d’écritures comptables.
+            Inventoriez les équipements, suivez leur état, leur affectation et
+            chaque mouvement du cabinet.
           </p>
         </div>
         <div className="asset-page-actions">
@@ -270,14 +324,18 @@ export default function PatrimoinePage() {
           ) && (
             <button
               type="button"
-              onClick={() => {
-                if (!showForm && !acquiredAt) setAcquiredAt(today);
-                setShowForm((open) => !open);
-              }}
+            onClick={() => {
+              if (showForm) {
+                resetAssetForm();
+              } else {
+                if (!acquiredAt) setAcquiredAt(today);
+                setShowForm(true);
+              }
+            }}
               className="asset-add-button"
             >
               <Plus className="h-4 w-4" />{" "}
-              {showForm ? "Fermer le formulaire" : "Nouveau bien"}
+              {showForm ? "Fermer" : "Ajouter du matériel"}
             </button>
           )}
         </div>
@@ -303,7 +361,7 @@ export default function PatrimoinePage() {
       <section className="asset-stat-grid" aria-label="Résumé du patrimoine">
         {[
           {
-            label: "Biens inventoriés",
+            label: "Matériels inventoriés",
             value: assets.length,
             icon: Building2,
             tone: "is-blue",
@@ -321,7 +379,7 @@ export default function PatrimoinePage() {
             tone: "is-amber",
           },
           {
-            label: "Sortis du patrimoine",
+            label: "Sortis du parc",
             value: disposedCount,
             icon: Archive,
             tone: "is-slate",
@@ -347,23 +405,42 @@ export default function PatrimoinePage() {
 
       {activeValues.size > 0 && (
         <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Valeurs nettes par devise">
-          <h2 className="font-semibold">Valeur nette des biens encore détenus</h2>
+          <h2 className="font-semibold">Valeur nette indicative du matériel détenu</h2>
           <ul className="mt-2 flex flex-wrap gap-3 text-sm tabular-nums">
             {[...activeValues].map(([code, value]) => <li key={code} className="rounded-lg bg-slate-100 px-3 py-2">{formatAmount(value, code)}</li>)}
           </ul>
         </section>
       )}
 
+      <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-[1fr_1fr_2fr_auto] sm:items-end print:hidden" aria-label="État périodique du matériel">
+        <div className="sm:col-span-4">
+          <h2 className="font-semibold text-slate-900">État périodique du matériel</h2>
+          <p className="mt-1 text-sm text-slate-500">Imprimez l’inventaire et les mouvements de la période avec une note pour la Direction.</p>
+        </div>
+        <label className="grid gap-1 text-sm font-medium text-slate-700">Du
+          <input type="date" value={reportFrom} max={reportTo || today || undefined} onChange={(event) => setReportFrom(event.target.value)} className="rounded-xl border border-slate-200 px-3 py-2" />
+        </label>
+        <label className="grid gap-1 text-sm font-medium text-slate-700">Au
+          <input type="date" value={reportTo} min={reportFrom || undefined} max={today || undefined} onChange={(event) => setReportTo(event.target.value)} className="rounded-xl border border-slate-200 px-3 py-2" />
+        </label>
+        <label className="grid gap-1 text-sm font-medium text-slate-700">Note sur l’état du matériel
+          <textarea maxLength={500} rows={2} value={reportNote} onChange={(event) => setReportNote(event.target.value)} placeholder="Ex. deux ordinateurs à remplacer…" className="rounded-xl border border-slate-200 px-3 py-2" />
+        </label>
+        <button type="button" onClick={printInventoryReport} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">
+          <Printer className="h-4 w-4" /> Imprimer l’état
+        </button>
+      </section>
+
       {showForm &&
         ["COMPANY_ADMIN", "ACCOUNTANT", "FINANCE_MANAGER"].includes(
           userRole,
         ) && (
           <form
-            onSubmit={createAsset}
+            onSubmit={saveAsset}
             className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/40 p-5 sm:grid-cols-2 xl:grid-cols-4"
           >
             <h2 className="font-semibold text-slate-900 sm:col-span-2 xl:col-span-4">
-              Fiche du bien patrimonial
+              {editingAsset ? "Modifier la fiche matériel" : "Ajouter un matériel au parc"}
             </h2>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               Numéro d’inventaire *
@@ -397,9 +474,21 @@ export default function PatrimoinePage() {
                 maxLength={80}
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
-                placeholder="Informatique, mobilier…"
+                list="cabinet-material-categories"
+                placeholder="Choisir ou saisir une catégorie"
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
               />
+              <datalist id="cabinet-material-categories">
+                <option value="Informatique et numérique" />
+                <option value="Mobilier de bureau" />
+                <option value="Téléphonie" />
+                <option value="Matériel de bureau" />
+                <option value="Réseau et télécommunications" />
+                <option value="Climatisation et ventilation" />
+                <option value="Transport" />
+                <option value="Sécurité" />
+                <option value="Autres équipements" />
+              </datalist>
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700">
               Numéro de série
@@ -490,11 +579,13 @@ export default function PatrimoinePage() {
               />
             </label>
             <label className="space-y-2 text-sm font-medium text-slate-700 sm:col-span-2">
-              Notes
-              <input
+              État, garantie ou observations
+              <textarea
                 maxLength={1000}
+                rows={2}
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
+                placeholder="État actuel, garantie, défaut constaté…"
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
               />
             </label>
@@ -504,11 +595,11 @@ export default function PatrimoinePage() {
                 disabled={saving}
                 className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {saving ? "Enregistrement…" : "Enregistrer le bien"}
+                {saving ? "Enregistrement…" : editingAsset ? "Enregistrer les modifications" : "Enregistrer le matériel"}
               </button>
               <button
                 type="button"
-                onClick={() => setShowForm(false)}
+                onClick={resetAssetForm}
                 className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700"
               >
                 Annuler
@@ -521,20 +612,19 @@ export default function PatrimoinePage() {
         <div className="flex items-center justify-between border-b border-slate-100 p-4">
           <div>
             <h2 className="font-semibold text-slate-900">
-              Registre des immobilisations
+              Registre du matériel
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              L’inventaire de patrimoine reste distinct des stocks de
-              fournitures.
+              Tous les équipements et biens du cabinet, avec leur état et leur historique.
             </p>
           </div>
           <Building2 className="h-5 w-5 text-blue-600" />
         </div>
         <div className="grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-[2fr_1fr]">
-          <label className="grid gap-1 text-sm">Rechercher un bien
+          <label className="grid gap-1 text-sm">Rechercher un matériel
             <input type="search" value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Inventaire, désignation, personne ou lieu" className="border px-3" />
           </label>
-          <label className="grid gap-1 text-sm">État du bien
+          <label className="grid gap-1 text-sm">État du matériel
             <select value={assetStatus} onChange={(event) => setAssetStatus(event.target.value)} className="border px-3">
               <option value="">Tous les états</option>
               {["ACTIVE", "MAINTENANCE", "DISPOSED"].map((value) => <option key={value} value={value}>{statusLabel(value)}</option>)}
@@ -562,6 +652,11 @@ export default function PatrimoinePage() {
                       {asset.assignedTo ?? "Non affecté"} ·{" "}
                       {asset.location ?? "Lieu non précisé"}
                     </p>
+                    {asset.notes && (
+                      <p className="mt-1 line-clamp-2 text-xs text-slate-600">
+                        État / observations : {asset.notes}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">
@@ -595,6 +690,21 @@ export default function PatrimoinePage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
+                    {[
+                      "COMPANY_ADMIN",
+                      "ACCOUNTANT",
+                      "FINANCE_MANAGER",
+                    ].includes(userRole) && (
+                      <button
+                        type="button"
+                        onClick={() => editAsset(asset)}
+                        aria-label={`Modifier la fiche de ${asset.name}`}
+                        title="Modifier la fiche"
+                        className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
                     {asset.status !== "DISPOSED" &&
                       [
                         "COMPANY_ADMIN",
@@ -681,15 +791,36 @@ export default function PatrimoinePage() {
           <div className="p-10 text-center">
             <Building2 className="mx-auto h-8 w-8 text-slate-300" />
             <p className="mt-3 text-sm font-medium text-slate-700">
-              {error ? "Registre indisponible" : assets.length ? "Aucun bien ne correspond aux filtres" : "Aucun bien patrimonial enregistré"}
+              {error ? "Registre indisponible" : assets.length ? "Aucun matériel ne correspond aux filtres" : "Aucun matériel enregistré"}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Ajoutez le matériel durable du cabinet ici. Les fournitures
-              restent dans le module de stock.
+              Ajoutez les équipements, meubles, appareils et autres biens du cabinet.
             </p>
           </div>
         )}
       </section>
+
+      <div className="asset-inventory-print">
+        <header className="asset-inventory-print-header">
+          <p>CABINET TRANSPARENCY · PATRIMOINE</p>
+          <h1>État du matériel du cabinet</h1>
+          <p>Période suivie : {reportFrom || "—"} au {reportTo || "—"}</p>
+          <p>Situation du parc au {today || "—"}</p>
+        </header>
+        <section>
+          <h2>Inventaire du parc · {assets.length} matériel(s)</h2>
+          <table>
+            <thead><tr><th>N° inventaire</th><th>Désignation</th><th>Catégorie</th><th>État</th><th>Affecté à / lieu</th><th>Valeur nette indicative</th></tr></thead>
+            <tbody>{assets.map((asset) => <tr key={asset.id}><td>{asset.assetNumber}</td><td>{asset.name}{asset.serialNumber ? ` · S/N ${asset.serialNumber}` : ""}</td><td>{asset.category}</td><td>{statusLabel(asset.status)}</td><td>{asset.assignedTo || "Non affecté"}{asset.location ? ` · ${asset.location}` : ""}</td><td>{formatAmount(asset.netBookValue, asset.currency)}</td></tr>)}</tbody>
+          </table>
+        </section>
+        <section>
+          <h2>Mouvements pendant la période · {periodMovements.length}</h2>
+          {periodMovements.length ? <table><thead><tr><th>Date</th><th>Matériel</th><th>Événement</th><th>Détail</th></tr></thead><tbody>{periodMovements.map(({ asset, movement }) => <tr key={movement.id}><td>{formatDate(movement.movementDate)}</td><td>{asset.assetNumber} · {asset.name}</td><td>{movementOptions.find((option) => option.value === movement.movementType)?.label ?? "Acquisition"}</td><td>{movement.description || movement.toAssignee || movement.toLocation || "—"}</td></tr>)}</tbody></table> : <p>Aucun mouvement enregistré pour cette période.</p>}
+        </section>
+        <section className="asset-inventory-print-note"><h2>Note à la Direction</h2><p>{reportNote.trim() || "Aucune note communiquée."}</p></section>
+        <footer>Document de suivi interne · Valeurs indicatives, sans génération d’écritures comptables.</footer>
+      </div>
 
       {movementAsset &&
         ["COMPANY_ADMIN", "ACCOUNTANT", "FINANCE_MANAGER"].includes(
@@ -710,7 +841,7 @@ export default function PatrimoinePage() {
                   id="asset-movement-title"
                   className="text-lg font-semibold text-slate-900"
                 >
-                  Mouvement du bien
+                  Mouvement du matériel
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
                   {movementAsset.assetNumber} · {movementAsset.name}

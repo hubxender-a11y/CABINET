@@ -50,7 +50,7 @@ export class DashboardService {
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
       this.prisma.expense.findMany({
-        where: { companyId, date: { gte: start, lt: end } },
+        where: { companyId, status: 'RECORDED', date: { gte: start, lt: end } },
         orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
       }),
     ]);
@@ -158,7 +158,7 @@ export class DashboardService {
       }),
       this.prisma.expense.groupBy({
         by: ['currency'],
-        where: { companyId, date: { gte: monthStart } },
+        where: { companyId, status: 'RECORDED', date: { gte: monthStart } },
         _sum: { amount: true },
       }),
       this.prisma.customer.count({ where: { companyId } }),

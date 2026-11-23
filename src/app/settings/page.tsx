@@ -9,7 +9,7 @@ import {
   type FormEvent,
 } from "react";
 import Image from "next/image";
-import { Building2, MapPin, RefreshCw, Save, ShieldCheck } from "lucide-react";
+import { Building2, Mail, MapPin, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import {
   companyDisplayName,
   companyLocation,
@@ -19,6 +19,9 @@ import {
 } from "@/components/company-profile";
 import { useNotifications } from "@/components/notification-provider";
 import { normalizeInvoiceTemplate } from "@/lib/invoice-template";
+import { DatabaseBackupPanel } from "@/components/database-backup-panel";
+import { MailSettingsPanel } from "@/components/mail-settings-panel";
+import { getSessionToken, sessionRole } from "@/lib/session";
 
 const identityFields = [
   ["legalName", "Raison sociale", true],
@@ -53,6 +56,7 @@ function toChanges(profile: CompanyProfile): CompanyProfileChanges {
   return {
     legalName: profile.legalName,
     tradeName: profile.tradeName,
+    logoUrl: profile.logoUrl,
     rccm: profile.rccm,
     nin: profile.nin,
     nif: profile.nif,
@@ -76,6 +80,49 @@ function toChanges(profile: CompanyProfile): CompanyProfileChanges {
 }
 
 const maxSignatureDataUrlLength = 70_000;
+const maxCompanyLogoDataUrlLength = 70_000;
+
+function optimizeCompanyLogo(file: File) {
+  if (!file.type.startsWith("image/")) {
+    return Promise.reject(new Error("Sélectionnez une image pour le logo."));
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    return Promise.reject(new Error("Le logo ne peut pas dépasser 5 Mo."));
+  }
+
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Impossible de lire le logo."));
+    reader.onload = () => {
+      const image = new window.Image();
+      image.onerror = () => reject(new Error("Le fichier sélectionné ne peut pas être décodé comme une image."));
+      image.onload = () => {
+        const scale = Math.min(1, 720 / image.width, 420 / image.height);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("Impossible de préparer le logo."));
+          return;
+        }
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        for (const quality of [0.9, 0.82, 0.74, 0.66, 0.58, 0.5, 0.42]) {
+          const dataUrl = canvas.toDataURL("image/jpeg", quality);
+          if (dataUrl.length <= maxCompanyLogoDataUrlLength) {
+            resolve(dataUrl);
+            return;
+          }
+        }
+        reject(new Error("Ce logo est trop détaillé. Choisissez une image plus simple."));
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 function optimizeSignatureImage(file: File) {
   if (!file.type.startsWith("image/")) {
@@ -134,6 +181,12 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [settingsSection, setSettingsSection] = useState<"identity" | "mail" | "backups">("identity");
+  const [canManageMail, setCanManageMail] = useState(false);
+
+  useEffect(() => {
+    setCanManageMail(sessionRole(getSessionToken()) === "COMPANY_ADMIN");
+  }, []);
 
   useEffect(() => {
     if (!profile) return;
@@ -222,6 +275,28 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleCompanyLogo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError("");
+    setMessage("");
+    try {
+      const logoUrl = await optimizeCompanyLogo(file);
+      updateField("logoUrl", logoUrl);
+      notify({
+        type: "info",
+        title: "Logo prêt",
+        message: "Enregistrez les paramètres pour l’utiliser sur l’écran de connexion.",
+      });
+    } catch (caught) {
+      const reason = caught instanceof Error ? caught.message : "Impossible de préparer le logo.";
+      setError(reason);
+      notify({ type: "error", title: "Logo refusé", message: reason });
+    } finally {
+      event.target.value = "";
+    }
+  }
+
   function renderFields(fields: readonly (readonly [FieldKey, string, ...boolean[]])[]) {
     return fields.map(([key, label, required]) => (
       <label key={key} className="space-y-2 text-sm font-medium text-slate-700">
@@ -256,7 +331,7 @@ export default function SettingsPage() {
             Une seule fiche de référence pour l’espace de travail, les tableaux de bord et les prochains documents.
           </p>
         </div>
-        <button
+        {settingsSection === "identity" && <button
           type="button"
           onClick={() => void reload()}
           disabled={loading || saving}
@@ -264,7 +339,7 @@ export default function SettingsPage() {
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           Actualiser
-        </button>
+        </button>}
       </header>
 
       {message && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
@@ -274,9 +349,16 @@ export default function SettingsPage() {
         </p>
       )}
 
-      {loading && !draft ? (
+      <div role="tablist" aria-label="Configuration du cabinet" className="flex w-full gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1 sm:w-fit">
+        <button type="button" role="tab" aria-selected={settingsSection === "identity"} onClick={() => setSettingsSection("identity")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "identity" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>Identité & paramètres</button>
+        {canManageMail && <button type="button" role="tab" aria-selected={settingsSection === "mail"} onClick={() => setSettingsSection("mail")} className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "mail" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}><Mail size={16} /> Courriel & Google</button>}
+        <button type="button" role="tab" aria-selected={settingsSection === "backups"} onClick={() => setSettingsSection("backups")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${settingsSection === "backups" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>Sauvegardes</button>
+      </div>
+
+      {settingsSection === "mail" ? <MailSettingsPanel /> : settingsSection === "backups" ? <DatabaseBackupPanel /> : loading && !draft ? (
         <p className="rounded-xl bg-slate-50 p-6 text-sm text-slate-500">Chargement du profil enregistré…</p>
       ) : draft ? (
+        <>
         <form onSubmit={submit} className="space-y-5">
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-5 flex items-center gap-3">
@@ -289,6 +371,32 @@ export default function SettingsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               {renderFields(identityFields)}
               {renderFields(registrationFields)}
+            </div>
+            <div className="mt-5 grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              <label className="space-y-2 text-sm font-medium text-slate-700">
+                Logo affiché à la connexion
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(event) => void handleCompanyLogo(event)}
+                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:font-medium file:text-blue-700"
+                />
+                <span className="block text-xs font-normal leading-5 text-slate-500">
+                  JPG, PNG ou WebP · 5 Mo maximum. Le logo est optimisé puis affiché lors du choix de cette entreprise.
+                </span>
+              </label>
+              {draft.logoUrl ? (
+                <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <Image src={draft.logoUrl} alt={`Logo ${displayName}`} width={150} height={72} unoptimized className="h-[72px] w-[150px] rounded-lg bg-white object-contain p-2" />
+                  <button type="button" onClick={() => updateField("logoUrl", null)} className="text-sm font-medium text-rose-700 hover:text-rose-800">
+                    Retirer
+                  </button>
+                </div>
+              ) : (
+                <div className="grid h-[88px] w-[160px] place-items-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 text-center text-xs text-slate-500">
+                  Logo Cabinet Transparency par défaut
+                </div>
+              )}
             </div>
           </section>
 
@@ -475,6 +583,7 @@ export default function SettingsPage() {
             </div>
           </div>
         </form>
+        </>
       ) : (
         <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-600">
           Le profil du cabinet n’a pas pu être chargé. Vérifiez votre connexion, puis actualisez cette page.

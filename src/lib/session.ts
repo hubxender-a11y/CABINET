@@ -6,6 +6,17 @@ export function getSessionToken() {
   return window.localStorage.getItem(AUTH_TOKEN_KEY);
 }
 
+export function sessionRole(token: string | null) {
+  if (!token) return null;
+  try {
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(atob(payload));
+    return typeof decoded.role === "string" ? decoded.role : null;
+  } catch {
+    return null;
+  }
+}
+
 export function subscribeToSession(onChange: () => void) {
   function onStorage(event: StorageEvent) {
     if (event.key === AUTH_TOKEN_KEY || event.key === null) onChange();

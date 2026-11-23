@@ -3,16 +3,16 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   Archive,
   BarChart3,
-  Boxes,
   Building2,
   BriefcaseBusiness,
   CalendarClock,
   ChevronRight,
   ChevronDown,
+  BookOpen,
   Landmark,
   LayoutDashboard,
   LogOut,
@@ -23,9 +23,13 @@ import {
   Settings,
   Users,
   Wallet,
+  ScrollText,
   X,
 } from "lucide-react";
-import { setSessionToken } from "@/lib/session";
+import { getSessionToken, sessionRole, setSessionToken, subscribeToSession } from "@/lib/session";
+import { OperationalNotificationCenter } from "@/components/operational-notification-center";
+import { OperationalAlertsProvider } from "@/lib/use-operational-alerts";
+import { CabinetAssistant } from "@/components/cabinet-assistant";
 import {
   companyDisplayName,
   companyLocation,
@@ -41,6 +45,8 @@ const navigationGroups = [
       { href: "/clients", label: "Dossiers clients", icon: Users },
       { href: "/invoices", label: "Factures clients", icon: Receipt },
       { href: "/payments", label: "Règlements clients", icon: Wallet },
+      { href: "/cash-vouchers", label: "Bons de sortie caisse", icon: Receipt },
+      { href: "/payment-orders", label: "Ordres de paiement", icon: ScrollText },
       { href: "/recouvrement", label: "Recouvrement", icon: CalendarClock },
       { href: "/expenses", label: "Dépenses", icon: Receipt },
       { href: "/fiscal", label: "Suivi fiscal", icon: Landmark },
@@ -51,8 +57,7 @@ const navigationGroups = [
     label: "Patrimoine",
     icon: Building2,
     items: [
-      { href: "/stocks", label: "Stocks", icon: Boxes },
-      { href: "/patrimoine", label: "Patrimoine", icon: Building2 },
+      { href: "/patrimoine", label: "Matériel du cabinet", icon: Building2 },
     ],
   },
   {
@@ -77,6 +82,78 @@ const navigationGroups = [
 
 const allNavigationItems = navigationGroups.flatMap((group) => group.items);
 
+function WorkspaceLogo({
+  companyName,
+  logoUrl,
+  className = "app-brand-logo",
+}: {
+  companyName: string;
+  logoUrl?: string | null;
+  className?: string;
+}) {
+  if (logoUrl && (/^\/[^/]/.test(logoUrl) || /^data:image\/(?:jpeg|png|webp);base64,/i.test(logoUrl))) {
+    return (
+      <Image
+        src={logoUrl}
+        alt={`Logo ${companyName}`}
+        width={369}
+        height={85}
+        unoptimized
+        className={className}
+      />
+    );
+  }
+  if (/transparency/i.test(companyName)) {
+    return (
+      <Image
+        src="/branding/ctrs-logo.jpg"
+        alt={`Logo ${companyName}`}
+        width={369}
+        height={85}
+        priority
+        className={className}
+      />
+    );
+  }
+  return (
+    <span className={`${className} app-company-wordmark`} title={companyName}>
+      {companyName}
+    </span>
+  );
+}
+
+const platformNavigationGroups = [
+  {
+    label: "Plateforme",
+    icon: LayoutDashboard,
+    items: [
+      { href: "/platform-admin#overview", label: "Vue globale", icon: LayoutDashboard },
+      { href: "/platform-admin#companies", label: "Entreprises", icon: Building2 },
+      { href: "/platform-admin#activity", label: "Activités", icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Configuration",
+    icon: Settings,
+    items: [
+      { href: "/platform-admin#settings", label: "Préférences super-admin", icon: Settings },
+    ],
+  },
+];
+
+const managingPartnerNavigationGroups = [
+  {
+    label: "Pilotage inter-sociétés",
+    icon: LayoutDashboard,
+    items: [
+      { href: "/managing-partner#overview", label: "Tableau de bord", icon: LayoutDashboard },
+      { href: "/managing-partner#payment-orders", label: "Ordres de paiement", icon: ScrollText },
+      { href: "/managing-partner#reports", label: "Rapports", icon: BarChart3 },
+      { href: "/managing-partner#notifications", label: "Notifications", icon: Receipt },
+    ],
+  },
+];
+
 const primaryNavigation = [
   {
     href: "/clients",
@@ -88,13 +165,13 @@ const primaryNavigation = [
     href: "/invoices",
     label: "Gestion",
     icon: Receipt,
-    paths: ["/invoices", "/payments", "/recouvrement", "/expenses", "/fiscal", "/reports"],
+    paths: ["/invoices", "/payments", "/cash-vouchers", "/payment-orders", "/recouvrement", "/expenses", "/fiscal", "/reports"],
   },
   {
     href: "/patrimoine",
-    label: "Patrimoine",
+    label: "Matériel",
     icon: Building2,
-    paths: ["/stocks", "/patrimoine"],
+    paths: ["/patrimoine"],
   },
   {
     href: "/documents",
@@ -102,6 +179,18 @@ const primaryNavigation = [
     icon: Archive,
     paths: ["/documents"],
   },
+];
+
+const platformPrimaryNavigation = [
+  { href: "/platform-admin#overview", label: "Vue globale", icon: LayoutDashboard, paths: ["/platform-admin"] },
+  { href: "/platform-admin#companies", label: "Entreprises", icon: Building2, paths: ["/platform-admin"] },
+  { href: "/platform-admin#activity", label: "Activités", icon: BarChart3, paths: ["/platform-admin"] },
+];
+
+const managingPartnerPrimaryNavigation = [
+  { href: "/managing-partner#overview", label: "Vue globale", icon: LayoutDashboard, paths: ["/managing-partner"] },
+  { href: "/managing-partner#payment-orders", label: "Ordres de paiement", icon: ScrollText, paths: ["/managing-partner"] },
+  { href: "/managing-partner#reports", label: "Rapports", icon: BarChart3, paths: ["/managing-partner"] },
 ];
 
 function isActiveRoute(pathname: string, href: string) {
@@ -115,9 +204,34 @@ function isActiveModule(pathname: string, paths: string[]) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const role = useSyncExternalStore(
+    subscribeToSession,
+    () => sessionRole(getSessionToken()),
+    () => null,
+  );
+
+  if (role === "PLATFORM_SUPER_ADMIN" || role === "PLATFORM_MANAGING_PARTNER") {
+    return <AppShellContent>{children}</AppShellContent>;
+  }
+
+  return (
+    <OperationalAlertsProvider>
+      <AppShellContent>{children}</AppShellContent>
+    </OperationalAlertsProvider>
+  );
+}
+
+function AppShellContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { profile } = useCompanyProfile();
+  const role = useSyncExternalStore(
+    subscribeToSession,
+    () => sessionRole(getSessionToken()),
+    () => null,
+  );
+  const isPlatformAdmin = role === "PLATFORM_SUPER_ADMIN";
+  const isGlobalManagingPartner = role === "PLATFORM_MANAGING_PARTNER";
   const [mobileMenuPath, setMobileMenuPath] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
     {},
@@ -125,11 +239,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const mobileMenuOpen = mobileMenuPath === pathname;
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuCloseButtonRef = useRef<HTMLButtonElement>(null);
-  const companyName = companyDisplayName(profile);
-  const location = companyLocation(profile);
+  const companyName = isPlatformAdmin ? "Administration globale" : isGlobalManagingPartner ? "Espace associé-gérant" : companyDisplayName(profile);
+  const companyLogoUrl = isPlatformAdmin || isGlobalManagingPartner ? null : profile?.logoUrl;
+  const location = isPlatformAdmin || isGlobalManagingPartner ? "Toutes les entreprises" : companyLocation(profile);
+  const currentNavigationGroups = isPlatformAdmin ? platformNavigationGroups : isGlobalManagingPartner ? managingPartnerNavigationGroups : navigationGroups;
+  const currentNavigationItems = currentNavigationGroups.flatMap((group) => group.items);
+  const currentPrimaryNavigation = isPlatformAdmin ? platformPrimaryNavigation : isGlobalManagingPartner ? managingPartnerPrimaryNavigation : primaryNavigation;
   const activePage =
-    allNavigationItems.find((item) => pathname === item.href) ??
-    allNavigationItems.find((item) => isActiveRoute(pathname, item.href));
+    (isPlatformAdmin ? currentNavigationItems : allNavigationItems).find((item) => pathname === item.href) ??
+    (isPlatformAdmin || isGlobalManagingPartner ? currentNavigationItems : allNavigationItems).find((item) => isActiveRoute(pathname, item.href)) ??
+    (isGlobalManagingPartner ? currentNavigationItems[0] : undefined);
   const activeHref = activePage?.href;
 
   function toggleNavigationGroup(label: string, expanded: boolean) {
@@ -164,6 +283,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
+  useEffect(() => {
+    if (
+      ((isPlatformAdmin && pathname !== "/platform-admin") ||
+        (isGlobalManagingPartner && pathname !== "/managing-partner")) &&
+      pathname !== "/login"
+    ) {
+      router.replace(isPlatformAdmin ? "/platform-admin" : "/managing-partner");
+    }
+  }, [isGlobalManagingPartner, isPlatformAdmin, pathname, router]);
+
   function handleMobileMenuKeyDown(event: React.KeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
       setMobileMenuPath(null);
@@ -195,12 +324,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-frame">
       <div className="app-layout">
         <aside className="app-sidebar print:hidden">
-          <Link href="/settings" className="app-workspace-card">
+          <Link href={isPlatformAdmin ? "/platform-admin#settings" : "/settings"} className="app-workspace-card">
             <span className="app-workspace-avatar">
               {companyName.slice(0, 1).toLocaleUpperCase("fr")}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="app-workspace-label">Cabinet comptable</span>
+              <span className="app-workspace-label">{isPlatformAdmin ? "CONSOLE SUPER-ADMIN" : isGlobalManagingPartner ? "ASSOCIÉ-GÉRANT GLOBAL" : "Cabinet comptable"}</span>
               <span className="app-workspace-name">{companyName}</span>
               <span className="app-workspace-location">{location}</span>
             </span>
@@ -209,11 +338,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <nav className="app-navigation" aria-label="Navigation principale">
             <p className="app-navigation-overline">Menu principal</p>
-            {navigationGroups.map((group) => {
+            {currentNavigationGroups.map((group) => {
               const groupActive = group.items.some(({ href }) =>
                 isActiveRoute(pathname, href),
               );
-              const expanded = expandedGroups[group.label] ?? groupActive;
+              const expanded = expandedGroups[group.label] ?? (isPlatformAdmin || isGlobalManagingPartner || groupActive);
               return (
                 <div key={group.label} className="app-navigation-group">
                   <button
@@ -268,13 +397,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="app-sidebar-footer">
             <div className="app-currency-chip">
               <span className="app-live-dot" />
-              Devise principale
-              <strong>{profile?.currencyCode ?? "CDF"}</strong>
+              {isPlatformAdmin ? "Périmètre" : "Devise principale"}
+              <strong>{isPlatformAdmin ? "Global" : profile?.currencyCode ?? "CDF"}</strong>
             </div>
             <button type="button" onClick={logout} className="app-logout-link">
               <LogOut className="h-4 w-4" />
               Se déconnecter
             </button>
+            <a
+              href="/guide-utilisation-cabinet-transparency.pdf"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            >
+              <BookOpen className="h-4 w-4" />
+              Guide utilisateur
+            </a>
             <p className="app-sidebar-version">Gestion professionnelle · RDC</p>
           </div>
         </aside>
@@ -282,29 +420,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="app-content">
           <header className="app-topbar print:hidden">
             <Link
-              href="/"
+              href={isPlatformAdmin ? "/platform-admin" : "/"}
               className="app-shell-brand"
-              aria-label="Cabinet Transparency, accueil"
+              aria-label={`${companyName}, accueil`}
             >
-              <Image
-                src="/branding/ctrs-logo.jpg"
-                alt="Cabinet Transparency"
-                width={369}
-                height={85}
-                priority
-                className="app-brand-logo"
-              />
+              <WorkspaceLogo companyName={companyName} logoUrl={companyLogoUrl} />
             </Link>
             <div className="app-mobile-brand">
-              <Link href="/" aria-label="Cabinet Transparency, accueil">
-                <Image
-                  src="/branding/ctrs-logo.jpg"
-                  alt="Cabinet Transparency"
-                  width={369}
-                  height={85}
-                  priority
-                  className="app-brand-logo"
-                />
+              <Link href={isPlatformAdmin ? "/platform-admin" : "/"} aria-label={`${companyName}, accueil`}>
+                <WorkspaceLogo companyName={companyName} logoUrl={companyLogoUrl} />
               </Link>
             </div>
             <button
@@ -328,8 +452,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="app-primary-navigation"
               aria-label="Modules principaux"
             >
-              {primaryNavigation.map(({ href, label, icon: Icon, paths }) => {
-                const active = isActiveModule(pathname, paths);
+              {currentPrimaryNavigation.map(({ href, label, icon: Icon, paths }) => {
+                const active = isPlatformAdmin || isGlobalManagingPartner ? label === "Vue globale" : isActiveModule(pathname, paths);
                 return (
                   <Link
                     key={href}
@@ -348,8 +472,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="app-location-pill">
                 {activePage?.label ?? location}
               </span>
+              {!isPlatformAdmin && !isGlobalManagingPartner && <OperationalNotificationCenter />}
               <Link
-                href="/settings"
+                href={isPlatformAdmin ? "/platform-admin#settings" : "/settings"}
                 className="app-icon-action"
                 aria-label="Paramètres"
               >
@@ -383,13 +508,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 onKeyDown={handleMobileMenuKeyDown}
               >
                 <div className="app-mobile-navigation-header">
-                  <Image
-                    src="/branding/ctrs-logo.jpg"
-                    alt="Cabinet Transparency"
-                    width={369}
-                    height={85}
-                    className="app-brand-logo"
-                  />
+                  <WorkspaceLogo companyName={companyName} logoUrl={companyLogoUrl} />
                   <button
                     type="button"
                     ref={mobileMenuCloseButtonRef}
@@ -406,13 +525,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="app-workspace-label">
-                      Cabinet comptable
+                      {isPlatformAdmin ? "CONSOLE SUPER-ADMIN" : isGlobalManagingPartner ? "ASSOCIÉ-GÉRANT GLOBAL" : "Cabinet comptable"}
                     </span>
                     <span className="app-workspace-name">{companyName}</span>
                     <span className="app-workspace-location">{location}</span>
                   </span>
                   <span className="app-mobile-currency">
-                    {profile?.currencyCode ?? "CDF"}
+                    {isPlatformAdmin ? "Global" : profile?.currencyCode ?? "CDF"}
                   </span>
                 </div>
                 <h2
@@ -425,11 +544,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className="app-mobile-navigation-content"
                   aria-label="Navigation principale"
                 >
-                  {navigationGroups.map((group) => {
+                  {currentNavigationGroups.map((group) => {
                     const groupActive = group.items.some(({ href }) =>
                       isActiveRoute(pathname, href),
                     );
-                    const expanded = expandedGroups[group.label] ?? groupActive;
+                    const expanded = expandedGroups[group.label] ?? (isPlatformAdmin || isGlobalManagingPartner || groupActive);
                     return (
                       <section
                         key={group.label}
@@ -483,8 +602,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <LogOut className="h-4 w-4" />
                     Se déconnecter
                   </button>
+                  <a
+                    href="/guide-utilisation-cabinet-transparency.pdf"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                  >
+                    <BookOpen className="h-4 w-4" />
+                    Guide utilisateur
+                  </a>
                   <p className="app-sidebar-version">
-                    Cabinet Transparency · Gestion du cabinet
+                    Gestion professionnelle · RDC
                   </p>
                 </div>
               </aside>
@@ -497,11 +625,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span>{companyName}</span>
               <span>·</span>
               <span>{location}</span>
-              <span className="ml-auto">Cabinet Transparency · Gestion du cabinet</span>
+              <span className="ml-auto">Gestion professionnelle · RDC</span>
             </footer>
           </main>
         </div>
       </div>
+      <CabinetAssistant />
     </div>
   );
 }

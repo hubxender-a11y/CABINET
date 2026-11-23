@@ -9,6 +9,7 @@ import { PrismaService } from '../database/prisma.service';
 import {
   CreateFixedAssetDto,
   CreateFixedAssetMovementDto,
+  UpdateFixedAssetDto,
 } from './fixed-assets.dto';
 
 function elapsedMonths(acquiredAt: Date, asOf: Date): number {
@@ -141,6 +142,190 @@ export class FixedAssetsService {
     }
   }
 
+  async update(
+    assetId: string,
+    dto: UpdateFixedAssetDto,
+    companyId: string,
+    userId: string,
+  ) {
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        const asset = await transaction.fixedAsset.findFirst({
+          where: { id: assetId, companyId },
+        });
+        if (!asset) throw new NotFoundException('Matériel introuvable.');
+        if (
+          (dto.assetNumber !== undefined && !dto.assetNumber.trim()) ||
+          (dto.name !== undefined && !dto.name.trim()) ||
+          (dto.category !== undefined && !dto.category.trim())
+        ) {
+          throw new BadRequestException(
+            'Le numéro, la désignation et la catégorie du matériel ne peuvent pas être vides.',
+          );
+        }
+
+        const acquiredAt = dto.acquiredAt
+          ? new Date(dto.acquiredAt)
+          : asset.acquiredAt;
+        const acquisitionCost = dto.acquisitionCost
+          ? new Prisma.Decimal(dto.acquisitionCost)
+          : new Prisma.Decimal(asset.acquisitionCost);
+        const residualValue = dto.residualValue
+          ? new Prisma.Decimal(dto.residualValue)
+          : new Prisma.Decimal(asset.residualValue);
+
+        if (acquiredAt.getTime() > Date.now()) {
+          throw new BadRequestException(
+            'La date d’acquisition ne peut pas être dans le futur.',
+          );
+        }
+        if (!acquisitionCost.gt(0)) {
+          throw new BadRequestException(
+            'Le coût d’acquisition doit être supérieur à zéro.',
+          );
+        }
+        if (residualValue.gt(acquisitionCost)) {
+          throw new BadRequestException(
+            'La valeur résiduelle ne peut pas dépasser le coût d’acquisition.',
+          );
+        }
+        const nextAssignee = dto.assignedTo === undefined
+          ? asset.assignedTo
+          : dto.assignedTo.trim() || null;
+        const nextLocation = dto.location === undefined
+          ? asset.location
+          : dto.location.trim() || null;
+        if (
+          asset.status === 'DISPOSED' &&
+          (nextAssignee !== asset.assignedTo || nextLocation !== asset.location)
+        ) {
+          throw new ConflictException(
+            'Un matériel sorti du parc ne peut plus être réaffecté.',
+          );
+        }
+        if (dto.acquiredAt) {
+          const laterMovement = await transaction.fixedAssetMovement.findFirst({
+            where: {
+              companyId,
+              assetId,
+              movementType: { not: 'ACQUISITION' },
+              movementDate: { lt: acquiredAt },
+            },
+            select: { id: true },
+          });
+          if (laterMovement) {
+            throw new BadRequestException(
+              'La date d’acquisition ne peut pas dépasser un mouvement déjà enregistré.',
+            );
+          }
+        }
+
+        const data: Prisma.FixedAssetUpdateManyMutationInput = {
+          ...(dto.assetNumber !== undefined && {
+            assetNumber: dto.assetNumber.trim(),
+          }),
+          ...(dto.name !== undefined && { name: dto.name.trim() }),
+          ...(dto.category !== undefined && { category: dto.category.trim() }),
+          ...(dto.serialNumber !== undefined && {
+            serialNumber: dto.serialNumber.trim() || null,
+          }),
+          ...(dto.acquiredAt && { acquiredAt }),
+          ...(dto.acquisitionCost && { acquisitionCost }),
+          ...(dto.residualValue && { residualValue }),
+          ...(dto.usefulLifeMonths !== undefined && {
+            usefulLifeMonths: dto.usefulLifeMonths,
+          }),
+          ...(dto.currency && { currency: dto.currency }),
+          ...(dto.assignedTo !== undefined && {
+            assignedTo: dto.assignedTo.trim() || null,
+          }),
+          ...(dto.location !== undefined && {
+            location: dto.location.trim() || null,
+          }),
+          ...(dto.notes !== undefined && { notes: dto.notes.trim() || null }),
+        };
+        const updated = await transaction.fixedAsset.updateMany({
+          where: { id: assetId, companyId, updatedAt: asset.updatedAt },
+          data,
+        });
+        if (!updated.count) {
+          throw new ConflictException(
+            'Le matériel a été modifié simultanément. Actualisez le registre.',
+          );
+        }
+
+        if (dto.acquiredAt) {
+          await transaction.fixedAssetMovement.updateMany({
+            where: { companyId, assetId, movementType: 'ACQUISITION' },
+            data: { movementDate: acquiredAt },
+          });
+        }
+        const movementDate = new Date();
+        if (nextAssignee !== asset.assignedTo) {
+          await transaction.fixedAssetMovement.create({
+            data: {
+              companyId,
+              assetId,
+              movementType: 'ASSIGNMENT',
+              movementDate,
+              fromAssignee: asset.assignedTo,
+              toAssignee: nextAssignee,
+              fromLocation: asset.location,
+              toLocation: nextLocation,
+              description: 'Affectation mise à jour depuis la fiche matériel.',
+            },
+          });
+        }
+        if (nextLocation !== asset.location) {
+          await transaction.fixedAssetMovement.create({
+            data: {
+              companyId,
+              assetId,
+              movementType: 'TRANSFER',
+              movementDate,
+              fromAssignee: nextAssignee,
+              toAssignee: nextAssignee,
+              fromLocation: asset.location,
+              toLocation: nextLocation,
+              description: 'Emplacement mis à jour depuis la fiche matériel.',
+            },
+          });
+        }
+        await transaction.auditLog.create({
+          data: {
+            companyId,
+            userId,
+            action: 'FIXED_ASSET_UPDATED',
+            details: {
+              assetId,
+              assetNumber: dto.assetNumber?.trim() ?? asset.assetNumber,
+              changedFields: Object.keys(dto),
+            },
+          },
+        });
+        return transaction.fixedAsset.findFirst({
+          where: { id: assetId, companyId },
+          include: {
+            movements: {
+              orderBy: { movementDate: 'desc' },
+              take: 100,
+            },
+          },
+        });
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'Ce numéro d’inventaire est déjà attribué à un matériel du cabinet.',
+        );
+      }
+      throw error;
+    }
+  }
+
   async addMovement(
     assetId: string,
     dto: CreateFixedAssetMovementDto,
@@ -151,15 +336,15 @@ export class FixedAssetsService {
       const asset = await transaction.fixedAsset.findFirst({
         where: { id: assetId, companyId },
       });
-      if (!asset) throw new NotFoundException('Bien patrimonial introuvable.');
+      if (!asset) throw new NotFoundException('Matériel introuvable.');
       if (asset.status === 'DISPOSED') {
         throw new ConflictException(
-          'Un bien sorti du patrimoine ne peut plus recevoir de mouvement.',
+          'Un matériel sorti du parc ne peut plus recevoir de mouvement.',
         );
       }
       if (dto.movementType === 'ASSIGNMENT' && !dto.assignedTo?.trim()) {
         throw new BadRequestException(
-          'Indiquez la personne à qui le bien est affecté.',
+          'Indiquez la personne à qui le matériel est affecté.',
         );
       }
       if (dto.movementType === 'TRANSFER' && !dto.location?.trim()) {
@@ -197,7 +382,7 @@ export class FixedAssetsService {
         : new Date();
       if (movementDate < asset.acquiredAt) {
         throw new BadRequestException(
-          'La date du mouvement ne peut pas précéder l’acquisition du bien.',
+          'La date du mouvement ne peut pas précéder l’acquisition du matériel.',
         );
       }
       if (movementDate.getTime() > Date.now()) {

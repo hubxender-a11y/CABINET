@@ -4,14 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { FiscalStatus, InvoiceType, Prisma } from '@prisma/client';
+import { FiscalStatus, InvoiceType, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { getCompanyId } from '../database/company-context';
 import { CreateInvoiceDto } from './invoices.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class InvoicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   private invoiceSequence(invoiceNumber: string, issueYear: number): number {
     const match = /^(\d+)\/(\d{4})$/.exec(invoiceNumber);
@@ -240,7 +244,7 @@ export class InvoicesService {
 
       const company = await transaction.company.findUnique({
         where: { id: companyId },
-        select: { exchangeRateCdfPerUsd: true },
+        select: { exchangeRateCdfPerUsd: true, tradeName: true, legalName: true },
       });
       const existingNumbers = await transaction.invoice.findMany({
         where: {
@@ -319,6 +323,14 @@ export class InvoicesService {
           },
         },
       });
+
+      await this.notifications.notifyRoles(
+        transaction,
+        companyId,
+        [UserRole.PLATFORM_MANAGING_PARTNER],
+        `Nouvelle facture · ${invoice.invoiceNumber}`,
+        `${invoice.customer.name} · ${invoice.totalAmount.toString()} ${invoice.currency}. Facture créée dans ${company?.tradeName || company?.legalName || 'la société'}.`,
+      );
 
       return invoice;
     });

@@ -35,7 +35,7 @@ const legacyBuiltinElements: InvoiceTemplateElement[] = [
   { id: "date", name: "Lieu et date", kind: "builtin", x: 110, y: 68, width: 90, height: 12, fontSize: 10, color: "#334155", fill: "#ffffff", visible: true, content: "" },
   { id: "client", name: "Client", kind: "builtin", x: 10, y: 84, width: 90, height: 14, fontSize: 11, color: "#17243b", fill: "#ffffff", visible: true, content: "" },
   { id: "period", name: "Période", kind: "builtin", x: 105, y: 84, width: 90, height: 14, fontSize: 11, color: "#17243b", fill: "#ffffff", visible: true, content: "" },
-  { id: "prestation", name: "Concerne", kind: "builtin", x: 10, y: 100, width: 190, height: 14, fontSize: 11, color: "#17243b", fill: "#ffffff", visible: true, content: "" },
+  { id: "prestation", name: "Concerne", kind: "builtin", x: 10, y: 100, width: 190, height: 14, fontSize: 11, color: "#17243b", fill: "#ffffff", visible: false, content: "" },
   { id: "items", name: "Tableau des rubriques", kind: "builtin", x: 10, y: 120, width: 190, height: 50, fontSize: 10, color: "#17243b", fill: "#ffffff", visible: true, content: "" },
   { id: "total", name: "Total général", kind: "builtin", x: 110, y: 173, width: 90, height: 14, fontSize: 13, color: "#17243b", fill: "#ffffff", visible: true, content: "" },
   { id: "amount-words", name: "Montant en lettres", kind: "builtin", x: 10, y: 190, width: 190, height: 12, fontSize: 9, color: "#111827", fill: "#ffffff", visible: true, content: "" },

@@ -77,6 +77,70 @@ export class CreateFixedAssetDto {
   notes?: string;
 }
 
+export class UpdateFixedAssetDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(60)
+  assetNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(180)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  serialNumber?: string;
+
+  @IsOptional()
+  @IsDateString()
+  acquiredAt?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(moneyAmount)
+  acquisitionCost?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(moneyAmount)
+  residualValue?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(12)
+  @Max(600)
+  usefulLifeMonths?: number;
+
+  @IsOptional()
+  @IsIn(assetCurrencies)
+  currency?: (typeof assetCurrencies)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  assignedTo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  location?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
+}
+
 export class CreateFixedAssetMovementDto {
   @IsIn(movementTypes)
   movementType: (typeof movementTypes)[number];

@@ -7,12 +7,19 @@ import { FiscalIntegrationModule } from './fiscal-integration/fiscal-integration
 import { InvoicesModule } from './invoices/invoices.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { CashVouchersModule } from './cash-vouchers/cash-vouchers.module';
+import { PaymentOrdersModule } from './payment-orders/payment-orders.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { CompanyModule } from './company/company.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { ArchivesModule } from './archives/archives.module';
+import { BackupsModule } from './backups/backups.module';
+import { PlatformAdminModule } from './platform-admin/platform-admin.module';
+import { ManagingPartnerModule } from './managing-partner/managing-partner.module';
+import { MailSettingsModule } from './mail-settings/mail-settings.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -32,6 +39,13 @@ import { APP_GUARD } from '@nestjs/core';
     InvoicesModule,
     PaymentsModule,
     ExpensesModule,
+    CashVouchersModule,
+    PaymentOrdersModule,
+    NotificationsModule,
+    BackupsModule,
+    PlatformAdminModule,
+    ManagingPartnerModule,
+    MailSettingsModule,
     FiscalIntegrationModule,
   ],
   providers: [

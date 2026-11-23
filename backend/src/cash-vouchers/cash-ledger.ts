@@ -1,0 +1,165 @@
+import { BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+
+type CashTransaction = Prisma.TransactionClient;
+
+export async function ensureCashAccount(
+  transaction: CashTransaction,
+  companyId: string,
+  currency: 'CDF' | 'USD',
+) {
+  const code = currency === 'CDF' ? '571-CDF' : '571-USD';
+  const name =
+    currency === 'CDF' ? 'Caisse principale CDF' : 'Caisse principale USD';
+  return transaction.cashAccount.upsert({
+    where: { companyId_currency: { companyId, currency } },
+    create: { companyId, currency, code, name },
+    update: {},
+  });
+}
+
+export async function lockCashAccount(
+  transaction: CashTransaction,
+  cashAccountId: string,
+) {
+  await transaction.$queryRaw`
+    WITH advisory_lock AS MATERIALIZED (
+      SELECT pg_advisory_xact_lock(hashtext(${`cash-account:${cashAccountId}`}), 0)
+    )
+    SELECT 1 FROM advisory_lock
+  `;
+}
+
+export async function getCashBalance(
+  transaction: CashTransaction,
+  companyId: string,
+  cashAccountId: string,
+  throughDate?: Date,
+) {
+  const rows = await transaction.cashMovement.groupBy({
+    by: ['direction'],
+    where: {
+      companyId,
+      cashAccountId,
+      ...(throughDate ? { date: { lte: throughDate } } : {}),
+    },
+    _sum: { amount: true },
+  });
+  return rows.reduce((balance, row) => {
+    const amount = row._sum.amount ?? new Prisma.Decimal(0);
+    return row.direction === 'IN' ? balance.add(amount) : balance.sub(amount);
+  }, new Prisma.Decimal(0));
+}
+
+export async function getPaymentOrderFundingBalance(
+  transaction: CashTransaction,
+  companyId: string,
+  cashAccountId: string,
+  throughDate?: Date,
+) {
+  const rows = await transaction.cashMovement.groupBy({
+    by: ['direction', 'sourceType'],
+    where: {
+      companyId,
+      cashAccountId,
+      sourceType: {
+        in: ['CASH_FUNDING', 'CASH_VOUCHER', 'CASH_VOUCHER_REVERSAL'],
+      },
+      ...(throughDate ? { date: { lte: throughDate } } : {}),
+    },
+    _sum: { amount: true },
+  });
+  return rows.reduce((balance, row) => {
+    const amount = row._sum.amount ?? new Prisma.Decimal(0);
+    return row.direction === 'IN' ? balance.add(amount) : balance.sub(amount);
+  }, new Prisma.Decimal(0));
+}
+
+export async function getPaymentOrderProvisionedTotal(
+  transaction: CashTransaction,
+  companyId: string,
+  cashAccountId: string,
+  throughDate?: Date,
+) {
+  const result = await transaction.cashMovement.aggregate({
+    where: {
+      companyId,
+      cashAccountId,
+      direction: 'IN',
+      sourceType: 'CASH_FUNDING',
+      ...(throughDate ? { date: { lte: throughDate } } : {}),
+    },
+    _sum: { amount: true },
+  });
+  return result._sum.amount ?? new Prisma.Decimal(0);
+}
+
+export async function assertCashAvailable(
+  transaction: CashTransaction,
+  companyId: string,
+  cashAccountId: string,
+  amount: Prisma.Decimal,
+  throughDate: Date,
+) {
+  const balance = await getCashBalance(
+    transaction,
+    companyId,
+    cashAccountId,
+    throughDate,
+  );
+  if (balance.lt(amount)) {
+    throw new BadRequestException(
+      `Solde insuffisant dans cette caisse à la date choisie (${balance.toFixed(2)} disponibles). Enregistrez d’abord le solde physique ou un encaissement.`,
+    );
+  }
+  return balance;
+}
+
+export async function assertPaymentOrderFundingAvailable(
+  transaction: CashTransaction,
+  companyId: string,
+  cashAccountId: string,
+  amount: Prisma.Decimal,
+  throughDate: Date,
+) {
+  const balance = await getPaymentOrderFundingBalance(
+    transaction,
+    companyId,
+    cashAccountId,
+    throughDate,
+  );
+  if (balance.lt(amount)) {
+    throw new BadRequestException(
+      `Approvisionnement de l’Associé-Gérant insuffisant (${balance.toFixed(2)} disponibles). Enregistrez les fonds réellement remis avant de valider ce décaissement.`,
+    );
+  }
+  return balance;
+}
+
+export async function createCashMovement(
+  transaction: CashTransaction,
+  input: {
+    companyId: string;
+    cashAccountId: string;
+    date: Date;
+    direction: 'IN' | 'OUT';
+    amount: Prisma.Decimal;
+    sourceType: string;
+    sourceId: string;
+    description: string;
+    reference?: string | null;
+  },
+) {
+  return transaction.cashMovement.create({
+    data: {
+      ...input,
+      reference: input.reference || null,
+    },
+  });
+}
+
+export function endOfDay(date: Date) {
+  const end = new Date(date);
+  end.setUTCHours(23, 59, 59, 999);
+  return end;
+}

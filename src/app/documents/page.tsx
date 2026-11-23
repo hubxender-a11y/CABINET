@@ -20,6 +20,7 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  Star,
   Trash2,
   UploadCloud,
   X,
@@ -34,6 +35,7 @@ const categories = [
   { value: "ACCOUNTING", label: "Comptabilité" },
   { value: "LEGAL", label: "Juridique" },
   { value: "HR", label: "Ressources humaines" },
+  { value: "HR_CV", label: "CV et autres" },
   { value: "INTERNAL", label: "Documents internes" },
 ] as const;
 
@@ -51,6 +53,8 @@ type ArchiveDocument = {
   binderId: string | null;
   category: string;
   binder: string | null;
+  personName: string | null;
+  isPinned: boolean;
   fiscalYear: number;
   period: string | null;
   title: string;
@@ -68,6 +72,7 @@ type ArchiveDocument = {
     category: string;
     fiscalYear: number;
     period: string;
+    personName: string | null;
   } | null;
 };
 
@@ -79,6 +84,7 @@ type ArchiveBinder = {
   period: string;
   createdAt: string;
   documentCount: number;
+  personName: string | null;
 };
 
 type Preview = { url: string; name: string; mimeType: string };
@@ -115,6 +121,7 @@ export default function DocumentsPage() {
   const [uploadBinderId, setUploadBinderId] = useState("");
   const [filterBinderId, setFilterBinderId] = useState("");
   const [binderName, setBinderName] = useState("");
+  const [binderPersonName, setBinderPersonName] = useState("");
   const [binderPeriod, setBinderPeriod] = useState("");
   const [binderCategory, setBinderCategory] = useState("CLIENT");
   const [chosenBinderYear, setBinderFiscalYear] = useState<string | null>(null);
@@ -123,6 +130,7 @@ export default function DocumentsPage() {
   const fiscalYear = chosenFiscalYear ?? currentYear;
   const [period, setPeriod] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [documentPersonName, setDocumentPersonName] = useState("");
   const [title, setTitle] = useState("");
   const [documentDate, setDocumentDate] = useState("");
   const [description, setDescription] = useState("");
@@ -130,6 +138,10 @@ export default function DocumentsPage() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterYear, setFilterYear] = useState("");
+  const [filterPinned, setFilterPinned] = useState(false);
+  const [documentPage, setDocumentPage] = useState(1);
+  const documentsPerPage = 10;
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
   const [showTrash, setShowTrash] = useState(false);
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [showBinderForm, setShowBinderForm] = useState(false);
@@ -137,6 +149,7 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingBinder, setSavingBinder] = useState(false);
+  const [savingPins, setSavingPins] = useState(false);
   const [userRole, setUserRole] = useState("");
   const [fileInputKey, setFileInputKey] = useState(0);
   const [error, setError] = useState("");
@@ -151,12 +164,18 @@ export default function DocumentsPage() {
       if (filterYear) params.set("fiscalYear", filterYear);
       if (filterCategory) params.set("category", filterCategory);
       if (filterBinderId) params.set("binderId", filterBinderId);
+      if (filterPinned) params.set("pinnedOnly", "true");
       if (search.trim()) params.set("q", search.trim());
       const query = params.size ? `?${params.toString()}` : "";
       const result = await apiRequest<ArchiveDocument[]>(
         `/archives${showTrash ? "/trash" : ""}${query}`,
       );
-      if (requestId === latestDocumentRequest.current) setDocuments(result);
+      if (requestId === latestDocumentRequest.current) {
+        setDocuments(result);
+        setSelectedDocumentIds((current) =>
+          current.filter((id) => result.some((document) => document.id === id)),
+        );
+      }
     } catch (requestError) {
       if (requestId !== latestDocumentRequest.current) return;
       setDocuments([]);
@@ -168,7 +187,14 @@ export default function DocumentsPage() {
     } finally {
       if (requestId === latestDocumentRequest.current) setLoading(false);
     }
-  }, [filterBinderId, filterCategory, filterYear, search, showTrash]);
+  }, [
+    filterBinderId,
+    filterCategory,
+    filterPinned,
+    filterYear,
+    search,
+    showTrash,
+  ]);
 
   const loadBinders = useCallback(async () => {
     try {
@@ -216,6 +242,16 @@ export default function DocumentsPage() {
         : documents,
     [documents, filterCategory],
   );
+  const pageCount = Math.max(1, Math.ceil(visibleDocuments.length / documentsPerPage));
+  const currentDocumentPage = Math.min(documentPage, pageCount);
+  const pageDocuments = useMemo(
+    () =>
+      visibleDocuments.slice(
+        (currentDocumentPage - 1) * documentsPerPage,
+        currentDocumentPage * documentsPerPage,
+      ),
+    [currentDocumentPage, visibleDocuments],
+  );
   const visibleBinders = useMemo(
     () =>
       binders.filter(
@@ -225,12 +261,16 @@ export default function DocumentsPage() {
       ),
     [binders, filterCategory, filterYear],
   );
-  const filterYears = [...new Set([
-    ...binders.map((item) => item.fiscalYear),
-    ...documents.map((item) => item.fiscalYear),
-    ...(currentYear ? Array.from({ length: 10 }, (_, index) => Number(currentYear) - index) : []),
-    ...(filterYear ? [Number(filterYear)] : []),
-  ])].sort((left, right) => right - left);
+  const filterYears = [
+    ...new Set([
+      ...binders.map((item) => item.fiscalYear),
+      ...documents.map((item) => item.fiscalYear),
+      ...(currentYear
+        ? Array.from({ length: 10 }, (_, index) => Number(currentYear) - index)
+        : []),
+      ...(filterYear ? [Number(filterYear)] : []),
+    ]),
+  ].sort((left, right) => right - left);
   const uploadBinders = useMemo(
     () =>
       binders.filter(
@@ -238,6 +278,17 @@ export default function DocumentsPage() {
           item.category === category && item.fiscalYear === Number(fiscalYear),
       ),
     [binders, category, fiscalYear],
+  );
+  const selectedUploadBinder = uploadBinders.find(
+    (item) => item.id === uploadBinderId,
+  );
+  const canManageArchive = [
+    "COMPANY_ADMIN",
+    "ACCOUNTANT",
+    "FINANCE_MANAGER",
+  ].includes(userRole);
+  const selectedVisibleDocuments = pageDocuments.filter((document) =>
+    selectedDocumentIds.includes(document.id),
   );
 
   async function saveBinder(event: FormEvent<HTMLFormElement>) {
@@ -252,10 +303,14 @@ export default function DocumentsPage() {
           name: binderName.trim(),
           category: binderCategory,
           fiscalYear: Number(binderFiscalYear),
+          ...(binderCategory === "HR_CV"
+            ? { personName: binderPersonName.trim() }
+            : {}),
           ...(binderPeriod.trim() ? { period: binderPeriod.trim() } : {}),
         }),
       });
       setBinderName("");
+      setBinderPersonName("");
       setBinderPeriod("");
       setShowBinderForm(false);
       setCategory(created.category);
@@ -264,6 +319,7 @@ export default function DocumentsPage() {
       setFilterYear(String(created.fiscalYear));
       setFilterBinderId(created.id);
       setUploadBinderId(created.id);
+      setDocumentPersonName(created.personName ?? "");
       setMessage(`Le classeur « ${created.name} » a été créé.`);
       await loadBinders();
     } catch (requestError) {
@@ -331,6 +387,12 @@ export default function DocumentsPage() {
           category,
           fiscalYear: Number(fiscalYear),
           ...(uploadBinderId ? { binderId: uploadBinderId } : {}),
+          ...(category === "HR_CV"
+            ? {
+                personName:
+                  selectedUploadBinder?.personName ?? documentPersonName.trim(),
+              }
+            : {}),
           title: title.trim(),
           originalName: file.name,
           mimeType: file.type,
@@ -346,6 +408,7 @@ export default function DocumentsPage() {
       setFileInputKey((key) => key + 1);
       setTitle("");
       setBinder("");
+      setDocumentPersonName("");
       setUploadBinderId("");
       setDescription("");
       setShowUploadForm(false);
@@ -360,6 +423,59 @@ export default function DocumentsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function setPinned(documentIds: string[], isPinned: boolean) {
+    if (!documentIds.length || !canManageArchive) return;
+    setSavingPins(true);
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest("/archives/pins", {
+        method: "PATCH",
+        body: JSON.stringify({ documentIds, isPinned }),
+      });
+      setSelectedDocumentIds([]);
+      setMessage(
+        documentIds.length === 1
+          ? isPinned
+            ? "Le fichier a été épinglé."
+            : "Le fichier a été désépinglé."
+          : `${documentIds.length} fichiers ${isPinned ? "épinglés" : "désépinglés"}.`,
+      );
+      await loadDocuments();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Impossible de modifier l’épinglage.",
+      );
+    } finally {
+      setSavingPins(false);
+    }
+  }
+
+  function toggleDocumentSelection(documentId: string) {
+    setSelectedDocumentIds((current) =>
+      current.includes(documentId)
+        ? current.filter((id) => id !== documentId)
+        : [...current, documentId],
+    );
+  }
+
+  function toggleVisibleSelection() {
+    const allSelected = pageDocuments.every((document) =>
+      selectedDocumentIds.includes(document.id),
+    );
+    setSelectedDocumentIds((current) => {
+      const visibleIds = new Set(
+        pageDocuments.map((document) => document.id),
+      );
+      const remaining = current.filter((id) => !visibleIds.has(id));
+      return allSelected
+        ? remaining
+        : [...remaining, ...pageDocuments.map((document) => document.id)];
+    });
   }
 
   async function viewDocument(document: ArchiveDocument) {
@@ -415,7 +531,7 @@ export default function DocumentsPage() {
             ? "Document supprimé définitivement."
             : "Document déplacé dans la corbeille.",
       );
-      await loadDocuments();
+      await Promise.all([loadDocuments(), loadBinders()]);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -493,9 +609,7 @@ export default function DocumentsPage() {
       <section className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h2 className="font-semibold text-slate-900">
-              Mes classeurs
-            </h2>
+            <h2 className="font-semibold text-slate-900">Mes classeurs</h2>
             <p className="mt-1 text-xs text-slate-500">
               {filterCategory || filterYear
                 ? "Classeurs filtrés par famille et exercice."
@@ -537,6 +651,7 @@ export default function DocumentsPage() {
                       )?.label ?? item.category}{" "}
                       · {item.fiscalYear}
                       {item.period ? ` · ${item.period}` : ""}
+                      {item.personName ? ` · ${item.personName}` : ""}
                     </span>
                   </span>
                   <span className="archive-binder-count">
@@ -603,7 +718,12 @@ export default function DocumentsPage() {
               <select
                 required
                 value={binderCategory}
-                onChange={(event) => setBinderCategory(event.target.value)}
+                onChange={(event) => {
+                  setBinderCategory(event.target.value);
+                  if (event.target.value !== "HR_CV") {
+                    setBinderPersonName("");
+                  }
+                }}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
               >
                 {categories.map((item) => (
@@ -613,6 +733,20 @@ export default function DocumentsPage() {
                 ))}
               </select>
             </label>
+            {binderCategory === "HR_CV" && (
+              <label className="space-y-2 text-sm font-medium text-slate-700">
+                Nom de l’agent ou du stagiaire *
+                <input
+                  required
+                  minLength={2}
+                  maxLength={160}
+                  value={binderPersonName}
+                  onChange={(event) => setBinderPersonName(event.target.value)}
+                  placeholder="Ex. Jean Mukendi"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+                />
+              </label>
+            )}
             <label className="space-y-2 text-sm font-medium text-slate-700">
               Exercice *
               <input
@@ -665,6 +799,7 @@ export default function DocumentsPage() {
                 onChange={(event) => {
                   setCategory(event.target.value);
                   setUploadBinderId("");
+                  setDocumentPersonName("");
                 }}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
               >
@@ -675,6 +810,23 @@ export default function DocumentsPage() {
                 ))}
               </select>
             </label>
+            {category === "HR_CV" && (
+              <label className="space-y-2 text-sm font-medium text-slate-700">
+                Nom de l’agent ou du stagiaire *
+                <input
+                  required
+                  minLength={2}
+                  maxLength={160}
+                  value={selectedUploadBinder?.personName ?? documentPersonName}
+                  readOnly={Boolean(selectedUploadBinder?.personName)}
+                  onChange={(event) =>
+                    setDocumentPersonName(event.target.value)
+                  }
+                  placeholder="Ex. Jean Mukendi"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 read-only:bg-slate-100"
+                />
+              </label>
+            )}
             <label className="space-y-2 text-sm font-medium text-slate-700">
               Exercice *
               <input
@@ -705,7 +857,13 @@ export default function DocumentsPage() {
               Classeur
               <select
                 value={uploadBinderId}
-                onChange={(event) => setUploadBinderId(event.target.value)}
+                onChange={(event) => {
+                  setUploadBinderId(event.target.value);
+                  setDocumentPersonName(
+                    uploadBinders.find((item) => item.id === event.target.value)
+                      ?.personName ?? "",
+                  );
+                }}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"
               >
                 <option value="">Aucun classeur lié</option>
@@ -810,10 +968,8 @@ export default function DocumentsPage() {
               {showTrash ? "Corbeille des archives" : "Documents classés"}
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              {visibleDocuments.length} document
-              {visibleDocuments.length === 1 ? "" : "s"} affiché
-              {visibleDocuments.length === 1 ? "" : "s"} · conservés sur le
-              serveur du cabinet
+              {visibleDocuments.length ? (currentDocumentPage - 1) * documentsPerPage + 1 : 0}–
+              {Math.min(currentDocumentPage * documentsPerPage, visibleDocuments.length)} sur {visibleDocuments.length} document(s) · conservés sur le serveur du cabinet
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -823,7 +979,7 @@ export default function DocumentsPage() {
                 aria-label="Rechercher dans les archives"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Rechercher…"
+                placeholder="Titre, agent, stagiaire…"
                 className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm"
               />
             </label>
@@ -859,6 +1015,17 @@ export default function DocumentsPage() {
                 </option>
               ))}
             </select>
+            {!showTrash && (
+              <button
+                type="button"
+                aria-pressed={filterPinned}
+                onClick={() => setFilterPinned((current) => !current)}
+                className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm ${filterPinned ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 text-slate-600"}`}
+              >
+                <Star className="h-4 w-4" />
+                {filterPinned ? "Tous les fichiers" : "Épinglés"}
+              </button>
+            )}
             {["COMPANY_ADMIN", "ACCOUNTANT", "FINANCE_MANAGER"].includes(
               userRole,
             ) && (
@@ -866,6 +1033,8 @@ export default function DocumentsPage() {
                 type="button"
                 onClick={() => {
                   setShowTrash((value) => !value);
+                  setSelectedDocumentIds([]);
+                  setFilterPinned(false);
                 }}
                 className={`rounded-xl border px-3 py-2 text-sm ${showTrash ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 text-slate-600"}`}
               >
@@ -874,17 +1043,81 @@ export default function DocumentsPage() {
             )}
           </div>
         </div>
+        {!showTrash && canManageArchive && visibleDocuments.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
+            <button
+              type="button"
+              onClick={toggleVisibleSelection}
+              disabled={savingPins}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+            >
+              {pageDocuments.every((document) =>
+                selectedDocumentIds.includes(document.id),
+              )
+                ? "Désélectionner cette page"
+                : "Sélectionner cette page"}
+            </button>
+            <span className="mr-auto text-xs text-slate-500">
+              {selectedVisibleDocuments.length} sélectionné(s)
+            </span>
+            {selectedVisibleDocuments.some(
+              (document) => !document.isPinned,
+            ) && (
+              <button
+                type="button"
+                disabled={savingPins || selectedVisibleDocuments.length === 0}
+                onClick={() =>
+                  void setPinned(
+                    selectedVisibleDocuments
+                      .filter((document) => !document.isPinned)
+                      .map((document) => document.id),
+                    true,
+                  )
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                <Star className="h-3.5 w-3.5" /> Épingler la sélection
+              </button>
+            )}
+            {selectedVisibleDocuments.some((document) => document.isPinned) && (
+              <button
+                type="button"
+                disabled={savingPins || selectedVisibleDocuments.length === 0}
+                onClick={() =>
+                  void setPinned(
+                    selectedVisibleDocuments
+                      .filter((document) => document.isPinned)
+                      .map((document) => document.id),
+                    false,
+                  )
+                }
+                className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-50"
+              >
+                Désépingler la sélection
+              </button>
+            )}
+          </div>
+        )}
         {loading ? (
           <p className="p-8 text-center text-sm text-slate-500">
             Chargement des archives…
           </p>
         ) : visibleDocuments.length ? (
           <ul className="divide-y divide-slate-100">
-            {visibleDocuments.map((document) => (
+            {pageDocuments.map((document) => (
               <li
                 key={document.id}
-                className="flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center"
+                className="grid min-h-[92px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-5 py-5 transition-colors hover:bg-slate-50 sm:gap-6 sm:px-7"
               >
+                {canManageArchive && !showTrash && (
+                  <input
+                    type="checkbox"
+                    checked={selectedDocumentIds.includes(document.id)}
+                    onChange={() => toggleDocumentSelection(document.id)}
+                    aria-label={`Sélectionner ${document.title}`}
+                    className="mt-1 h-4 w-4 shrink-0 accent-blue-700"
+                  />
+                )}
                 <div className="flex min-w-0 items-start gap-3">
                   <FileText className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
                   <div className="min-w-0">
@@ -903,6 +1136,9 @@ export default function DocumentsPage() {
                       {document.archiveBinder
                         ? ` · ${document.archiveBinder.name}`
                         : ""}
+                      {document.personName
+                        ? ` · Agent / stagiaire : ${document.personName}`
+                        : ""}
                       {document.binder ? ` · ${document.binder}` : ""}
                       {document.customer ? ` · ${document.customer.name}` : ""}
                     </p>
@@ -910,15 +1146,35 @@ export default function DocumentsPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {!showTrash && (
-                    <button
-                      type="button"
-                      onClick={() => void viewDocument(document)}
-                      aria-label={`Aperçu de ${document.title}`}
-                      title="Aperçu / ouvrir"
-                      className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </button>
+                    <>
+                      {canManageArchive && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void setPinned([document.id], !document.isPinned)
+                          }
+                          disabled={savingPins}
+                          aria-pressed={document.isPinned}
+                          aria-label={`${document.isPinned ? "Désépingler" : "Épingler"} ${document.title}`}
+                          title={document.isPinned ? "Désépingler" : "Épingler"}
+                          className={`rounded-lg p-2 ${document.isPinned ? "text-amber-600 hover:bg-amber-50" : "text-slate-400 hover:bg-amber-50 hover:text-amber-600"}`}
+                        >
+                          <Star
+                            className="h-4 w-4"
+                            fill={document.isPinned ? "currentColor" : "none"}
+                          />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void viewDocument(document)}
+                        aria-label={`Aperçu de ${document.title}`}
+                        title="Aperçu / ouvrir"
+                        className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
+                    </>
                   )}
                   {showTrash ? (
                     <>
@@ -969,6 +1225,45 @@ export default function DocumentsPage() {
               cabinet.
             </p>
           </div>
+        )}
+        {!loading && visibleDocuments.length > 0 && (
+          <nav
+            aria-label="Pagination des documents archivés"
+            className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7"
+          >
+            <p className="text-sm text-slate-500">
+              Page <strong className="text-slate-800">{currentDocumentPage}</strong> sur {pageCount}
+            </p>
+            <div className="flex items-center gap-1.5 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setDocumentPage((page) => Math.max(1, page - 1))}
+                disabled={currentDocumentPage === 1}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Précédent
+              </button>
+              {Array.from({ length: pageCount }, (_, index) => index + 1).map((page) => (
+                <button
+                  key={page}
+                  type="button"
+                  aria-current={currentDocumentPage === page ? "page" : undefined}
+                  onClick={() => setDocumentPage(page)}
+                  className={`h-9 min-w-9 rounded-lg px-2 text-sm font-semibold ${currentDocumentPage === page ? "bg-blue-700 text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600 hover:bg-blue-50 hover:text-blue-800"}`}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setDocumentPage((page) => Math.min(pageCount, Math.min(page, pageCount) + 1))}
+                disabled={currentDocumentPage === pageCount}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Suivant
+              </button>
+            </div>
+          </nav>
         )}
       </section>
 

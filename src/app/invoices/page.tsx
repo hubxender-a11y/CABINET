@@ -293,6 +293,16 @@ export default function InvoicesPage() {
   const invoiceDocumentRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
+    const pageStyle = document.createElement("style");
+    pageStyle.id = "invoice-print-page-style";
+    pageStyle.media = "print";
+    pageStyle.textContent = "@page { size: A4; margin: 0; }";
+    document.head.append(pageStyle);
+
+    return () => pageStyle.remove();
+  }, []);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       if (!profile) {
         setInvoiceTemplateDraft(null);
@@ -402,7 +412,20 @@ export default function InvoicesPage() {
   const documentExchangeRate = selectedInvoice
     ? selectedInvoice.exchangeRate
     : profile?.exchangeRateCdfPerUsd;
-  const documentNumber = selectedInvoice?.id ?? savedInvoiceNumber;
+  const issueYear = /^\d{4}-\d{2}-\d{2}$/.test(invoiceDate)
+    ? invoiceDate.slice(0, 4)
+    : "";
+  const lastInvoiceSequence = invoices.reduce((highest, invoice) => {
+    const match = /^(\d+)\/(\d{4})$/.exec(invoice.id);
+    return match?.[2] === issueYear
+      ? Math.max(highest, Number(match[1]))
+      : highest;
+  }, 0);
+  const nextInvoiceNumber = issueYear
+    ? `${String(lastInvoiceSequence + 1).padStart(3, "0")}/${issueYear}`
+    : "001";
+  const documentNumber =
+    selectedInvoice?.id || savedInvoiceNumber || nextInvoiceNumber;
   const documentMadeAt = selectedInvoice?.madeAt ?? madeAt;
   const documentStatus = selectedInvoice?.status;
   const tableElement = templateElement(invoiceTemplate, "items");
@@ -410,7 +433,7 @@ export default function InvoicesPage() {
   const showTableTotal = tableElement?.visible && !tableElement.content &&
     totalElement?.visible && !totalElement.content;
   const templateValues = {
-    numero: documentNumber || "À attribuer",
+    numero: documentNumber,
     client: documentClient || "À renseigner",
     periode: selectedInvoice?.period || period || "À renseigner",
     concerne: selectedInvoice?.concern || prestation || "À renseigner",
@@ -1340,7 +1363,7 @@ export default function InvoicesPage() {
                   <h2>
                     {templateElement(invoiceTemplate, "title")?.content
                       ? templateText(invoiceTemplate, "title", "", templateValues)
-                      : <>FACTURE <span>N° {documentNumber || "À attribuer"}</span></>}
+                      : <>FACTURE <span>N° {documentNumber}</span></>}
                   </h2>
                   {documentStatus && (
                     <span

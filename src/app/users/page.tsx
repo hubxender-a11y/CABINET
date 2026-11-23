@@ -8,6 +8,8 @@ import { useNotifications } from "@/components/notification-provider";
 type Role =
   | "COMPANY_ADMIN"
   | "FINANCE_MANAGER"
+  | "MANAGING_PARTNER"
+  | "SECRETARY"
   | "ACCOUNTANT"
   | "CASHIER"
   | "SALES_MANAGER"
@@ -27,6 +29,8 @@ type TeamMember = {
 const roles: { value: Role; label: string }[] = [
   { value: "COMPANY_ADMIN", label: "Administrateur du cabinet" },
   { value: "FINANCE_MANAGER", label: "Responsable financier" },
+  { value: "MANAGING_PARTNER", label: "Associé-Gérant" },
+  { value: "SECRETARY", label: "Secrétaire" },
   { value: "ACCOUNTANT", label: "Comptable" },
   { value: "CASHIER", label: "Caissier" },
   { value: "SALES_MANAGER", label: "Responsable commercial" },

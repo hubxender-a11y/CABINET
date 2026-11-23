@@ -2,7 +2,7 @@
 
 import { Fragment, FormEvent, Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, Printer, X } from "lucide-react";
+import { Ban, CalendarDays, ChevronDown, Download, FileText, Printer, Search, Wallet, X } from "lucide-react";
 import { useWorkspaceStore, type WorkspacePayment } from "@/components/workspace-store";
 import {
   DocumentFooter,
@@ -32,12 +32,17 @@ export default function PaymentsPage() {
 }
 
 function PaymentsRegister() {
-  const { invoices, payments, addPayment, databaseConnected } = useWorkspaceStore();
+  const { invoices, payments, addPayment, cancelPayment, databaseConnected } = useWorkspaceStore();
   const requestedInvoiceId = useSearchParams().get("facture");
   const { profile } = useCompanyProfile();
   const { notify } = useNotifications();
   const [selectedReceipt, setSelectedReceipt] = useState<WorkspacePayment | null>(null);
   const [expandedPaymentId, setExpandedPaymentId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"new" | "register">("new");
+  const [registerSearch, setRegisterSearch] = useState("");
+  const [registerMethod, setRegisterMethod] = useState("ALL");
+  const [registerCurrency, setRegisterCurrency] = useState("ALL");
+  const [registerPeriod, setRegisterPeriod] = useState("");
   const payableInvoices = useMemo(
     () => invoices.filter((invoice) => invoiceBalance(invoice) > 0),
     [invoices],
@@ -49,6 +54,11 @@ function PaymentsRegister() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
+  const [paymentToCancel, setPaymentToCancel] = useState<WorkspacePayment | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelError, setCancelError] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+
 
   const selectedInvoice = payableInvoices.find(
     (invoice) => (invoice.databaseId ?? invoice.id) === (invoiceId ?? requestedInvoiceId),
@@ -66,6 +76,63 @@ function PaymentsRegister() {
       !selectedInvoice ||
       selectedInvoice.currency === "USD",
   );
+  const filteredPayments = useMemo(() => {
+    const query = registerSearch.trim().toLocaleLowerCase("fr");
+    return [...payments]
+      .filter((payment) => {
+        const matchesQuery = !query || [
+          payment.customer,
+          payment.invoiceNumber,
+          payment.reference ?? "",
+          payment.id,
+        ].some((value) => value.toLocaleLowerCase("fr").includes(query));
+        const matchesMethod = registerMethod === "ALL" || payment.method === registerMethod;
+        const matchesCurrency = registerCurrency === "ALL" || payment.currency === registerCurrency;
+        const matchesPeriod = !registerPeriod || payment.createdAt.slice(0, 7) === registerPeriod;
+        return matchesQuery && matchesMethod && matchesCurrency && matchesPeriod;
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [payments, registerSearch, registerMethod, registerCurrency, registerPeriod]);
+  const paymentTotals = useMemo(() => {
+    const activePayments = payments.filter((payment) => payment.status === "RECEIVED");
+    return {
+      usd: activePayments
+        .filter((payment) => payment.currency === "USD")
+        .reduce((sum, payment) => sum + Number(payment.amount), 0),
+      cdf: activePayments
+        .filter((payment) => payment.currency === "CDF")
+        .reduce((sum, payment) => sum + Number(payment.amount), 0),
+      count: activePayments.length,
+    };
+  }, [payments]);
+
+  async function confirmCancelPayment() {
+    if (!paymentToCancel) return;
+    const reason = cancelReason.trim();
+    if (reason.length < 3) {
+      setCancelError("Saisissez le motif de l’annulation (3 caractères minimum).");
+      return;
+    }
+    setCancelling(true);
+    setCancelError("");
+    try {
+      await cancelPayment(paymentToCancel.id, reason);
+      notify({
+        type: "success",
+        title: "Règlement annulé",
+        message: "Le solde de la facture et la caisse ont été mis à jour. La trace reste au registre.",
+      });
+      if (selectedReceipt?.id === paymentToCancel.id) setSelectedReceipt(null);
+      setPaymentToCancel(null);
+      setCancelReason("");
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Impossible d’annuler ce règlement.";
+      setCancelError(message);
+      notify({ type: "error", title: "Annulation impossible", message });
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   const receiptInvoice = selectedReceipt
     ? invoices.find(
@@ -121,6 +188,7 @@ function PaymentsRegister() {
         reference: reference.trim() || undefined,
       });
       setSelectedReceipt(savedPayment);
+      setActiveTab("register");
       setAmount("");
       setReference("");
       setSuccess("Règlement enregistré. Le reçu est prêt à être imprimé.");
@@ -152,6 +220,148 @@ function PaymentsRegister() {
     window.print();
   }
 
+  async function downloadReceiptWord() {
+    if (!selectedReceipt) return;
+    const copies = Array.from(
+      document.querySelectorAll<HTMLElement>(".payment-receipt-copy"),
+    );
+    if (copies.length !== 2) return;
+
+    const inlineTree = (source: Element, target: Element) => {
+      const computed = window.getComputedStyle(source);
+      const styles = Array.from(computed)
+        .map((property) => `${property}:${computed.getPropertyValue(property)}`)
+        .join(";");
+      target.setAttribute("style", styles);
+      const sourceChildren = Array.from(source.children);
+      const targetChildren = Array.from(target.children);
+      sourceChildren.forEach((child, index) => {
+        const targetChild = targetChildren[index];
+        if (targetChild) inlineTree(child, targetChild);
+      });
+    };
+
+    const fileCopies: string[] = [];
+    for (const [index, source] of copies.entries()) {
+      const clone = source.cloneNode(true) as HTMLElement;
+      const title = index === 0 ? "Reçu de caisse" : "Bon d'entrée de caisse";
+      clone.querySelector("[data-receipt-title]")?.replaceChildren(title);
+      clone.querySelector("[data-receipt-copy-label]")?.replaceChildren(
+        index === 0 ? "Exemplaire client" : "Exemplaire cabinet",
+      );
+      inlineTree(source, clone);
+      if (index === 1) clone.style.pageBreakBefore = "always";
+
+      for (const image of Array.from(clone.querySelectorAll("img"))) {
+        try {
+          const response = await fetch(image.src);
+          if (!response.ok) continue;
+          const blob = await response.blob();
+          image.src = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+              typeof reader.result === "string"
+                ? resolve(reader.result)
+                : reject(new Error("Logo illisible"));
+            reader.onerror = () => reject(new Error("Logo illisible"));
+            reader.readAsDataURL(blob);
+          });
+        } catch {
+          // Word can still open the document if a decorative image is unavailable.
+        }
+      }
+      fileCopies.push(clone.outerHTML);
+    }
+
+    const wordDocument = `<!doctype html><html><head><meta charset="utf-8"><title>Reçu et bon d'entrée de caisse</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;color:#0f172a}.payment-receipt-copy{box-sizing:border-box;width:100%;page-break-inside:avoid}.payment-receipt-copy+ .payment-receipt-copy{page-break-before:always}</style></head><body>${fileCopies.join("")}</body></html>`;
+    const blob = new Blob(["\ufeff", wordDocument], {
+      type: "application/msword;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `caisse-${selectedReceipt.invoiceNumber.replace(/[^a-z0-9-]/gi, "-")}.doc`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function receiptCopy(title: string, copyLabel: string) {
+    if (!selectedReceipt) return null;
+    return (
+      <article className="payment-receipt-print payment-receipt-copy space-y-5 border border-slate-300 bg-white p-6 text-slate-900 shadow-sm sm:p-10">
+        <DocumentLetterhead />
+        <header className="border-y-2 border-slate-900 py-4 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500" data-receipt-copy-label>
+            {copyLabel}
+          </p>
+          <h2
+            id={copyLabel === "Exemplaire client" ? "payment-receipt-title-client" : "payment-receipt-title-cabinet"}
+            data-receipt-title
+            className="mt-2 text-2xl font-bold uppercase"
+          >
+            {title}
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Référence N° {selectedReceipt.id.replaceAll("-", "").slice(0, 12).toUpperCase()}
+          </p>
+        </header>
+
+        <section className="grid gap-4 text-sm sm:grid-cols-2">
+          <div className="space-y-2">
+            <p><span className="font-semibold">Client :</span> {selectedReceipt.customer}</p>
+            <p><span className="font-semibold">Facture :</span> {selectedReceipt.invoiceNumber}</p>
+            <p><span className="font-semibold">Date du règlement :</span> {formatDate(selectedReceipt.createdAt, { dateStyle: "long", timeStyle: "short" })}</p>
+          </div>
+          <div className="space-y-2">
+            <p><span className="font-semibold">Mode de paiement :</span> {methodLabels[selectedReceipt.method]}</p>
+            <p><span className="font-semibold">Référence :</span> {selectedReceipt.reference || "Non renseignée"}</p>
+            <p><span className="font-semibold">Statut :</span> {selectedReceipt.status === "RECEIVED" ? "Reçu et enregistré" : selectedReceipt.status || "À vérifier"}</p>
+          </div>
+        </section>
+
+        <section className="overflow-hidden border border-slate-400">
+          <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
+            <span>Montant de cette tranche reçue</span>
+            <strong>{formatMoney(Number(selectedReceipt.amount), selectedReceipt.currency)}</strong>
+          </div>
+          {receiptInvoiceTotal !== null && (
+            <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
+              <span>Montant total de la facture</span>
+              <strong>{formatMoney(receiptInvoiceTotal, selectedReceipt.currency)}</strong>
+            </div>
+          )}
+          {receiptPaidAfter !== null && receiptBalanceAfter !== null ? (
+            <>
+              <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
+                <span>Total cumulé reçu après ce règlement</span>
+                <strong>{formatMoney(receiptPaidAfter, selectedReceipt.currency)}</strong>
+              </div>
+              <div className="grid grid-cols-[1fr_auto] bg-slate-50 px-4 py-3 text-sm">
+                <span>Solde après ce règlement</span>
+                <strong>{formatMoney(receiptBalanceAfter, selectedReceipt.currency)}</strong>
+              </div>
+            </>
+          ) : receiptCurrentBalance !== null ? (
+            <div className="grid grid-cols-[1fr_auto] bg-slate-50 px-4 py-3 text-sm">
+              <span>Solde actuel de la facture</span>
+              <strong>{formatMoney(receiptCurrentBalance, selectedReceipt.currency)}</strong>
+            </div>
+          ) : null}
+        </section>
+
+        <p className="border border-slate-300 p-3 text-xs leading-5 text-slate-600">
+          {copyLabel === "Exemplaire client"
+            ? "Ce reçu confirme l’enregistrement du montant indiqué. Il ne remplace pas la facture et ne vaut pas certification fiscale."
+            : "Bon interne attestant l’entrée des fonds en caisse au titre du règlement indiqué."}
+        </p>
+
+        <div className="flex justify-end"><DocumentSignature /></div>
+        <DocumentFooter />
+        <p className="text-center text-[10px] text-slate-400">{displayCabinetName(profile?.legalName)}</p>
+      </article>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <header className="workspace-page-heading border-b border-slate-200 pb-5">
@@ -178,7 +388,52 @@ function PaymentsRegister() {
           : "Base de données indisponible : les règlements ne peuvent pas être enregistrés."}
       </div>
 
-      <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <section className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Règlements enregistrés</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">{paymentTotals.count}</p>
+          <p className="mt-1 text-xs text-slate-500">Toutes périodes confondues</p>
+        </div>
+        <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Total reçu · USD</p>
+          <p className="mt-2 text-xl font-semibold text-slate-900">{formatMoney(paymentTotals.usd, "USD")}</p>
+          <p className="mt-1 text-xs text-slate-500">Cumul des règlements en dollars</p>
+        </div>
+        <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Total reçu · CDF</p>
+          <p className="mt-2 text-xl font-semibold text-slate-900">{formatMoney(paymentTotals.cdf, "CDF")}</p>
+          <p className="mt-1 text-xs text-slate-500">Cumul des règlements en francs</p>
+        </div>
+      </section>
+
+      <div role="tablist" aria-label="Gestion des règlements" className="flex w-full gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1 sm:w-fit">
+        <button
+          type="button"
+          role="tab"
+          id="payments-tab-new"
+          aria-selected={activeTab === "new"}
+          aria-controls="payments-panel-new"
+          onClick={() => setActiveTab("new")}
+          className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${activeTab === "new" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+        >
+          <Wallet className="h-4 w-4" /> Nouveau règlement
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="payments-tab-register"
+          aria-selected={activeTab === "register"}
+          aria-controls="payments-panel-register"
+          onClick={() => setActiveTab("register")}
+          className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:flex-none ${activeTab === "register" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+        >
+          <FileText className="h-4 w-4" /> Registre des règlements
+          <span className={`rounded-full px-2 py-0.5 text-xs ${activeTab === "register" ? "bg-blue-100 text-blue-800" : "bg-slate-200 text-slate-600"}`}>{payments.length}</span>
+        </button>
+      </div>
+
+      {activeTab === "new" ? (
+      <section id="payments-panel-new" role="tabpanel" aria-labelledby="payments-tab-new" className="max-w-3xl">
         <form
           onSubmit={submitPayment}
           className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
@@ -290,26 +545,65 @@ function PaymentsRegister() {
           </button>
         </form>
 
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-5 py-4">
-            <h2 className="font-semibold text-slate-900">Derniers règlements</h2>
-            <p className="mt-1 text-sm text-slate-500">{payments.length} mouvement(s) enregistré(s)</p>
+      </section>
+      ) : (
+        <section id="payments-panel-register" role="tabpanel" aria-labelledby="payments-tab-register" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-5 py-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Journal de trésorerie</p>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">Registre des règlements</h2>
+                <p className="mt-1 text-sm text-slate-500">Rapprochements par facture, mode de paiement, devise et solde restant.</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-right shadow-sm">
+                <p className="text-xs text-slate-500">Lignes affichées</p>
+                <p className="font-semibold text-slate-900">{filteredPayments.length} <span className="text-sm font-normal text-slate-500">/ {payments.length}</span></p>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_180px_150px_180px]">
+              <label className="relative block">
+                <span className="sr-only">Rechercher dans le registre</span>
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input value={registerSearch} onChange={(event) => setRegisterSearch(event.target.value)} placeholder="Client, facture, référence…" className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+              </label>
+              <label className="block">
+                <span className="sr-only">Filtrer par mode</span>
+                <select value={registerMethod} onChange={(event) => setRegisterMethod(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                  <option value="ALL">Tous les modes</option>
+                  {Object.entries(methodLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="sr-only">Filtrer par devise</span>
+                <select value={registerCurrency} onChange={(event) => setRegisterCurrency(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                  <option value="ALL">Toutes devises</option>
+                  <option value="USD">USD · Dollar</option>
+                  <option value="CDF">CDF · Franc</option>
+                </select>
+              </label>
+              <label className="relative block">
+                <span className="sr-only">Filtrer par mois</span>
+                <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input type="month" value={registerPeriod} onChange={(event) => setRegisterPeriod(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-sm" />
+              </label>
+            </div>
           </div>
-          {payments.length ? (
+          {filteredPayments.length ? (
             <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+              <table className="min-w-[1080px] w-full text-left text-sm">
+                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Date</th>
-                    <th className="px-4 py-3 font-medium">Client / facture</th>
-                    <th className="px-4 py-3 font-medium">Mode</th>
-                    <th className="px-4 py-3 text-right font-medium">Montant</th>
-                    <th className="px-4 py-3 text-center font-medium">Détails</th>
-                    <th className="px-4 py-3 text-right font-medium">Reçu</th>
+                    <th className="px-4 py-3 font-semibold">Date / référence</th>
+                    <th className="px-4 py-3 font-semibold">Client</th>
+                    <th className="px-4 py-3 font-semibold">Facture</th>
+                    <th className="px-4 py-3 font-semibold">Mode / preuve</th>
+                    <th className="px-4 py-3 text-right font-semibold">Reçu</th>
+                    <th className="px-4 py-3 text-right font-semibold">Solde après</th>
+                    <th className="px-4 py-3 text-center font-semibold">État / actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {payments.map((payment) => {
+                  {filteredPayments.map((payment) => {
                     const isExpanded = expandedPaymentId === payment.id;
                     const linkedInvoice = invoices.find(
                       (invoice) => invoice.databaseId === payment.invoiceId,
@@ -327,27 +621,42 @@ function PaymentsRegister() {
                         ? Math.max(invoiceTotal - payment.invoicePaidAmountAfter, 0)
                         : null;
 
+                    const balanceAfter = payment.status === "CANCELLED"
+                      ? currentBalance
+                      : historicalBalance ?? currentBalance;
                     return (
                       <Fragment key={payment.id}>
-                        <tr className="border-t border-slate-100">
+                        <tr className="border-t border-slate-100 align-top hover:bg-slate-50/70">
                           <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                            {formatDate(payment.createdAt, {
+                            <p className="font-medium text-slate-800">{formatDate(payment.createdAt, {
                               dateStyle: "medium",
                               timeStyle: "short",
-                            })}
+                            })}</p>
+                            <p className="mt-1 font-mono text-[10px] text-slate-400">{payment.id.replaceAll("-", "").slice(0, 12).toUpperCase()}</p>
                           </td>
                           <td className="px-4 py-3">
                             <p className="font-medium text-slate-900">{payment.customer}</p>
-                            <p className="text-xs text-slate-500">{payment.invoiceNumber}</p>
+                            <p className="mt-1 text-xs text-slate-500">Client facturé</p>
                           </td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {methodLabels[payment.method]}
-                            {payment.reference && <span className="block text-xs text-slate-400">{payment.reference}</span>}
+                          <td className="px-4 py-3">
+                            <span className="inline-flex rounded-md bg-blue-50 px-2 py-1 font-mono text-xs font-semibold text-blue-800">{payment.invoiceNumber}</span>
+                            {invoiceTotal !== undefined && <p className="mt-1.5 text-xs text-slate-500">Total : {formatMoney(invoiceTotal, payment.currency)}</p>}
                           </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-900">
-                            {formatMoney(Number(payment.amount), payment.currency)}
+                          <td className="px-4 py-3 text-slate-700">
+                            <p>{methodLabels[payment.method]}</p>
+                            <p className="mt-1 max-w-48 truncate text-xs text-slate-500" title={payment.reference || undefined}>{payment.reference || "Sans référence"}</p>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right">
+                            <p className={`font-semibold ${payment.status === "CANCELLED" ? "text-rose-700 line-through" : "text-slate-900"}`}>{formatMoney(Number(payment.amount), payment.currency)}</p>
+                            {payment.status === "CANCELLED" ? <p className="mt-1 text-xs font-medium text-rose-600">Montant annulé</p> : payment.invoicePaidAmountAfter != null && <p className="mt-1 text-xs text-slate-500">Cumul : {formatMoney(payment.invoicePaidAmountAfter, payment.currency)}</p>}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right">
+                            <p className={`font-medium ${balanceAfter ? "text-amber-700" : "text-emerald-700"}`}>{balanceAfter === null ? "—" : formatMoney(balanceAfter, payment.currency)}</p>
+                            <p className="mt-1 text-xs text-slate-500">{balanceAfter === null ? "Solde inconnu" : balanceAfter > 0 ? "Reste à payer" : "Facture soldée"}</p>
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-center">
+                            <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-semibold ${payment.status === "RECEIVED" ? "bg-emerald-50 text-emerald-700" : payment.status === "CANCELLED" ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{payment.status === "RECEIVED" ? "Enregistré" : payment.status === "CANCELLED" ? "Annulé" : payment.status || "À vérifier"}</span>
+                            <div className="mt-2 flex justify-center gap-1">
                             <button
                               type="button"
                               aria-expanded={isExpanded}
@@ -355,29 +664,45 @@ function PaymentsRegister() {
                               onClick={() =>
                                 setExpandedPaymentId(isExpanded ? null : payment.id)
                               }
-                              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                              className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
                             >
-                              {isExpanded ? "Fermer" : "Ouvrir"}
+                              {isExpanded ? "Fermer" : "Détails"}
                               <ChevronDown
                                 className={`h-3.5 w-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                               />
                             </button>
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedReceipt(payment)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                              aria-label={`Afficher le reçu du paiement ${payment.invoiceNumber}`}
-                            >
-                              <Printer className="h-3.5 w-3.5" />
-                              Imprimer
-                            </button>
+                            {payment.status === "RECEIVED" && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedReceipt(payment)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                aria-label={`Afficher le reçu du paiement ${payment.invoiceNumber}`}
+                              >
+                                <Printer className="h-3.5 w-3.5" />
+                                Imprimer
+                              </button>
+                            )}
+                            {payment.status === "RECEIVED" && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPaymentToCancel(payment);
+                                  setCancelReason("");
+                                  setCancelError("");
+                                }}
+                                disabled={!databaseConnected}
+                                className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label={`Annuler le règlement ${payment.invoiceNumber}`}
+                              >
+                                <Ban className="h-3.5 w-3.5" /> Annuler
+                              </button>
+                            )}
+                            </div>
                           </td>
                         </tr>
                         {isExpanded && (
                           <tr id={`payment-details-${payment.id}`} className="border-t border-slate-100 bg-slate-50/80">
-                            <td colSpan={6} className="px-4 py-4">
+                            <td colSpan={7} className="px-4 py-4">
                               <dl className="grid gap-x-6 gap-y-3 rounded-xl border border-slate-200 bg-white p-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
                                 <div>
                                   <dt className="text-xs text-slate-500">Identifiant du règlement</dt>
@@ -388,6 +713,8 @@ function PaymentsRegister() {
                                   <dd className="mt-1 font-medium text-slate-800">
                                     {payment.status === "RECEIVED"
                                       ? "Reçu et enregistré"
+                                      : payment.status === "CANCELLED"
+                                        ? "Annulé · conservé dans l’historique"
                                       : payment.status || "À vérifier"}
                                   </dd>
                                 </div>
@@ -433,22 +760,29 @@ function PaymentsRegister() {
                 </tbody>
               </table>
             </div>
+          ) : payments.length ? (
+            <div className="px-5 py-12 text-center">
+              <Search className="mx-auto h-8 w-8 text-slate-300" />
+              <p className="mt-3 font-medium text-slate-800">Aucun résultat pour ces filtres</p>
+              <p className="mt-1 text-sm text-slate-500">Modifiez la recherche, la période, la devise ou le mode de paiement.</p>
+              <button type="button" onClick={() => { setRegisterSearch(""); setRegisterMethod("ALL"); setRegisterCurrency("ALL"); setRegisterPeriod(""); }} className="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Effacer les filtres</button>
+            </div>
           ) : (
             <p className="px-5 py-10 text-center text-sm text-slate-500">
               Aucun règlement enregistré pour le moment.
             </p>
           )}
         </section>
-      </section>
+      )}
 
       {selectedReceipt && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-6"
+          className="payment-receipt-dialog fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-6"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="payment-receipt-title"
+          aria-labelledby="payment-receipt-title-client"
         >
-          <div className="max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-slate-100 p-3 shadow-2xl sm:p-6">
+          <div className="payment-receipt-preview-scroll max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-slate-100 p-3 shadow-2xl sm:p-6">
             <div className="screen-only mb-3 flex items-center justify-between gap-3">
               <p className="text-sm font-medium text-slate-700">Aperçu du reçu de règlement</p>
               <div className="flex items-center gap-2">
@@ -457,7 +791,14 @@ function PaymentsRegister() {
                   onClick={printReceipt}
                   className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
                 >
-                  <Printer className="h-4 w-4" /> Imprimer le reçu
+                  <Printer className="h-4 w-4" /> Imprimer les 2 exemplaires
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadReceiptWord()}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <Download className="h-4 w-4" /> Télécharger Word
                 </button>
                 <button
                   type="button"
@@ -470,103 +811,35 @@ function PaymentsRegister() {
               </div>
             </div>
 
-            <article className="payment-receipt-print space-y-5 border border-slate-300 bg-white p-6 text-slate-900 shadow-sm sm:p-10">
-              <DocumentLetterhead />
-              <header className="border-y-2 border-slate-900 py-4 text-center">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Reçu de règlement
-                </p>
-                <h2
-                  id="payment-receipt-title"
-                  className="mt-2 text-2xl font-bold uppercase"
-                >
-                  Paiement reçu
-                </h2>
-                <p className="mt-2 text-sm text-slate-600">
-                  Reçu interne N°{" "}
-                  {selectedReceipt.id.replaceAll("-", "").slice(0, 12).toUpperCase()}
-                </p>
-              </header>
+            <div className="payment-receipt-copies space-y-5">
+              {receiptCopy("Reçu de caisse", "Exemplaire client")}
+              {receiptCopy("Bon d'entrée de caisse", "Exemplaire cabinet")}
+            </div>
+          </div>
+        </div>
+      )}
 
-              <section className="grid gap-4 text-sm sm:grid-cols-2">
-                <div className="space-y-2">
-                  <p>
-                    <span className="font-semibold">Client :</span>{" "}
-                    {selectedReceipt.customer}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Facture :</span>{" "}
-                    {selectedReceipt.invoiceNumber}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Date du règlement :</span>{" "}
-                    {formatDate(selectedReceipt.createdAt, {
-                      dateStyle: "long",
-                      timeStyle: "short",
-                    })}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <p>
-                    <span className="font-semibold">Mode de paiement :</span>{" "}
-                    {methodLabels[selectedReceipt.method]}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Référence :</span>{" "}
-                    {selectedReceipt.reference || "Non renseignée"}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Statut :</span>{" "}
-                    {selectedReceipt.status === "RECEIVED"
-                      ? "Reçu et enregistré"
-                      : selectedReceipt.status || "À vérifier"}
-                  </p>
-                </div>
-              </section>
-
-              <section className="overflow-hidden border border-slate-400">
-                <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
-                  <span>Montant de cette tranche reçue</span>
-                  <strong>{formatMoney(Number(selectedReceipt.amount), selectedReceipt.currency)}</strong>
-                </div>
-                {receiptInvoiceTotal !== null && (
-                  <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
-                    <span>Montant total de la facture</span>
-                    <strong>{formatMoney(receiptInvoiceTotal, selectedReceipt.currency)}</strong>
-                  </div>
-                )}
-                {receiptPaidAfter !== null && receiptBalanceAfter !== null ? (
-                  <>
-                    <div className="grid grid-cols-[1fr_auto] border-b border-slate-300 px-4 py-3 text-sm">
-                      <span>Total cumulé reçu après ce règlement</span>
-                      <strong>{formatMoney(receiptPaidAfter, selectedReceipt.currency)}</strong>
-                    </div>
-                    <div className="grid grid-cols-[1fr_auto] bg-slate-50 px-4 py-3 text-sm">
-                      <span>Solde après ce règlement</span>
-                      <strong>{formatMoney(receiptBalanceAfter, selectedReceipt.currency)}</strong>
-                    </div>
-                  </>
-                ) : receiptCurrentBalance !== null ? (
-                  <div className="grid grid-cols-[1fr_auto] bg-slate-50 px-4 py-3 text-sm">
-                    <span>Solde actuel de la facture</span>
-                    <strong>{formatMoney(receiptCurrentBalance, selectedReceipt.currency)}</strong>
-                  </div>
-                ) : null}
-              </section>
-
-              <p className="border border-slate-300 p-3 text-xs leading-5 text-slate-600">
-                Ce reçu confirme l’enregistrement du montant indiqué. Il ne
-                remplace pas la facture et ne vaut pas certification fiscale.
-              </p>
-
-              <div className="flex justify-end">
-                <DocumentSignature />
+      {paymentToCancel && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="cancel-payment-title">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-rose-50 p-2.5 text-rose-700"><Ban className="h-5 w-5" /></div>
+              <div className="min-w-0 flex-1">
+                <h2 id="cancel-payment-title" className="text-lg font-semibold text-slate-900">Annuler ce règlement ?</h2>
+                <p className="mt-1 text-sm text-slate-600">{paymentToCancel.invoiceNumber} · {formatMoney(Number(paymentToCancel.amount), paymentToCancel.currency)}</p>
               </div>
-              <DocumentFooter />
-              <p className="text-center text-[10px] text-slate-400">
-                {displayCabinetName(profile?.legalName)}
-              </p>
-            </article>
+              <button type="button" onClick={() => setPaymentToCancel(null)} disabled={cancelling} aria-label="Fermer" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm leading-5 text-amber-900">
+              Le montant sera retiré du solde réglé de la facture. Pour un paiement en espèces, un mouvement inverse sera inscrit en caisse. L’annulation restera visible au registre.
+            </div>
+            <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="payment-cancellation-reason">Motif obligatoire</label>
+            <textarea id="payment-cancellation-reason" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} maxLength={500} rows={3} placeholder="Ex. erreur de saisie, paiement rejeté par la banque…" className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-100" />
+            {cancelError && <p role="alert" className="mt-2 text-sm font-medium text-rose-700">{cancelError}</p>}
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setPaymentToCancel(null)} disabled={cancelling} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Garder le règlement</button>
+              <button type="button" onClick={() => void confirmCancelPayment()} disabled={cancelling || cancelReason.trim().length < 3} className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50">{cancelling ? "Annulation…" : "Confirmer l’annulation"}</button>
+            </div>
           </div>
         </div>
       )}

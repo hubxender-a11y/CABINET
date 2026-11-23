@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   ParseUUIDPipe,
   Post,
   Query,
@@ -22,6 +23,7 @@ import {
   ArchiveListQueryDto,
   CreateArchiveBinderDto,
   CreateArchiveDocumentDto,
+  UpdateArchivePinsDto,
 } from './archives.dto';
 import { ArchivesService } from './archives.service';
 
@@ -96,6 +98,19 @@ export class ArchivesController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.archives.create(
+      dto,
+      request.user!.companyId,
+      request.user!.sub,
+    );
+  }
+
+  @Patch('pins')
+  @Roles(...archiveManagers)
+  setPinned(
+    @Body() dto: UpdateArchivePinsDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.archives.setPinned(
       dto,
       request.user!.companyId,
       request.user!.sub,

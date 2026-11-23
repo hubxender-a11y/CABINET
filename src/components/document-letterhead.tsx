@@ -15,7 +15,7 @@ const defaultPhone = "+243 98 00 69 950";
 const defaultEmail = "contact@ctrs.cd";
 
 function isDefaultBrand(name: string, hasProfile: boolean) {
-  return !hasProfile || /transparency/i.test(name);
+  return hasProfile && /transparency/i.test(name);
 }
 
 export function DocumentLetterhead() {

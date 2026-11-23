@@ -9,8 +9,11 @@ datasource db {
 
 enum UserRole {
   PLATFORM_SUPER_ADMIN
+  PLATFORM_MANAGING_PARTNER
   COMPANY_ADMIN
   FINANCE_MANAGER
+  MANAGING_PARTNER
+  SECRETARY
   ACCOUNTANT
   CASHIER
   SALES_MANAGER
@@ -52,6 +55,19 @@ enum DocumentStatus {
   ACCEPTED
   REJECTED
   CLOSED
+}
+
+enum CashMovementDirection {
+  IN
+  OUT
+}
+
+enum PaymentOrderStatus {
+  SUBMITTED
+  FINANCE_APPROVED
+  APPROVED
+  PAID
+  REJECTED
 }
 
 model Company {
@@ -100,6 +116,11 @@ model Company {
   creditNotes           CreditNote[]
   payments              Payment[]
   expenses              Expense[]
+  cashVouchers          CashVoucher[]
+  cashAccounts          CashAccount[]
+  cashMovements         CashMovement[]
+  paymentOrders         PaymentOrder[]
+  paymentOrderAttachments PaymentOrderAttachment[]
   purchases             Purchase[]
   currencies            Currency[]
   exchangeRates         ExchangeRate[]
@@ -110,6 +131,8 @@ model Company {
   auditLogs             AuditLog[]
   subscription          Subscription?
   notifications         Notification[]
+  mailIntegration       CompanyEmailIntegration?
+  mailOAuthStates       MailOAuthState[]
 
   @@index([legalName])
 }
@@ -120,6 +143,7 @@ model User {
   name          String
   passwordHash  String
   isActive      Boolean             @default(true)
+  platformRole  UserRole?
   emailVerified Boolean             @default(false)
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
@@ -359,6 +383,7 @@ model ArchiveDocument {
   companyId     String         @db.Uuid
   customerId    String?        @db.Uuid
   binderId      String?        @db.Uuid
+  personName    String?
   category      String
   binder        String?
   fiscalYear    Int
@@ -370,6 +395,7 @@ model ArchiveDocument {
   documentDate  DateTime?
   description   String?
   data          Bytes
+  isPinned      Boolean        @default(false)
   deletedAt     DateTime?
   createdAt     DateTime       @default(now())
   company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -379,6 +405,7 @@ model ArchiveDocument {
   @@index([companyId, binderId, createdAt])
   @@index([companyId, category, fiscalYear, period, createdAt])
   @@index([companyId, customerId, createdAt])
+  @@index([companyId, isPinned, deletedAt])
   @@index([companyId, deletedAt])
 }
 
@@ -387,6 +414,7 @@ model ArchiveBinder {
   companyId  String            @db.Uuid
   name       String
   category   String
+  personName String?
   fiscalYear Int
   period     String            @default("")
   createdAt  DateTime          @default(now())
@@ -543,18 +571,152 @@ model PaymentAllocation {
 }
 
 model Expense {
-  id          String        @id @default(uuid()) @db.Uuid
-  companyId   String        @db.Uuid
-  category    String
-  date        DateTime
-  amount      Decimal       @db.Decimal(18, 2)
-  currency    String        @default("CDF")
-  method      PaymentMethod
-  description String?
-  createdAt   DateTime      @default(now())
-  company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id            String        @id @default(uuid()) @db.Uuid
+  companyId     String        @db.Uuid
+  category      String
+  date          DateTime
+  amount        Decimal       @db.Decimal(18, 2)
+  currency      String        @default("CDF")
+  method        PaymentMethod
+  description   String?
+  cashVoucherId String?       @unique @db.Uuid
+  status        String        @default("RECORDED")
+  cancelledAt   DateTime?
+  createdAt     DateTime      @default(now())
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cashVoucher   CashVoucher?  @relation(fields: [cashVoucherId], references: [id], onDelete: Restrict)
 
   @@index([companyId, date])
+}
+
+model CashVoucher {
+  id                 String        @id @default(uuid()) @db.Uuid
+  companyId          String        @db.Uuid
+  voucherNumber      String
+  date               DateTime
+  beneficiary        String
+  category           String
+  reason             String
+  amount             Decimal       @db.Decimal(18, 2)
+  currency           String        @default("CDF")
+  method             PaymentMethod
+  cashAccountId      String?       @db.Uuid
+  accountCode        String?
+  reference          String?
+  status             String        @default("ISSUED")
+  cancellationReason String?
+  rejectionReason    String?
+  managerApprovalName String?
+  managerApprovalBy   String?       @db.Uuid
+  managerApprovedAt   DateTime?
+  managerRejectedAt   DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime      @default(now())
+  company            Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cashAccount        CashAccount?  @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  expense            Expense?
+  paymentOrder       PaymentOrder?
+
+  @@unique([companyId, voucherNumber])
+  @@index([companyId, date])
+  @@index([companyId, status, date])
+  @@index([cashAccountId, date])
+}
+
+model CashAccount {
+  id        String         @id @default(uuid()) @db.Uuid
+  companyId String         @db.Uuid
+  currency  String
+  code      String
+  name      String
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  movements CashMovement[]
+  vouchers  CashVoucher[]
+
+  @@unique([companyId, currency])
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+}
+
+model CashMovement {
+  id            String                @id @default(uuid()) @db.Uuid
+  companyId     String                @db.Uuid
+  cashAccountId String                @db.Uuid
+  date          DateTime
+  direction     CashMovementDirection
+  amount        Decimal               @db.Decimal(18, 2)
+  sourceType    String
+  sourceId      String
+  description   String
+  reference     String?
+  createdAt     DateTime              @default(now())
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cashAccount   CashAccount           @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, sourceType, sourceId])
+  @@index([companyId, date, createdAt])
+  @@index([cashAccountId, date, createdAt])
+}
+
+model PaymentOrder {
+  id                   String             @id @default(uuid()) @db.Uuid
+  companyId            String             @db.Uuid
+  orderNumber          String
+  date                 DateTime
+  requestingService    String
+  amount               Decimal            @db.Decimal(18, 2)
+  amountInWords        String
+  currency             String             @default("CDF")
+  reason               String
+  beneficiary          String
+  accountingAllocation String
+  budgetAccount        String
+  initialForecast      Decimal            @db.Decimal(18, 2)
+  availableBefore      Decimal            @db.Decimal(18, 2)
+  outstanding          Decimal            @db.Decimal(18, 2)
+  availableAfter       Decimal            @db.Decimal(18, 2)
+  status               PaymentOrderStatus @default(SUBMITTED)
+  paidAt               DateTime?
+  paidBy               String?            @db.Uuid
+  financeVisaName      String?
+  financeVisaBy        String?            @db.Uuid
+  financeVisaAt        DateTime?
+  managerVisaName      String?
+  managerVisaBy        String?            @db.Uuid
+  managerVisaAt        DateTime?
+  rejectionReason      String?
+  rejectedBy           String?
+  rejectedAt           DateTime?
+  createdBy            String             @db.Uuid
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  company              Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cashVoucher          CashVoucher?       @relation(fields: [cashVoucherId], references: [id], onDelete: Restrict)
+  cashVoucherId        String?            @unique @db.Uuid
+  attachment           PaymentOrderAttachment?
+
+  @@unique([companyId, orderNumber])
+  @@index([companyId, date])
+  @@index([companyId, status, date])
+  @@index([companyId, budgetAccount, status])
+}
+
+model PaymentOrderAttachment {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @db.Uuid
+  paymentOrderId String       @unique @db.Uuid
+  fileName       String
+  mimeType       String
+  size           Int
+  data           Bytes
+  createdAt      DateTime     @default(now())
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  paymentOrder   PaymentOrder @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
 }
 
 model Purchase {
@@ -697,4 +859,25 @@ model Notification {
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([companyId, read, createdAt])
+}
+
+model CompanyEmailIntegration {
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String   @unique @db.Uuid
+  email                 String
+  encryptedRefreshToken String   @db.Text
+  connectedAt           DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model MailOAuthState {
+  id        String   @id @db.VarChar(64)
+  companyId String   @db.Uuid
+  userId    String   @db.Uuid
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }
