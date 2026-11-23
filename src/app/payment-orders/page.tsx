@@ -22,7 +22,6 @@ import {
   DocumentFooter,
   DocumentLetterhead,
 } from "@/components/document-letterhead";
-import { useWorkspaceStore } from "@/components/workspace-store";
 import { apiRequest } from "@/lib/api";
 import { formatDate, formatMoney } from "@/lib/formatting";
 
@@ -237,13 +236,14 @@ function statusClass(status: Status) {
 }
 
 export default function PaymentOrdersPage() {
-  const { databaseConnected } = useWorkspaceStore();
   const clientToday = useSyncExternalStore(subscribeToClient, kinshasaToday, () => "");
   const orderNumberFromUrl = useSyncExternalStore(subscribeToClient, orderNumberFromLocation, () => "");
   const [orders, setOrders] = useState<PaymentOrder[]>([]);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const isLoading = databaseConnected && loading;
+  const [ordersAvailable, setOrdersAvailable] = useState(false);
+  const [configurationAvailable, setConfigurationAvailable] = useState(false);
+  const isLoading = loading;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -288,7 +288,7 @@ export default function PaymentOrdersPage() {
   const [reason, setReason] = useState("");
   const [beneficiary, setBeneficiary] = useState("");
 
-  const configurationKey = databaseConnected && date && user
+  const configurationKey = ordersAvailable && date && user
     ? `${user.id}:${date.slice(0, 4)}:${currency}`
     : "";
   const attachmentLoading = Boolean(
@@ -325,33 +325,34 @@ export default function PaymentOrdersPage() {
     };
   }, [attachmentPreview?.orderId, detailOrder]);
   useEffect(() => {
-    if (!databaseConnected) return;
     let active = true;
     void Promise.all([
       apiRequest<PaymentOrder[]>("/payment-orders"),
       apiRequest<CurrentUser>("/auth/me"),
     ])
       .then(([rows, currentUser]) => {
-        if (active) {
-          setOrders(rows);
-          setUser(currentUser);
-          if (["MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(currentUser.role)) setActiveSection("register");
-        }
+        if (!active) return;
+        setOrders(rows);
+        setUser(currentUser);
+        setOrdersAvailable(true);
+        if (["MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(currentUser.role)) setActiveSection("register");
       })
-      .catch((caught: unknown) =>
+      .catch((caught: unknown) => {
+        if (!active) return;
+        setOrdersAvailable(false);
         setError(
           caught instanceof Error
             ? caught.message
             : "Chargement des OP impossible.",
-        ),
-      )
+        );
+      })
       .finally(() => {
         if (active) setLoading(false);
       });
     return () => {
       active = false;
     };
-  }, [databaseConnected]);
+  }, []);
 
   useEffect(() => {
     if (!configurationKey || ["MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(user?.role ?? "")) return;
@@ -359,6 +360,7 @@ export default function PaymentOrdersPage() {
     // finance configuration endpoint is for the OP entry form and is not part
     // of this role's access.
     let active = true;
+    setConfigurationAvailable(false);
     const query = new URLSearchParams({
       year: date.slice(0, 4),
       currency,
@@ -373,14 +375,16 @@ export default function PaymentOrdersPage() {
         if (!active) return;
         setFundingSummary(configuration.funding);
         setCashAccounts(treasury.accounts);
+        setConfigurationAvailable(true);
       })
       .catch((caught: unknown) => {
-        if (active)
-          setError(
-            caught instanceof Error
-              ? caught.message
-              : "Chargement du budget ou de la caisse impossible.",
-          );
+        if (!active) return;
+        setConfigurationAvailable(false);
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Chargement du contrôle des fonds OP impossible.",
+        );
       });
     return () => {
       active = false;
@@ -730,12 +734,6 @@ export default function PaymentOrdersPage() {
           {success}
         </div>
       )}
-      {!databaseConnected && (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          La base est indisponible : les OP ne peuvent pas être enregistrées.
-        </p>
-      )}
-
       <section className="grid gap-3 sm:grid-cols-4">
         {[
           {
@@ -894,7 +892,7 @@ export default function PaymentOrdersPage() {
                 <button type="button" onClick={previewDraft} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-100">
                   <Printer className="h-4 w-4" /> Prévisualiser l’OP
                 </button>
-                <button type="submit" disabled={saving || !databaseConnected || !attachmentFile} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="submit" disabled={saving || !ordersAvailable || !configurationAvailable || !attachmentFile} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
                   <Send className="h-4 w-4" />{saving ? "Enregistrement…" : "Enregistrer et transmettre"}
                 </button>
                 <p className="text-xs leading-5 text-slate-500">Après examen, l’Associé-Gérant approuve et signe ou rejette l’OP. Son approbation crée le bon de sortie en attente; le paiement attend ensuite l’approbation de ce bon.</p>
