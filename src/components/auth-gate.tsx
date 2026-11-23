@@ -70,6 +70,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
       router.replace(
         sessionRole(token) === "PLATFORM_SUPER_ADMIN"
           ? "/platform-admin"
+          : sessionRole(token) === "PLATFORM_MANAGING_PARTNER"
+            ? "/managing-partner"
           : returnPath(),
       );
     }

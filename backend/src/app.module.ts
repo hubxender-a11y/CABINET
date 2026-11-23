@@ -19,6 +19,7 @@ import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { ArchivesModule } from './archives/archives.module';
 import { BackupsModule } from './backups/backups.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
+import { ManagingPartnerModule } from './managing-partner/managing-partner.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -36,6 +37,7 @@ import { APP_GUARD } from '@nestjs/core';
     ArchivesModule,
     BackupsModule,
     PlatformAdminModule,
+    ManagingPartnerModule,
     CustomersModule,
     DashboardModule,
     InvoicesModule,

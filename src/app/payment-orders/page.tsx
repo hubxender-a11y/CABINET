@@ -335,7 +335,7 @@ export default function PaymentOrdersPage() {
         if (active) {
           setOrders(rows);
           setUser(currentUser);
-          if (currentUser.role === "MANAGING_PARTNER") setActiveSection("register");
+          if (["MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(currentUser.role)) setActiveSection("register");
         }
       })
       .catch((caught: unknown) =>
@@ -354,7 +354,7 @@ export default function PaymentOrdersPage() {
   }, [databaseConnected]);
 
   useEffect(() => {
-    if (!configurationKey || user?.role === "MANAGING_PARTNER") return;
+    if (!configurationKey || ["MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(user?.role ?? "")) return;
     // The managing partner only uses the register and approval actions. The
     // finance configuration endpoint is for the OP entry form and is not part
     // of this role's access.
@@ -963,13 +963,13 @@ export default function PaymentOrdersPage() {
             <div className="max-h-[75vh] divide-y divide-slate-100 overflow-auto">
               {filteredOrders.map((order) => {
                 const canManager = Boolean(
-                  user && ["COMPANY_ADMIN", "MANAGING_PARTNER"].includes(user.role) &&
+                  user && ["COMPANY_ADMIN", "MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(user.role) &&
                   ["SUBMITTED", "FINANCE_APPROVED"].includes(order.status) &&
                   user.id !== order.createdBy,
                 );
                 const canReject = Boolean(
                   user &&
-                  (user.role === "COMPANY_ADMIN" || user.role === "MANAGING_PARTNER") &&
+                  ["COMPANY_ADMIN", "MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(user.role) &&
                   ["SUBMITTED", "FINANCE_APPROVED"].includes(order.status) &&
                   user.id !== order.createdBy,
                 );

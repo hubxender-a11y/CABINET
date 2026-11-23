@@ -36,6 +36,23 @@ export class AuthService {
       throw new UnauthorizedException('Adresse email ou mot de passe invalide.');
     }
 
+    if (user.platformRole === 'PLATFORM_MANAGING_PARTNER') {
+      const companies = await this.prisma.company.findMany({
+        where: { isActive: true },
+        select: { id: true, legalName: true, tradeName: true, logoUrl: true },
+        orderBy: { legalName: 'asc' },
+      });
+      const company = dto.companyId
+        ? companies.find(({ id }) => id === dto.companyId)
+        : companies[0];
+      if (!company) throw new UnauthorizedException('Aucun espace de travail actif n’est disponible.');
+      return this.issueSession(user, {
+        companyId: company.id,
+        role: 'PLATFORM_MANAGING_PARTNER',
+        company,
+      });
+    }
+
     const configuredPlatformAdminEmail =
       process.env.PLATFORM_ADMIN_EMAIL?.trim().toLowerCase();
     if (
@@ -110,7 +127,7 @@ export class AuthService {
   async companies(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { isActive: true, isPlatformAdmin: true },
+      select: { isActive: true, isPlatformAdmin: true, platformRole: true },
     });
     if (!user?.isActive) throw new UnauthorizedException('Session invalide.');
     if (user.isPlatformAdmin) {
@@ -123,6 +140,19 @@ export class AuthService {
         id: company.id,
         name: company.tradeName || company.legalName,
         role: 'PLATFORM_SUPER_ADMIN' as const,
+      }));
+    }
+    if (user.platformRole === 'PLATFORM_MANAGING_PARTNER') {
+      const companies = await this.prisma.company.findMany({
+        where: { isActive: true },
+        select: { id: true, legalName: true, tradeName: true, logoUrl: true },
+        orderBy: { legalName: 'asc' },
+      });
+      return companies.map((company) => ({
+        id: company.id,
+        name: company.tradeName || company.legalName,
+        logoUrl: company.logoUrl,
+        role: 'PLATFORM_MANAGING_PARTNER' as const,
       }));
     }
     const memberships = await this.prisma.companyMembership.findMany({
@@ -144,7 +174,7 @@ export class AuthService {
   async switchCompany(userId: string, companyId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, isActive: true, isPlatformAdmin: true },
+      select: { id: true, email: true, name: true, isActive: true, isPlatformAdmin: true, platformRole: true },
     });
     if (!user?.isActive) throw new UnauthorizedException('Session invalide.');
     if (user.isPlatformAdmin) {
@@ -156,6 +186,18 @@ export class AuthService {
       return this.issueSession(user, {
         companyId: company.id,
         role: 'PLATFORM_SUPER_ADMIN',
+        company,
+      });
+    }
+    if (user.platformRole === 'PLATFORM_MANAGING_PARTNER') {
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { id: true, legalName: true, tradeName: true, logoUrl: true, isActive: true },
+      });
+      if (!company?.isActive) throw new UnauthorizedException('Entreprise introuvable ou archivée.');
+      return this.issueSession(user, {
+        companyId: company.id,
+        role: 'PLATFORM_MANAGING_PARTNER',
         company,
       });
     }

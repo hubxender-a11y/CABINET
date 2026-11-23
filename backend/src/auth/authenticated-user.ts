@@ -8,6 +8,7 @@ export type AuthenticatedUser = {
   companyId: string;
   role: UserRole;
   platformAdmin?: boolean;
+  globalManagingPartner?: boolean;
   iat?: number;
 };
 

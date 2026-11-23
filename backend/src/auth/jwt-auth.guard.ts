@@ -11,7 +11,7 @@ import type { Request } from 'express';
 import { AuthenticatedRequest, AuthenticatedUser } from './authenticated-user';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { PrismaService } from '../database/prisma.service';
-import { isManagingPartnerRouteAllowed } from './managing-partner-access.guard';
+import { isGlobalManagingPartnerRouteAllowed, isManagingPartnerRouteAllowed } from './managing-partner-access.guard';
 import { UserRole } from '@prisma/client';
 import { setRequestCompanyId } from '../database/company-context';
 
@@ -54,6 +54,7 @@ export class JwtAuthGuard implements CanActivate {
         name: true,
         isActive: true,
         isPlatformAdmin: true,
+        platformRole: true,
         passwordChangedAt: true,
         memberships: {
           where: { companyId: payload.companyId, isActive: true },
@@ -63,6 +64,31 @@ export class JwtAuthGuard implements CanActivate {
       },
     });
     if (!user?.isActive) throw new UnauthorizedException('Session invalide.');
+    if (payload.role === UserRole.PLATFORM_MANAGING_PARTNER) {
+      if (user.platformRole !== UserRole.PLATFORM_MANAGING_PARTNER) {
+        throw new UnauthorizedException('Session invalide.');
+      }
+      const company = await this.prisma.company.findUnique({
+        where: { id: payload.companyId },
+        select: { isActive: true },
+      });
+      if (!company?.isActive) throw new UnauthorizedException('Session invalide ou entreprise archivée.');
+      setRequestCompanyId(payload.companyId);
+      if (!payload.iat || user.passwordChangedAt.getTime() > payload.iat * 1000 + 1000) {
+        throw new UnauthorizedException('Le mot de passe a changé. Reconnectez-vous.');
+      }
+      (request as AuthenticatedRequest).user = {
+        ...payload,
+        email: user.email,
+        name: user.name,
+        role: UserRole.PLATFORM_MANAGING_PARTNER,
+        globalManagingPartner: true,
+      };
+      if (!isGlobalManagingPartnerRouteAllowed(context.getClass().name, context.getHandler().name)) {
+        throw new ForbiddenException('Cette consultation n’est pas disponible dans l’espace associé-gérant global.');
+      }
+      return true;
+    }
     const membership = user.memberships[0];
     if (!membership && !user.isPlatformAdmin) {
       throw new UnauthorizedException('Session invalide.');

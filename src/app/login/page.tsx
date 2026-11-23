@@ -94,6 +94,15 @@ export default function LoginPage() {
         router.replace("/platform-admin");
         return;
       }
+      if (
+        result.user?.role === "PLATFORM_MANAGING_PARTNER" ||
+        sessionRole(result.accessToken) === "PLATFORM_MANAGING_PARTNER"
+      ) {
+        setPassword("");
+        setSessionToken(result.accessToken);
+        router.replace("/managing-partner");
+        return;
+      }
 
       const workspace = companyId
         ? selectedWorkspace

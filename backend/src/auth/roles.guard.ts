@@ -9,6 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { UserRole } from '@prisma/client';
 import { AuthenticatedRequest } from './authenticated-user';
 import { ROLES_KEY } from './roles.decorator';
+import { isGlobalManagingPartnerReadRoute } from './managing-partner-access.guard';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -30,6 +31,13 @@ export class RolesGuard implements CanActivate {
         throw new ForbiddenException('Cette opération est réservée à l’administrateur de la plateforme.');
       }
       return true;
+    }
+    if (request.user.globalManagingPartner) {
+      if (requiredRoles.includes(UserRole.MANAGING_PARTNER) ||
+          isGlobalManagingPartnerReadRoute(context.getClass().name, context.getHandler().name)) {
+        return true;
+      }
+      throw new ForbiddenException('Cette action est réservée aux utilisateurs de l’entreprise.');
     }
     if (
       request.user.role === UserRole.COMPANY_ADMIN ||

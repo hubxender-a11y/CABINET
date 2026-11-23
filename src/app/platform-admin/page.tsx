@@ -128,6 +128,7 @@ type PlatformUser = {
   role: string;
   isActive: boolean;
   isPlatformAdmin: boolean;
+  platformRole?: string | null;
   company: { id: string; name: string; isActive: boolean };
 };
 
@@ -306,6 +307,7 @@ export default function PlatformAdminPage() {
   const [userPage, setUserPage] = useState(1);
   const [userDraft, setUserDraft] = useState({ companyId: "", name: "", email: "", role: "ACCOUNTANT" as PlatformUserRole, password: "" });
   const [adminDraft, setAdminDraft] = useState({ name: "", email: "", password: "" });
+  const [managingPartnerEmail, setManagingPartnerEmail] = useState("samyligbakelo@ctrs.cd");
   const [activeTab, setActiveTab] = useState<PlatformTab>("overview");
   const [activityPage, setActivityPage] = useState<PlatformActivityPage | null>(null);
   const [activityPageNumber, setActivityPageNumber] = useState(1);
@@ -553,6 +555,22 @@ export default function PlatformAdminPage() {
     } finally {
       setUserSaving(false);
     }
+  }
+
+  async function assignGlobalManagingPartner() {
+    const email = managingPartnerEmail.trim().toLocaleLowerCase("fr-CD");
+    if (!email) { setUserActionError("Indiquez l’adresse e-mail du compte existant."); return; }
+    if (!window.confirm(`Attribuer à ${email} l’accès global d’Associé-Gérant ? Ce rôle ouvre les données, rapports, notifications et validations de toutes les sociétés.`)) return;
+    setUserSaving(true);
+    setUserActionError("");
+    setUserActionSuccess("");
+    try {
+      await apiRequest("/platform-admin/managing-partners", { method: "POST", body: JSON.stringify({ email }) });
+      setUserActionSuccess(`L’accès global Associé-Gérant a été attribué à ${email}.`);
+      await loadPlatformUsers();
+    } catch (caught) {
+      setUserActionError(caught instanceof Error ? caught.message : "Impossible d’attribuer le rôle global.");
+    } finally { setUserSaving(false); }
   }
 
   function editCompany(company: PlatformCompany) {
@@ -902,6 +920,12 @@ export default function PlatformAdminPage() {
           </div>
         </div>
         {userActionSuccess && !userModalOpen && !adminModalOpen && <p role="status" className="platform-admin-success">{userActionSuccess}</p>}
+        {userActionError && !userModalOpen && !adminModalOpen && <p role="alert" className="platform-admin-error">{userActionError}</p>}
+        <section className="platform-admin-roster-card" aria-labelledby="global-manager-title">
+          <div className="platform-admin-roster-heading"><div><span className="platform-admin-roster-icon"><ShieldCheck size={18} /></span><div><p>ACCÈS TRANSVERSAL</p><h3 id="global-manager-title">Associé-Gérant de toutes les sociétés</h3></div></div></div>
+          <p className="platform-admin-footnote">Attribuez ce rôle à un compte déjà créé. Il pourra consulter les sociétés une par une, suivre leurs notifications et rapports, et examiner ou approuver leurs OP et bons de sortie.</p>
+          <div className="flex flex-col gap-3 sm:flex-row"><input aria-label="E-mail de l’associé-gérant" className="platform-admin-select min-w-0 flex-1" type="email" value={managingPartnerEmail} onChange={(event) => setManagingPartnerEmail(event.target.value)} placeholder="nom@entreprise.cd" /><button type="button" className="is-primary" onClick={() => void assignGlobalManagingPartner()} disabled={userSaving || usersLoading}><ShieldCheck size={16} /> {userSaving ? "Attribution…" : "Attribuer le rôle"}</button></div>
+        </section>
         <div className="platform-admin-user-metrics">
           <article><span>Accès entreprise</span><strong>{platformUsers.length}</strong><small>Rôles attribués</small></article>
           <article><span>Utilisateurs uniques</span><strong>{uniqueUserCount}</strong><small>Comptes distincts</small></article>
@@ -924,7 +948,7 @@ export default function PlatformAdminPage() {
             <div className="platform-admin-user-row" key={`${user.id}-${user.company.id}`}>
               <div><strong>{user.name}</strong><small>{user.email}</small></div>
               <span className="platform-admin-user-company">{user.company.name}</span>
-              <span className="platform-admin-user-role">{user.isPlatformAdmin ? "Super-admin" : roleLabel(user.role)}</span>
+              <span className="platform-admin-user-role">{user.isPlatformAdmin ? "Super-admin" : user.platformRole === "PLATFORM_MANAGING_PARTNER" ? "Associé-Gérant global" : roleLabel(user.role)}</span>
               <span className={`platform-admin-user-status ${user.isActive && user.company.isActive ? "is-active" : "is-inactive"}`}>{!user.company.isActive ? "Entreprise archivée" : user.isActive ? "Actif" : "Désactivé"}</span>
               <button type="button" disabled={!user.company.isActive} onClick={() => void openCompany(user.company.id, "/users")} aria-label={`Gérer l’équipe de ${user.company.name}`} title={user.company.isActive ? "Gérer les accès de cette entreprise" : "Entreprise archivée"}><UserRoundCog size={16} /></button>
             </div>
