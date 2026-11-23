@@ -22,6 +22,7 @@ export class NotificationsService {
         ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
         OR: [
           { isPlatformAdmin: true },
+          { platformRole: UserRole.PLATFORM_MANAGING_PARTNER },
           {
             memberships: {
               some: {
@@ -78,11 +79,12 @@ export class NotificationsService {
     return notification;
   }
 
-  async list(companyId: string, userId: string, role: UserRole) {
+  async list(companyId: string, userId: string, role: UserRole, globalManagingPartner = false) {
     await this.syncUnpaidInvoiceNotifications(companyId);
     if (
       role === UserRole.COMPANY_ADMIN ||
-      role === UserRole.PLATFORM_SUPER_ADMIN
+      role === UserRole.PLATFORM_SUPER_ADMIN ||
+      globalManagingPartner
     ) {
       const rows = await this.prisma.notification.findMany({
         where: { companyId },
@@ -105,16 +107,17 @@ export class NotificationsService {
         .slice(0, 100)
         .map((group) => {
           const adminCopy = group.find((item) => item.userId === userId);
+          const readState = adminCopy ? adminCopy.read : globalManagingPartner ? group.every((item) => item.read) : true;
           return {
             id: adminCopy?.id ?? group[0].id,
             title: group[0].title,
             message: group[0].message,
-            read: adminCopy ? adminCopy.read : true,
+            read: readState,
             createdAt: group[0].createdAt,
             recipients: Array.from(
               new Set(group.map((item) => item.user?.name ?? 'Compte désactivé')),
             ),
-            isAdminCopy: Boolean(adminCopy),
+            isAdminCopy: Boolean(adminCopy) || globalManagingPartner,
           };
         });
       return {
@@ -126,7 +129,7 @@ export class NotificationsService {
       };
     }
     const notifications = await this.prisma.notification.findMany({
-      where: { companyId, userId },
+      where: globalManagingPartner ? { companyId } : { companyId, userId },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -235,18 +238,24 @@ export class NotificationsService {
     });
   }
 
-  async markRead(id: string, companyId: string, userId: string) {
+  async markRead(id: string, companyId: string, userId: string, globalManagingPartner = false) {
+    let where: Prisma.NotificationWhereInput = { id, companyId, userId };
+    if (globalManagingPartner) {
+      const selected = await this.prisma.notification.findFirst({ where: { id, companyId }, select: { title: true, message: true, createdAt: true } });
+      if (!selected) throw new NotFoundException('Notification introuvable.');
+      where = { companyId, title: selected.title, message: selected.message, createdAt: selected.createdAt };
+    }
     const result = await this.prisma.notification.updateMany({
-      where: { id, companyId, userId },
+      where,
       data: { read: true },
     });
     if (!result.count) throw new NotFoundException('Notification introuvable.');
     return { id, read: true };
   }
 
-  async markAllRead(companyId: string, userId: string) {
+  async markAllRead(companyId: string, userId: string, globalManagingPartner = false) {
     const result = await this.prisma.notification.updateMany({
-      where: { companyId, userId, read: false },
+      where: globalManagingPartner ? { companyId, read: false } : { companyId, userId, read: false },
       data: { read: true },
     });
     return { updated: result.count };
@@ -328,6 +337,7 @@ export class NotificationsService {
         id: { not: senderId },
         OR: [
           { isPlatformAdmin: true },
+          { platformRole: UserRole.PLATFORM_MANAGING_PARTNER },
           {
             memberships: {
               some: {

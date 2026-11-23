@@ -5,6 +5,7 @@ import type { AuthenticatedRequest } from '../auth/authenticated-user';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreatePlatformAdminDto, CreatePlatformUserDto } from './platform-admin.dto';
+import { AssignManagingPartnerDto } from './assign-managing-partner.dto';
 import { PlatformAdminService } from './platform-admin.service';
 
 @ApiTags('platform-administration')
@@ -50,6 +51,12 @@ export class PlatformAdminController {
   @ApiOperation({ summary: 'Resend pending payment orders to the managing partner by email' })
   resendPendingPaymentOrderEmails(@Req() request: AuthenticatedRequest) {
     return this.platformAdmin.resendPendingPaymentOrderEmails(request.user!.sub);
+  }
+
+  @Post('managing-partners')
+  @ApiOperation({ summary: 'Grant global managing-partner access to an existing user' })
+  assignManagingPartner(@Body() dto: AssignManagingPartnerDto, @Req() request: AuthenticatedRequest) {
+    return this.platformAdmin.assignManagingPartner(dto.email, request.user!.sub);
   }
 
   @Post('admins')

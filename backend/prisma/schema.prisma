@@ -9,6 +9,7 @@ datasource db {
 
 enum UserRole {
   PLATFORM_SUPER_ADMIN
+  PLATFORM_MANAGING_PARTNER
   COMPANY_ADMIN
   MANAGING_PARTNER
   FINANCE_MANAGER
@@ -148,6 +149,7 @@ model User {
   passwordChangedAt DateTime @default(now())
   isActive      Boolean             @default(true)
   isPlatformAdmin Boolean            @default(false)
+  platformRole UserRole?
   emailVerified Boolean             @default(false)
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt

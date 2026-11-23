@@ -31,6 +31,7 @@ export class NotificationsController {
       request.user!.companyId,
       request.user!.sub,
       request.user!.role,
+      request.user!.globalManagingPartner ?? false,
     );
   }
 
@@ -39,6 +40,7 @@ export class NotificationsController {
     return this.notifications.markAllRead(
       request.user!.companyId,
       request.user!.sub,
+      request.user!.globalManagingPartner ?? false,
     );
   }
 
@@ -51,6 +53,7 @@ export class NotificationsController {
       id,
       request.user!.companyId,
       request.user!.sub,
+      request.user!.globalManagingPartner ?? false,
     );
   }
 

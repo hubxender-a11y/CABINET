@@ -119,6 +119,35 @@ export class PlatformAdminService {
     }
   }
 
+  async assignManagingPartner(email: string, grantedBy: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.trim().toLowerCase() },
+      include: { memberships: { select: { companyId: true }, orderBy: { createdAt: 'asc' } } },
+    });
+    if (!user) throw new NotFoundException('Aucun compte existant ne correspond à cette adresse e-mail.');
+    if (!user.isActive) throw new BadRequestException('Ce compte est désactivé. Réactivez-le avant de lui attribuer cet accès.');
+    if (user.isPlatformAdmin) throw new ConflictException('Un super-admin ne peut pas recevoir ce rôle.');
+
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.user.update({
+        where: { id: user.id },
+        data: { platformRole: UserRole.PLATFORM_MANAGING_PARTNER },
+      });
+      const companyId = user.memberships[0]?.companyId;
+      if (companyId) {
+        await transaction.auditLog.create({
+          data: {
+            companyId,
+            userId: grantedBy,
+            action: 'PLATFORM_MANAGING_PARTNER_GRANTED',
+            details: { targetUserId: user.id, email: user.email },
+          },
+        });
+      }
+    });
+    return { id: user.id, name: user.name, email: user.email, role: UserRole.PLATFORM_MANAGING_PARTNER };
+  }
+
   async createAdmin(dto: CreatePlatformAdminDto, actorId: string) {
     const email = dto.email.trim().toLowerCase();
     const passwordHash = dto.password ? await hash(dto.password, 12) : null;
@@ -246,6 +275,7 @@ export class PlatformAdminService {
             email: true,
             isActive: true,
             isPlatformAdmin: true,
+            platformRole: true,
             createdAt: true,
           },
         },

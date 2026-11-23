@@ -45,6 +45,7 @@ const navigationGroups = [
       { href: "/clients", label: "Dossiers clients", icon: Users },
       { href: "/invoices", label: "Factures clients", icon: Receipt },
       { href: "/payments", label: "Règlements clients", icon: Wallet },
+      { href: "/purchases", label: "Bons de commande", icon: Receipt },
       { href: "/funding", label: "Approvisionnements", icon: Wallet },
       { href: "/cash-vouchers", label: "Bons de sortie caisse", icon: Receipt },
       { href: "/payment-orders", label: "Ordres de paiement", icon: ScrollText },
@@ -90,6 +91,27 @@ const managingPartnerNavigation = [
   { href: "/cash-vouchers", label: "Bons de sortie", icon: Receipt, paths: ["/cash-vouchers"] },
   { href: "/documents", label: "Archivage", icon: Archive, paths: ["/documents"] },
   { href: "/reports", label: "Rapports", icon: BarChart3, paths: ["/reports"] },
+];
+const globalManagingPartnerPaths = ["/managing-partner", "/", "/clients", "/invoices", "/payments", "/purchases", "/funding", "/payment-orders", "/cash-vouchers", "/expenses", "/fiscal", "/patrimoine", "/reports", "/notifications", "/documents"];
+const globalManagingPartnerNavigation = [
+  { label: "Pilotage global", icon: LayoutDashboard, items: [{ href: "/managing-partner", label: "Toutes les entreprises", icon: Building2 }] },
+  { label: "Finance & trésorerie", icon: Wallet, items: [
+    { href: "/payment-orders", label: "Ordres de paiement", icon: ScrollText },
+    { href: "/funding", label: "Approvisionnements", icon: Wallet },
+    { href: "/cash-vouchers", label: "Bons de sortie caisse", icon: Receipt },
+    { href: "/invoices", label: "Factures", icon: Receipt },
+    { href: "/payments", label: "Règlements", icon: Wallet },
+    { href: "/purchases", label: "Bons de commande", icon: Receipt },
+  ] },
+  { label: "Suivi", icon: BarChart3, items: [
+    { href: "/clients", label: "Dossiers clients", icon: Users },
+    { href: "/reports", label: "Rapports", icon: BarChart3 },
+    { href: "/notifications", label: "Notifications", icon: Bell },
+    { href: "/documents", label: "Archives", icon: Archive },
+    { href: "/expenses", label: "Dépenses", icon: Receipt },
+    { href: "/fiscal", label: "Suivi fiscal", icon: Landmark },
+    { href: "/patrimoine", label: "Patrimoine", icon: Building2 },
+  ] },
 ];
 
 const primaryNavigation = [
@@ -169,6 +191,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [switchingCompany, setSwitchingCompany] = useState(false);
   const [companySwitchError, setCompanySwitchError] = useState("");
   const isPlatformAdmin = userRole === "PLATFORM_SUPER_ADMIN";
+  const isGlobalManagingPartner = userRole === "PLATFORM_MANAGING_PARTNER";
   const isPlatformConsole = isPlatformAdmin && pathname === "/platform-admin";
   const mobileMenuOpen = mobileMenuPath === pathname;
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -180,16 +203,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : "/branding/ctrs-logo.jpg";
   const activePage = isPlatformConsole
     ? { href: "/platform-admin", label: "Vue globale", icon: LayoutDashboard }
-    : allNavigationItems.find((item) => pathname === item.href) ??
+    : isGlobalManagingPartner
+      ? globalManagingPartnerNavigation.flatMap((group) => group.items).find((item) => isActiveRoute(pathname, item.href))
+      : allNavigationItems.find((item) => pathname === item.href) ??
       allNavigationItems.find((item) => isActiveRoute(pathname, item.href));
   const activeHref = isPlatformConsole ? "/platform-admin" : activePage?.href;
-  const visibleNavigationGroups = userRole === "MANAGING_PARTNER"
+  const visibleNavigationGroups = isGlobalManagingPartner
+    ? globalManagingPartnerNavigation
+    : userRole === "MANAGING_PARTNER"
     ? navigationGroups.map((group) => ({
         ...group,
         items: group.items.filter((item) => managingPartnerPaths.includes(item.href)),
       })).filter((group) => group.items.length > 0)
     : navigationGroups;
-  const visiblePrimaryNavigation = userRole === "MANAGING_PARTNER"
+  const visiblePrimaryNavigation = isGlobalManagingPartner
+    ? globalManagingPartnerNavigation.flatMap((group) => group.items.map((item) => ({ ...item, paths: [item.href] })))
+    : userRole === "MANAGING_PARTNER"
     ? managingPartnerNavigation
     : primaryNavigation;
   const currentNavigationGroups = isPlatformConsole
@@ -200,10 +229,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : visiblePrimaryNavigation;
 
   useEffect(() => {
+    if (isGlobalManagingPartner) {
+      const allowed = globalManagingPartnerPaths.some((path) => isActiveRoute(pathname, path));
+      if (!allowed) router.replace("/managing-partner");
+      return;
+    }
     if (userRole !== "MANAGING_PARTNER") return;
     const isAllowed = managingPartnerPaths.some((path) => isActiveRoute(pathname, path)) || pathname === "/notifications";
     if (!isAllowed) router.replace("/payment-orders");
-  }, [pathname, router, userRole]);
+  }, [isGlobalManagingPartner, pathname, router, userRole]);
 
   useEffect(() => {
     if (!getSessionToken()) return;
@@ -350,7 +384,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {companyName.slice(0, 1).toLocaleUpperCase("fr")}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="app-workspace-label">{isPlatformConsole ? "CONSOLE SUPER-ADMIN" : isPlatformAdmin ? "EXPLORATION SUPER-ADMIN" : "Cabinet comptable"}</span>
+              <span className="app-workspace-label">{isPlatformConsole ? "CONSOLE SUPER-ADMIN" : isPlatformAdmin ? "EXPLORATION SUPER-ADMIN" : isGlobalManagingPartner ? "ASSOCIÉ-GÉRANT GLOBAL" : "Cabinet comptable"}</span>
               <span className="app-workspace-name">{companyName}</span>
               <span className="app-workspace-location">{location}</span>
             </span>
@@ -588,7 +622,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="app-workspace-label">
-                      {isPlatformConsole ? "CONSOLE SUPER-ADMIN" : isPlatformAdmin ? "EXPLORATION SUPER-ADMIN" : "Cabinet comptable"}
+                      {isPlatformConsole ? "CONSOLE SUPER-ADMIN" : isPlatformAdmin ? "EXPLORATION SUPER-ADMIN" : isGlobalManagingPartner ? "ASSOCIÉ-GÉRANT GLOBAL" : "Cabinet comptable"}
                     </span>
                     <span className="app-workspace-name">{companyName}</span>
                     <span className="app-workspace-location">{location}</span>
