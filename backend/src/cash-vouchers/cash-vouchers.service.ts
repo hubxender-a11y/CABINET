@@ -273,8 +273,7 @@ export class CashVouchersService {
     if (receivedAmount.lte(0) || dto.source !== 'ASSOCIE_GERANT')
       throw new BadRequestException(
         'L’approvisionnement réservé aux OP doit provenir de l’Associé-Gérant.',
-      );
-    if (receivedCurrency === 'CDF' && !receivedAmount.isInteger())
+      );    if (!receivedAmount.isFinite())
       throw new BadRequestException(
         'Un montant reçu en CDF doit être un nombre entier.',
       );
