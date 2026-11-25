@@ -46,6 +46,8 @@ export default function FundingPage() {
     useState<EntryAccountFilter>("ALL");
   const [dateOverride, setDateOverride] = useState<string | null>(null);
   const date = dateOverride ?? today;
+  const [transferDateOverride, setTransferDateOverride] = useState<string | null>(null);
+  const transferDate = transferDateOverride ?? today;
   const [currency, setCurrency] = useState<Currency>("USD");
   const [receivedCurrency, setReceivedCurrency] = useState<Currency>("USD");
   const [amount, setAmount] = useState("");
@@ -245,7 +247,7 @@ export default function FundingPage() {
       }>("/cash-vouchers/funding/convert", {
         method: "POST",
         body: JSON.stringify({
-          date,
+          transferDate,
           amountUsd: transferAmountUsd,
           sourceAccountId: transferAccount?.id,
           reference: transferReference.trim() || undefined,
@@ -564,7 +566,7 @@ export default function FundingPage() {
       {canRecord && (
         <form
           onSubmit={submitTransfer}
-          className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-5 shadow-sm md:grid-cols-[minmax(0,1fr)_minmax(180px,0.7fr)_minmax(180px,0.7fr)_minmax(160px,0.7fr)_auto] md:items-end"
+          className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-5 shadow-sm md:grid-cols-[minmax(0,1fr)_minmax(150px,0.7fr)_minmax(180px,0.7fr)_minmax(180px,0.7fr)_minmax(160px,0.7fr)_auto] md:items-end"
         >
           <div>
             <h2 className="font-semibold text-slate-900">
@@ -581,6 +583,16 @@ export default function FundingPage() {
                 : "taux à configurer"}
             </p>
           </div>
+          <label className="space-y-1.5 text-sm font-medium text-slate-700">
+            Date du transfert
+            <input
+              required
+              type="date"
+              value={transferDate}
+              onChange={(event) => setTransferDateOverride(event.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+            />
+          </label>
           <label className="space-y-1.5 text-sm font-medium text-slate-700">
             Compte USD source
             <select
