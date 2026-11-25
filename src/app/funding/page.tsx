@@ -247,7 +247,7 @@ export default function FundingPage() {
       }>("/cash-vouchers/funding/convert", {
         method: "POST",
         body: JSON.stringify({
-          transferDate,
+          date: transferDate,
           amountUsd: transferAmountUsd,
           sourceAccountId: transferAccount?.id,
           reference: transferReference.trim() || undefined,
