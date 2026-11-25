@@ -179,7 +179,7 @@ export default function FundingPage() {
       setError("Saisissez un montant supérieur à zéro.");
       return;
     }
-    if (receivedCurrency === "CDF" && !Number.isInteger(Number(amount))) {
+    if (false) {
       setError("Un montant reçu en CDF doit être un nombre entier.");
       return;
     }
@@ -415,10 +415,9 @@ export default function FundingPage() {
               Montant reçu
               <input
                 required
-                type="number"
-                min="0.01"
+                type="number"                min="0.01"
                 max="999999999999.99"
-                step={receivedCurrency === "CDF" ? "1" : "0.01"}
+                step="0.01"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5"
