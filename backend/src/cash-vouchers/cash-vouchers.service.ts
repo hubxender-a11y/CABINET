@@ -954,7 +954,7 @@ export class CashVouchersService {
         userId,
       );
       return transaction.cashVoucher.findUniqueOrThrow({ where: { id } });
-    });
+    }, { maxWait: 10_000, timeout: 30_000 });
   }
 
 
