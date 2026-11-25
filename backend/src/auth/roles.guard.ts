@@ -43,6 +43,7 @@ export class RolesGuard implements CanActivate {
       request.user.role === UserRole.COMPANY_ADMIN ||
       request.user.role === UserRole.PLATFORM_SUPER_ADMIN
     ) return true;
+    if (request.user.role === UserRole.PLATFORM_MANAGING_PARTNER && requiredRoles.includes(UserRole.MANAGING_PARTNER)) return true;
     if (!requiredRoles.includes(request.user.role)) {
       throw new ForbiddenException('Votre rôle ne permet pas cette opération.');
     }
