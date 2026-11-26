@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Patch,
   Param,
@@ -185,6 +186,20 @@ export class CashVouchersController {
   @ApiOperation({ summary: 'Record a cash opening balance or replenishment' })
   fund(@Body() dto: FundCashAccountDto, @Req() request: AuthenticatedRequest) {
     return this.vouchers.fund(dto, request.user!.companyId, request.user!.sub);
+  }
+
+  @Delete('funding/:id')
+  @Roles(UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER)
+  @ApiOperation({ summary: 'Delete an unused cash funding entry' })
+  deleteFunding(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.vouchers.deleteFunding(
+      id,
+      request.user!.companyId,
+      request.user!.sub,
+    );
   }
 
   @Post('funding/convert')

@@ -378,6 +378,98 @@ export class CashVouchersService {
     });
   }
 
+  async deleteFunding(id: string, companyId: string, userId: string) {
+    return this.prisma.$transaction(async (transaction) => {
+      const existing = await transaction.cashMovement.findFirst({
+        where: { id, companyId, sourceType: 'CASH_FUNDING', direction: 'IN' },
+        include: {
+          cashAccount: { select: { currency: true, name: true } },
+        },
+      });
+      if (!existing) {
+        throw new NotFoundException('Cet approvisionnement est introuvable.');
+      }
+
+      await lockCashAccount(transaction, existing.cashAccountId);
+      const movement = await transaction.cashMovement.findFirst({
+        where: { id, companyId, sourceType: 'CASH_FUNDING', direction: 'IN' },
+        include: {
+          cashAccount: { select: { currency: true, name: true } },
+        },
+      });
+      if (!movement) {
+        throw new NotFoundException('Cet approvisionnement est introuvable.');
+      }
+
+      const fundingBalance = await getPaymentOrderFundingBalance(
+        transaction,
+        companyId,
+        movement.cashAccountId,
+      );
+      const physicalBalance = await getCashBalance(
+        transaction,
+        companyId,
+        movement.cashAccountId,
+      );
+      const outstandingOrders = await transaction.paymentOrder.findMany({
+        where: {
+          companyId,
+          currency: movement.cashAccount.currency,
+          status: {
+            in: [
+              PaymentOrderStatus.SUBMITTED,
+              PaymentOrderStatus.FINANCE_APPROVED,
+              PaymentOrderStatus.APPROVED,
+            ],
+          },
+        },
+        select: { amount: true },
+      });
+      const outstanding = outstandingOrders.reduce(
+        (sum, order) => sum.add(order.amount),
+        new Prisma.Decimal(0),
+      );
+      const fundingAfter = fundingBalance.sub(movement.amount);
+      const physicalAfter = physicalBalance.sub(movement.amount);
+
+      if (fundingAfter.lt(outstanding) || physicalAfter.lt(0)) {
+        throw new ConflictException(
+          'Suppression refusée : ces fonds ont déjà été dépensés ou engagés dans des OP. Annulez ou réglez d’abord les opérations concernées.',
+        );
+      }
+
+      await transaction.cashMovement.delete({ where: { id: movement.id } });
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'CASH_FUNDING_DELETED',
+          details: {
+            movementId: movement.id,
+            date: movement.date.toISOString(),
+            cashAccountId: movement.cashAccountId,
+            cashAccountName: movement.cashAccount.name,
+            currency: movement.cashAccount.currency,
+            amount: movement.amount.toString(),
+            sourceAmount: movement.sourceAmount?.toString() ?? null,
+            sourceCurrency: movement.sourceCurrency,
+            exchangeRate: movement.exchangeRate?.toString() ?? null,
+            description: movement.description,
+            reference: movement.reference,
+            fundingBalanceAfter: fundingAfter.toString(),
+            physicalBalanceAfter: physicalAfter.toString(),
+          },
+        },
+      });
+
+      return {
+        deletedMovementId: movement.id,
+        balance: physicalAfter.toString(),
+        paymentOrderAvailable: fundingAfter.toString(),
+      };
+    });
+  }
+
   async convertFundingCurrency(
     dto: ConvertCashCurrencyDto,
     companyId: string,

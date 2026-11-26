@@ -17,6 +17,7 @@ import {
   Pencil,
   Printer,
   Search,
+  Trash2,
   Wallet,
   X,
 } from "lucide-react";
@@ -88,6 +89,7 @@ type CashMovement = {
   };
 };
 type TreasuryAccountFilter = "ALL" | "CASH" | "BANK";
+type TreasuryCurrencyFilter = Currency | "ALL";
 type Treasury = { accounts: CashAccount[]; movements: CashMovement[] };
 type TreasuryPeriod = {
   from: string;
@@ -224,6 +226,7 @@ export default function CashVouchersPage() {
     (TreasuryPeriod & {
       printedAt: string;
       accountFilter: TreasuryAccountFilter;
+      currencyFilter: TreasuryCurrencyFilter;
       movementBalances: Array<CashMovement & { balanceAfter: number }>;
     }) | null
   >(null);
@@ -242,12 +245,20 @@ export default function CashVouchersPage() {
   const [query, setQuery] = useState("");
   const [accountFilter, setAccountFilter] =
     useState<TreasuryAccountFilter>("CASH");
+  const [currencyFilter, setCurrencyFilter] =
+    useState<TreasuryCurrencyFilter>("CDF");
+  const [periodReloadVersion, setPeriodReloadVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const isLoading = databaseConnected && loading;
   const [userRole, setUserRole] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fundingActionMessage, setFundingActionMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
+  const [deletingFundingId, setDeletingFundingId] = useState<string | null>(null);
   const [cashVoucherTab, setCashVoucherTab] = useState<"issue" | "register">(
     "issue",
   );
@@ -325,7 +336,7 @@ export default function CashVouchersPage() {
       periodStart > periodEnd
     )
       return;
-    const selectionKey = `${periodStart}:${periodEnd}`;
+    const selectionKey = `${periodStart}:${periodEnd}:${periodReloadVersion}`;
     const controller = new AbortController();
     void apiRequest<TreasuryPeriod>(
       `/cash-vouchers/treasury/period?from=${encodeURIComponent(periodStart)}&to=${encodeURIComponent(periodEnd)}`,
@@ -345,7 +356,7 @@ export default function CashVouchersPage() {
         if (!controller.signal.aborted) setPeriodCompletedKey(selectionKey);
       });
     return () => controller.abort();
-  }, [databaseConnected, periodStart, periodEnd]);
+  }, [databaseConnected, periodStart, periodEnd, periodReloadVersion]);
 
   const canIssueVoucher = [
     "COMPANY_ADMIN",
@@ -386,7 +397,7 @@ export default function CashVouchersPage() {
   );
   const periodSelectionKey =
     databaseConnected && selectedPeriodValid
-      ? `${periodStart}:${periodEnd}`
+      ? `${periodStart}:${periodEnd}:${periodReloadVersion}`
       : "";
   const periodLoading = Boolean(
     periodSelectionKey && periodCompletedKey !== periodSelectionKey,
@@ -426,7 +437,10 @@ export default function CashVouchersPage() {
   const periodTotals = useMemo(() => {
     const totals: Record<string, { entries: number; exits: number }> = {};
     for (const movement of selectedPeriodData?.movements ?? []) {
-      if (!matchesAccountFilter(movement.cashAccount.accountType, accountFilter)) continue;
+      if (
+        !matchesAccountFilter(movement.cashAccount.accountType, accountFilter) ||
+        (currencyFilter !== "ALL" && movement.cashAccount.currency !== currencyFilter)
+      ) continue;
       const total = totals[movement.cashAccountId] ?? { entries: 0, exits: 0 };
       total[movement.direction === "IN" ? "entries" : "exits"] += Number(
         movement.amount,
@@ -434,10 +448,12 @@ export default function CashVouchersPage() {
       totals[movement.cashAccountId] = total;
     }
     return totals;
-  }, [accountFilter, selectedPeriodData]);
+  }, [accountFilter, currencyFilter, selectedPeriodData]);
   const displayedMovements = selectedPeriodData
     ? periodMovementBalances.filter(
-        (movement) => matchesAccountFilter(movement.cashAccount.accountType, accountFilter),
+        (movement) =>
+          matchesAccountFilter(movement.cashAccount.accountType, accountFilter) &&
+          (currencyFilter === "ALL" || movement.cashAccount.currency === currencyFilter),
       )
     : [];
 
@@ -583,10 +599,14 @@ export default function CashVouchersPage() {
     setError("");
     setPrintSaving(true);
     const filteredMovements = periodMovementBalances.filter(
-      (movement) => matchesAccountFilter(movement.cashAccount.accountType, accountFilter),
+      (movement) =>
+        matchesAccountFilter(movement.cashAccount.accountType, accountFilter) &&
+        (currencyFilter === "ALL" || movement.cashAccount.currency === currencyFilter),
     );
     const filteredAccounts = selectedPeriodData.accounts.filter(
-      (account) => matchesAccountFilter(account.accountType, accountFilter),
+      (account) =>
+        matchesAccountFilter(account.accountType, accountFilter) &&
+        (currencyFilter === "ALL" || account.currency === currencyFilter),
     );
     flushSync(() => {
       setPrintData({
@@ -595,6 +615,7 @@ export default function CashVouchersPage() {
         movements: filteredMovements,
         movementBalances: filteredMovements,
         accountFilter,
+        currencyFilter,
         printedAt: new Date().toISOString(),
       });
       setPrintDocument(kind);
@@ -774,6 +795,38 @@ export default function CashVouchersPage() {
       setError(
         caught instanceof Error ? caught.message : "Rapprochement impossible.",
       );
+    }
+  }
+
+  async function deleteFunding(movement: CashMovement) {
+    if (movement.sourceType !== "CASH_FUNDING") return;
+    const confirmed = window.confirm(
+      `Supprimer l’approvisionnement de ${formatMoney(Number(movement.amount), movement.cashAccount.currency)} du ${formatDate(movement.date)} ? Les soldes seront recalculés. La suppression sera refusée si les fonds sont déjà dépensés ou engagés dans des OP.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingFundingId(movement.id);
+    setFundingActionMessage(null);
+    try {
+      await apiRequest(`/cash-vouchers/funding/${movement.id}`, {
+        method: "DELETE",
+      });
+      await refreshTreasury();
+      setPeriodReloadVersion((version) => version + 1);
+      setFundingActionMessage({
+        kind: "success",
+        text: "Approvisionnement supprimé. Les soldes ont été recalculés.",
+      });
+    } catch (caught) {
+      setFundingActionMessage({
+        kind: "error",
+        text:
+          caught instanceof Error
+            ? caught.message
+            : "Impossible de supprimer cet approvisionnement.",
+      });
+    } finally {
+      setDeletingFundingId(null);
     }
   }
 
@@ -1278,6 +1331,7 @@ export default function CashVouchersPage() {
           <div>
             <h2 className="font-semibold text-slate-900">
               {accountFilter === "BANK" ? "Journal bancaire" : accountFilter === "ALL" ? "Livre de trésorerie" : "Livre de caisse"}
+              {currencyFilter !== "ALL" ? ` · ${currencyFilter}` : " · Toutes devises"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               {accountFilter === "BANK" ? "Suivez les virements reçus sans les confondre avec les espèces." : accountFilter === "ALL" ? "Journal des entrées, sorties et soldes de tous les comptes." : "Journal des entrées, sorties et soldes de caisse."}
@@ -1298,7 +1352,7 @@ export default function CashVouchersPage() {
             <Printer className="h-4 w-4" /> Imprimer le journal
           </button>
         </div>
-        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-[1fr_1fr_180px_auto] sm:items-end">
+        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-[1fr_1fr_160px_140px_auto] sm:items-end">
           <label className="block text-sm font-medium text-slate-700">
             Période · du
             <input
@@ -1331,6 +1385,18 @@ export default function CashVouchersPage() {
               <option value="ALL">Tous les comptes</option>
             </select>
           </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Devise
+            <select
+              value={currencyFilter}
+              onChange={(event) => setCurrencyFilter(event.target.value as TreasuryCurrencyFilter)}
+              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            >
+              <option value="CDF">CDF</option>
+              <option value="USD">USD</option>
+              <option value="ALL">Toutes</option>
+            </select>
+          </label>
           <div className="pb-2 text-sm text-slate-500" aria-live="polite">
             {!periodStart || !periodEnd
               ? "Sélectionnez les deux dates pour consulter ou imprimer."
@@ -1343,6 +1409,16 @@ export default function CashVouchersPage() {
                     : "Aucune donnée de période disponible."}
           </div>
         </div>
+        {fundingActionMessage && (
+          <div className="px-5 pt-4">
+            <p
+              role={fundingActionMessage.kind === "error" ? "alert" : "status"}
+              className={`rounded-lg px-3 py-2 text-sm ${fundingActionMessage.kind === "error" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}
+            >
+              {fundingActionMessage.text}
+            </p>
+          </div>
+        )}
         {periodLoadedForSelection && displayedMovements.length ? (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
@@ -1356,6 +1432,14 @@ export default function CashVouchersPage() {
                   <th className="px-4 py-3 text-right font-medium">
                     Solde après
                   </th>
+                  {[
+                    "COMPANY_ADMIN",
+                    "MANAGING_PARTNER",
+                    "PLATFORM_MANAGING_PARTNER",
+                    "PLATFORM_SUPER_ADMIN",
+                  ].includes(userRole) && (
+                    <th className="px-4 py-3 text-right font-medium">Action</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -1414,6 +1498,29 @@ export default function CashVouchersPage() {
                         movement.cashAccount.currency,
                       )}
                     </td>
+                    {[
+                      "COMPANY_ADMIN",
+                      "MANAGING_PARTNER",
+                      "PLATFORM_MANAGING_PARTNER",
+                      "PLATFORM_SUPER_ADMIN",
+                    ].includes(userRole) && (
+                      <td className="whitespace-nowrap px-4 py-3 text-right">
+                        {movement.sourceType === "CASH_FUNDING" ? (
+                          <button
+                            type="button"
+                            aria-label={`Supprimer l’approvisionnement ${formatMoney(Number(movement.amount), movement.cashAccount.currency)}`}
+                            title="Supprimer l’approvisionnement"
+                            disabled={deletingFundingId === movement.id}
+                            onClick={() => void deleteFunding(movement)}
+                            className="inline-flex items-center justify-center rounded-lg p-2 text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -1447,14 +1554,14 @@ export default function CashVouchersPage() {
               <div className="cash-period-print-title">
                 <div>
                   <p>Trésorerie · Journal des mouvements</p>
-                  <h1>{printData.accountFilter === "BANK" ? "JOURNAL BANCAIRE" : printData.accountFilter === "ALL" ? "LIVRE DE TRÉSORERIE" : "LIVRE DE CAISSE"}</h1>
+                  <h1>{printData.accountFilter === "BANK" ? "JOURNAL BANCAIRE" : printData.accountFilter === "ALL" ? "LIVRE DE TRÉSORERIE" : "LIVRE DE CAISSE"} · {printData.currencyFilter}</h1>
                 </div>
                 <strong>
                   {formatDate(printData.from)} — {formatDate(printData.to)}
                 </strong>
               </div>
               <p className="cash-period-print-note">
-                {printData.accountFilter === "BANK" ? "Banque · virements et cartes" : printData.accountFilter === "CASH" ? "Mouvements de caisse" : "Tous les comptes"} · du{" "}
+                {printData.accountFilter === "BANK" ? "Banque · virements et cartes" : printData.accountFilter === "CASH" ? "Mouvements de caisse" : "Tous les comptes"} · {printData.currencyFilter === "ALL" ? "toutes devises" : printData.currencyFilter} · du{" "}
                 {formatDate(printData.from)} au {formatDate(printData.to)}
               </p>
               <table>
