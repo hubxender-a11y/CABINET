@@ -449,6 +449,27 @@ export default function CashVouchersPage() {
     }
     return totals;
   }, [accountFilter, currencyFilter, selectedPeriodData]);
+  const periodSummary = useMemo(() => {
+    const accounts = (selectedPeriodData?.accounts ?? []).filter(
+      (account) =>
+        matchesAccountFilter(account.accountType, accountFilter) &&
+        (currencyFilter === "ALL" || account.currency === currencyFilter),
+    );
+    return accounts.reduce(
+      (totals, account) => {
+        const movementTotals = periodTotals[account.id] ?? {
+          entries: 0,
+          exits: 0,
+        };
+        totals.openingBalance += Number(account.openingBalance);
+        totals.entries += movementTotals.entries;
+        totals.exits += movementTotals.exits;
+        totals.closingBalance += Number(account.closingBalance);
+        return totals;
+      },
+      { openingBalance: 0, entries: 0, exits: 0, closingBalance: 0 },
+    );
+  }, [accountFilter, currencyFilter, periodTotals, selectedPeriodData]);
   const displayedMovements = selectedPeriodData
     ? periodMovementBalances.filter(
         (movement) =>
@@ -1352,7 +1373,32 @@ export default function CashVouchersPage() {
             <Printer className="h-4 w-4" /> Imprimer le journal
           </button>
         </div>
-        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-[1fr_1fr_160px_140px_auto] sm:items-end">
+        <div
+          className="flex flex-wrap gap-2 border-b border-slate-200 bg-white px-5 pt-4"
+          role="tablist"
+          aria-label="Livres de caisse par devise"
+        >
+          {(["CDF", "USD"] as const).map((code) => (
+            <button
+              key={code}
+              id={`cash-book-${code.toLowerCase()}-tab`}
+              type="button"
+              role="tab"
+              aria-selected={currencyFilter === code}
+              aria-controls="cash-book-ledger-panel"
+              onClick={() => setCurrencyFilter(code)}
+              className={`rounded-t-xl border border-b-0 px-5 py-3 text-sm font-semibold transition ${currencyFilter === code ? "border-slate-200 bg-slate-50 text-blue-900" : "border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}
+            >
+              Livre {code}
+            </button>
+          ))}
+        </div>
+        <div
+          id="cash-book-ledger-panel"
+          role="tabpanel"
+          aria-labelledby={`cash-book-${currencyFilter === "USD" ? "usd" : "cdf"}-tab`}
+        >
+        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-[1fr_1fr_180px_auto] sm:items-end">
           <label className="block text-sm font-medium text-slate-700">
             Période · du
             <input
@@ -1385,18 +1431,6 @@ export default function CashVouchersPage() {
               <option value="ALL">Tous les comptes</option>
             </select>
           </label>
-          <label className="block text-sm font-medium text-slate-700">
-            Devise
-            <select
-              value={currencyFilter}
-              onChange={(event) => setCurrencyFilter(event.target.value as TreasuryCurrencyFilter)}
-              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-            >
-              <option value="CDF">CDF</option>
-              <option value="USD">USD</option>
-              <option value="ALL">Toutes</option>
-            </select>
-          </label>
           <div className="pb-2 text-sm text-slate-500" aria-live="polite">
             {!periodStart || !periodEnd
               ? "Sélectionnez les deux dates pour consulter ou imprimer."
@@ -1408,6 +1442,28 @@ export default function CashVouchersPage() {
                     ? `${displayedMovements.length} mouvement${displayedMovements.length > 1 ? "s" : ""} sur la période`
                     : "Aucune donnée de période disponible."}
           </div>
+        </div>
+        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-2 xl:grid-cols-4">
+          {(
+            [
+              { label: "Balance d’ouverture", value: periodSummary.openingBalance },
+              { label: "Entrées sur la période", value: periodSummary.entries },
+              { label: "Sorties sur la période", value: periodSummary.exits },
+              { label: "Balance de clôture", value: periodSummary.closingBalance },
+            ] as const
+          ).map((item) => (
+            <article
+              key={item.label}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+            >
+              <p className="text-xs font-medium text-slate-500">{item.label}</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {selectedPeriodData
+                  ? formatMoney(item.value, currencyFilter === "ALL" ? "CDF" : currencyFilter)
+                  : "—"}
+              </p>
+            </article>
+          ))}
         </div>
         {fundingActionMessage && (
           <div className="px-5 pt-4">
@@ -1539,6 +1595,7 @@ export default function CashVouchersPage() {
                 : "Sélectionnez une période pour afficher le livre."}
           </p>
         )}
+        </div>
       </section>
 
       {printReady &&
