@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Banknote, Check, CircleAlert, Landmark, RefreshCw, Wallet } from "lucide-react";
+import { Banknote, Check, CircleAlert, Landmark, RefreshCw, Trash2, Wallet } from "lucide-react";
 import { useWorkspaceStore } from "@/components/workspace-store";
 import { useCompanyProfile } from "@/components/company-profile";
 import { apiRequest } from "@/lib/api";
@@ -25,6 +25,7 @@ type CashMovement = {
   sourceAmount?: string | null;
   sourceCurrency?: Currency | null;
   exchangeRate?: string | null;
+  sourceId?: string | null;
   description: string;
   reference?: string | null;
   sourceType: string;
@@ -64,6 +65,9 @@ export default function FundingPage() {
   const [transferSaving, setTransferSaving] = useState(false);
   const [transferError, setTransferError] = useState("");
   const [transferSuccess, setTransferSuccess] = useState("");
+  const [deletingMovementId, setDeletingMovementId] = useState<string | null>(null);
+  const [movementActionError, setMovementActionError] = useState("");
+  const [movementActionSuccess, setMovementActionSuccess] = useState("");
 
   const refresh = useCallback(async () => {
     const data = await apiRequest<Treasury>("/cash-vouchers/treasury");
@@ -113,6 +117,12 @@ export default function FundingPage() {
     "FINANCE_MANAGER",
     "ACCOUNTANT",
     "CASHIER",
+  ].includes(userRole);
+  const canDeleteMovements = [
+    "COMPANY_ADMIN",
+    "MANAGING_PARTNER",
+    "PLATFORM_MANAGING_PARTNER",
+    "PLATFORM_SUPER_ADMIN",
   ].includes(userRole);
   const fundingMovements = useMemo(
     () =>
@@ -265,6 +275,32 @@ export default function FundingPage() {
       );
     } finally {
       setTransferSaving(false);
+    }
+  }
+
+  async function deleteMovement(movement: CashMovement) {
+    const isConversion = movement.sourceType === "CURRENCY_TRANSFER_IN";
+    if (!canDeleteMovements || (!isConversion && movement.sourceType !== "CASH_FUNDING")) return;
+    const label = isConversion ? "cette conversion USD → CDF" : "cet approvisionnement";
+    if (!window.confirm(`Supprimer ${label} du ${formatDate(movement.date)} ?${isConversion ? " Les deux lignes USD et CDF seront supprimées ensemble." : ""} Les soldes seront recalculés. La suppression sera refusée si les fonds sont déjà dépensés ou engagés dans des OP.`)) return;
+
+    setDeletingMovementId(movement.id);
+    setMovementActionError("");
+    setMovementActionSuccess("");
+    try {
+      if (isConversion) {
+        if (!movement.sourceId) throw new Error("Référence de conversion manquante.");
+        await apiRequest(`/cash-vouchers/funding/conversion/${movement.sourceId}`, { method: "DELETE" });
+        setMovementActionSuccess("Conversion supprimée des deux livres. Les soldes ont été recalculés.");
+      } else {
+        await apiRequest(`/cash-vouchers/funding/${movement.id}`, { method: "DELETE" });
+        setMovementActionSuccess("Approvisionnement supprimé. Les soldes ont été recalculés.");
+      }
+      await refresh();
+    } catch (caught) {
+      setMovementActionError(caught instanceof Error ? caught.message : "Suppression impossible.");
+    } finally {
+      setDeletingMovementId(null);
     }
   }
 
@@ -511,12 +547,19 @@ export default function FundingPage() {
               ))}
             </div>
           </div>
+          {(movementActionError || movementActionSuccess) && (
+            <div className="px-5 pt-4">
+              <p role={movementActionError ? "alert" : "status"} className={`rounded-lg px-3 py-2 text-sm ${movementActionError ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
+                {movementActionError || movementActionSuccess}
+              </p>
+            </div>
+          )}
           {fundingMovements.length ? (
             <ul className="divide-y divide-slate-100">
               {fundingMovements.map((movement) => (
                 <li
                   key={movement.id}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-4"
+                  className={`grid grid-cols-[minmax(0,1fr)_auto${canDeleteMovements ? "_auto" : ""}] items-center gap-4 px-5 py-4`}
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-900">
@@ -549,6 +592,18 @@ export default function FundingPage() {
                       movement.cashAccount.currency,
                     )}
                   </p>
+                  {canDeleteMovements && (
+                    <button
+                      type="button"
+                      aria-label={movement.sourceType === "CURRENCY_TRANSFER_IN" ? "Supprimer la conversion" : "Supprimer l’approvisionnement"}
+                      title={movement.sourceType === "CURRENCY_TRANSFER_IN" ? "Supprimer les deux lignes de conversion" : "Supprimer l’approvisionnement"}
+                      disabled={deletingMovementId === movement.id || (!movement.sourceId && movement.sourceType === "CURRENCY_TRANSFER_IN")}
+                      onClick={() => void deleteMovement(movement)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {deletingMovementId === movement.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

@@ -470,6 +470,121 @@ export class CashVouchersService {
     });
   }
 
+  async deleteFundingConversion(sourceId: string, companyId: string, userId: string) {
+    return this.prisma.$transaction(async (transaction) => {
+      const findPair = () => transaction.cashMovement.findMany({
+        where: {
+          companyId,
+          sourceId,
+          sourceType: { in: ['CURRENCY_TRANSFER_OUT', 'CURRENCY_TRANSFER_IN'] },
+        },
+        include: { cashAccount: { select: { currency: true, name: true } } },
+      });
+      const initialPair = await findPair();
+      const usdOut = initialPair.find(
+        (movement) => movement.sourceType === 'CURRENCY_TRANSFER_OUT',
+      );
+      const cdfIn = initialPair.find(
+        (movement) => movement.sourceType === 'CURRENCY_TRANSFER_IN',
+      );
+      if (
+        initialPair.length !== 2 ||
+        !usdOut ||
+        !cdfIn ||
+        usdOut.direction !== 'OUT' ||
+        cdfIn.direction !== 'IN' ||
+        usdOut.cashAccount.currency !== 'USD' ||
+        cdfIn.cashAccount.currency !== 'CDF'
+      ) {
+        throw new NotFoundException('Cette conversion est introuvable ou incomplète.');
+      }
+
+      for (const accountId of [usdOut.cashAccountId, cdfIn.cashAccountId].sort()) {
+        await lockCashAccount(transaction, accountId);
+      }
+
+      const pair = await findPair();
+      const currentUsdOut = pair.find(
+        (movement) => movement.sourceType === 'CURRENCY_TRANSFER_OUT',
+      );
+      const currentCdfIn = pair.find(
+        (movement) => movement.sourceType === 'CURRENCY_TRANSFER_IN',
+      );
+      if (
+        pair.length !== 2 ||
+        !currentUsdOut ||
+        !currentCdfIn ||
+        currentUsdOut.cashAccountId !== usdOut.cashAccountId ||
+        currentCdfIn.cashAccountId !== cdfIn.cashAccountId
+      ) {
+        throw new ConflictException('La conversion a changé pendant la suppression. Actualisez la page.');
+      }
+
+      const [cdfBalance, cdfFundingBalance, outstandingOrders] = await Promise.all([
+        getCashBalance(transaction, companyId, currentCdfIn.cashAccountId),
+        getPaymentOrderFundingBalance(transaction, companyId, currentCdfIn.cashAccountId),
+        transaction.paymentOrder.findMany({
+          where: {
+            companyId,
+            currency: 'CDF',
+            status: {
+              in: [
+                PaymentOrderStatus.SUBMITTED,
+                PaymentOrderStatus.FINANCE_APPROVED,
+                PaymentOrderStatus.APPROVED,
+              ],
+            },
+          },
+          select: { amount: true },
+        }),
+      ]);
+      const outstanding = outstandingOrders.reduce(
+        (sum, order) => sum.add(order.amount),
+        new Prisma.Decimal(0),
+      );
+      const cdfBalanceAfter = cdfBalance.sub(currentCdfIn.amount);
+      const cdfFundingAfter = cdfFundingBalance.sub(currentCdfIn.amount);
+      if (cdfBalanceAfter.lt(0) || cdfFundingAfter.lt(outstanding)) {
+        throw new ConflictException(
+          'Suppression refusée : les fonds CDF issus de cette conversion ont déjà été dépensés ou engagés dans des OP.',
+        );
+      }
+
+      await transaction.cashMovement.deleteMany({
+        where: { companyId, id: { in: [currentUsdOut.id, currentCdfIn.id] } },
+      });
+      const usdBalanceAfter = await getCashBalance(
+        transaction,
+        companyId,
+        currentUsdOut.cashAccountId,
+      );
+      await transaction.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'CASH_CURRENCY_CONVERSION_DELETED',
+          details: {
+            sourceId,
+            reference: currentCdfIn.reference,
+            usdMovementId: currentUsdOut.id,
+            cdfMovementId: currentCdfIn.id,
+            amountUsd: currentUsdOut.amount.toString(),
+            amountCdf: currentCdfIn.amount.toString(),
+            exchangeRate: currentCdfIn.exchangeRate?.toString() ?? null,
+            usdBalanceAfter: usdBalanceAfter.toString(),
+            cdfBalanceAfter: cdfBalanceAfter.toString(),
+          },
+        },
+      });
+
+      return {
+        deletedSourceId: sourceId,
+        usdBalance: usdBalanceAfter.toString(),
+        cdfBalance: cdfBalanceAfter.toString(),
+      };
+    });
+  }
+
   async convertFundingCurrency(
     dto: ConvertCashCurrencyDto,
     companyId: string,

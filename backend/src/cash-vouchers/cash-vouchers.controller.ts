@@ -202,6 +202,20 @@ export class CashVouchersController {
     );
   }
 
+  @Delete('funding/conversion/:sourceId')
+  @Roles(UserRole.COMPANY_ADMIN, UserRole.MANAGING_PARTNER)
+  @ApiOperation({ summary: 'Delete an unused currency conversion and both ledger entries' })
+  deleteFundingConversion(
+    @Param('sourceId', new ParseUUIDPipe()) sourceId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.vouchers.deleteFundingConversion(
+      sourceId,
+      request.user!.companyId,
+      request.user!.sub,
+    );
+  }
+
   @Post('funding/convert')
   @Roles(...cashVoucherIssuers)
   @ApiOperation({ summary: 'Convert existing USD cash balance into CDF' })
