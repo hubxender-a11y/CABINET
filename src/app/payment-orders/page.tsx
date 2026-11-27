@@ -335,7 +335,7 @@ export default function PaymentOrdersPage() {
         setOrders(rows);
         setUser(currentUser);
         setOrdersAvailable(true);
-        if (["MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(currentUser.role)) setActiveSection("register");
+        if (["MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER", "PLATFORM_SUPER_ADMIN"].includes(currentUser.role)) setActiveSection("register");
       })
       .catch((caught: unknown) => {
         if (!active) return;
@@ -355,37 +355,39 @@ export default function PaymentOrdersPage() {
   }, []);
 
   useEffect(() => {
-    if (!configurationKey || ["MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(user?.role ?? "")) return;
-    // The managing partner only uses the register and approval actions. The
-    // finance configuration endpoint is for the OP entry form and is not part
-    // of this role's access.
+    if (!configurationKey || ["MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER", "PLATFORM_SUPER_ADMIN"].includes(user?.role ?? "")) return;
+    // The managing partner and platform administrator use the register and
+    // approval actions; finance configuration is reserved for OP entry.
     let active = true;
-    setConfigurationAvailable(false);
-    const query = new URLSearchParams({
-      year: date.slice(0, 4),
-      currency,
-    });
-    void Promise.all([
-      apiRequest<{ funding: FundingSummary }>(
-        `/payment-orders/configuration?${query.toString()}`,
-      ),
-      apiRequest<{ accounts: CashAccountSummary[] }>("/cash-vouchers/treasury"),
-    ])
-      .then(([configuration, treasury]) => {
-        if (!active) return;
-        setFundingSummary(configuration.funding);
-        setCashAccounts(treasury.accounts);
-        setConfigurationAvailable(true);
-      })
-      .catch((caught: unknown) => {
-        if (!active) return;
-        setConfigurationAvailable(false);
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "Chargement du contrôle des fonds OP impossible.",
-        );
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      setConfigurationAvailable(false);
+      const query = new URLSearchParams({
+        year: date.slice(0, 4),
+        currency,
       });
+      void Promise.all([
+        apiRequest<{ funding: FundingSummary }>(
+          `/payment-orders/configuration?${query.toString()}`,
+        ),
+        apiRequest<{ accounts: CashAccountSummary[] }>("/cash-vouchers/treasury"),
+      ])
+        .then(([configuration, treasury]) => {
+          if (!active) return;
+          setFundingSummary(configuration.funding);
+          setCashAccounts(treasury.accounts);
+          setConfigurationAvailable(true);
+        })
+        .catch((caught: unknown) => {
+          if (!active) return;
+          setConfigurationAvailable(false);
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Chargement du contrôle des fonds OP impossible.",
+          );
+        });
+    });
     return () => {
       active = false;
     };
@@ -961,15 +963,15 @@ export default function PaymentOrdersPage() {
             <div className="max-h-[75vh] divide-y divide-slate-100 overflow-auto">
               {filteredOrders.map((order) => {
                 const canManager = Boolean(
-                  user && ["COMPANY_ADMIN", "MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(user.role) &&
+                  user && ["COMPANY_ADMIN", "MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER", "PLATFORM_SUPER_ADMIN"].includes(user.role) &&
                   ["SUBMITTED", "FINANCE_APPROVED"].includes(order.status) &&
-                  user.id !== order.createdBy,
+                  (user.role === "PLATFORM_SUPER_ADMIN" || user.id !== order.createdBy),
                 );
                 const canReject = Boolean(
                   user &&
-                  ["COMPANY_ADMIN", "MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(user.role) &&
+                  ["COMPANY_ADMIN", "MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER", "PLATFORM_SUPER_ADMIN"].includes(user.role) &&
                   ["SUBMITTED", "FINANCE_APPROVED"].includes(order.status) &&
-                  user.id !== order.createdBy,
+                  (user.role === "PLATFORM_SUPER_ADMIN" || user.id !== order.createdBy),
                 );
                 return (
                   <article key={order.id} className="p-4 sm:p-5">

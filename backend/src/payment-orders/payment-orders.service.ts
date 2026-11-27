@@ -465,8 +465,9 @@ export class PaymentOrdersService {
     companyId: string,
     userId: string,
     name: string,
+    allowOwnDecision = false,
   ) {
-    return this.transition(id, companyId, userId, name, 'MANAGER');
+    return this.transition(id, companyId, userId, name, 'MANAGER', allowOwnDecision);
   }
 
   async reject(
@@ -475,6 +476,7 @@ export class PaymentOrdersService {
     companyId: string,
     userId: string,
     name: string,
+    allowOwnDecision = false,
   ) {
     const reason = dto.reason.trim();
     if (reason.length < 4)
@@ -490,7 +492,7 @@ export class PaymentOrdersService {
       ) {
         throw new ConflictException('Cette OP est déjà clôturée.');
       }
-      if (order.createdBy === userId)
+      if (order.createdBy === userId && !allowOwnDecision)
         throw new ConflictException(
           'Le demandeur ne peut pas rejeter sa propre OP.',
         );
@@ -752,6 +754,7 @@ export class PaymentOrdersService {
     userId: string,
     name: string,
     visa: 'FINANCE' | 'MANAGER',
+    allowOwnDecision = false,
   ) {
     return this.prisma.$transaction(async (transaction) => {
       const order = await transaction.paymentOrder.findFirst({
@@ -769,7 +772,7 @@ export class PaymentOrdersService {
           );
         }
       }
-      if (order.createdBy === userId)
+      if (order.createdBy === userId && !allowOwnDecision)
         throw new ConflictException(
           'Le demandeur ne peut pas viser sa propre OP.',
         );

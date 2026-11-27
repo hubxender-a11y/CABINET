@@ -1270,7 +1270,7 @@ export default function CashVouchersPage() {
                                 </button>
                               )}
                             {voucher.status === "PENDING_APPROVAL" &&
-                              ["COMPANY_ADMIN", "MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER"].includes(
+                              ["COMPANY_ADMIN", "MANAGING_PARTNER", "PLATFORM_MANAGING_PARTNER", "PLATFORM_SUPER_ADMIN"].includes(
                                 userRole,
                               ) && (
                                 <>

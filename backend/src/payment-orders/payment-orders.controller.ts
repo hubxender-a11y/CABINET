@@ -132,6 +132,7 @@ export class PaymentOrdersController {
       request.user!.companyId,
       request.user!.sub,
       request.user!.name,
+      request.user!.role === UserRole.PLATFORM_SUPER_ADMIN,
     );
   }
 
@@ -163,6 +164,7 @@ export class PaymentOrdersController {
       request.user!.companyId,
       request.user!.sub,
       request.user!.name,
+      request.user!.role === UserRole.PLATFORM_SUPER_ADMIN,
     );
   }
 
