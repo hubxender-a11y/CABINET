@@ -45,6 +45,8 @@ type CashVoucher = {
   method: CashMethod;
   cashAccountId: string;
   accountCode?: string | null;
+  createdByName?: string | null;
+  paidByName?: string | null;
   reference?: string | null;
   status: "PENDING_APPROVAL" | "READY_FOR_PAYMENT" | "ISSUED" | "REJECTED" | "CANCELLED";
   cancellationReason?: string | null;
@@ -1208,6 +1210,11 @@ export default function CashVouchersPage() {
                             <p className="max-w-56 truncate text-xs text-slate-500">
                               {voucher.reason}
                             </p>
+                            {voucher.createdByName && (
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                Saisi par {voucher.createdByName}
+                              </p>
+                            )}
                             {voucher.reference &&
                             /^OP\/\d{4}\/\d+$/.test(voucher.reference) ? (
                               <Link
@@ -1956,7 +1963,7 @@ export default function CashVouchersPage() {
                 <div>
                   <strong>Établi par</strong>
                   <span>
-                    {profile?.signatureName?.trim() || "Nom et signature"}
+                    {selectedVoucher.createdByName || "Utilisateur non renseigné"}
                   </span>
                   <i />
                 </div>
@@ -1980,6 +1987,11 @@ export default function CashVouchersPage() {
                   <i />
                 </div>
               </section>
+              {selectedVoucher.paidByName && (
+                <p className="mt-4 text-xs text-slate-600">
+                  Paiement enregistré par : <strong>{selectedVoucher.paidByName}</strong>
+                </p>
+              )}
               <p className="cash-voucher-copy-note">
                 Original : caisse · Copie : bénéficiaire · Joindre les pièces
                 justificatives à ce bon.

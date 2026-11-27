@@ -56,7 +56,7 @@ export class PaymentOrdersService {
     );
     return orders.map((order) => ({
       ...order,
-      creatorName: creatorNames.get(order.createdBy) ?? null,
+      creatorName: order.createdByName ?? creatorNames.get(order.createdBy) ?? null,
     }));
   }
 
@@ -380,10 +380,15 @@ export class PaymentOrdersService {
         return Math.max(max, match ? Number(match[1]) : 0);
       }, 0);
       const orderNumber = `OP/${year}/${String(sequence + 1).padStart(4, '0')}`;
+      const creatorName = (await transaction.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      }))?.name ?? null;
       const order = await transaction.paymentOrder.create({
         data: {
           companyId,
           createdBy: userId,
+          createdByName: creatorName,
           orderNumber,
           date: parsedDate,
           requestingService: dto.requestingService.trim(),
@@ -414,15 +419,10 @@ export class PaymentOrdersService {
             orderNumber,
             amount: amount.toString(),
             currency: dto.currency,
+            actorName: creatorName,
           },
         },
       });
-      const creatorName = (
-        await transaction.user.findUnique({
-          where: { id: userId },
-          select: { name: true },
-        })
-      )?.name ?? null;
       await this.notifications.notifyRoles(
         transaction,
         companyId,
@@ -530,6 +530,7 @@ export class PaymentOrdersService {
             paymentOrderId: id,
             orderNumber: order.orderNumber,
             reason,
+            actorName: name,
           },
         },
       });
@@ -633,10 +634,16 @@ export class PaymentOrdersService {
         return Math.max(maximum, match ? Number(match[1]) : 0);
       }, 0);
       const voucherNumber = `BSC/${year}/${String(lastSequence + 1).padStart(4, '0')}`;
+      const creatorName = (await transaction.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      }))?.name ?? null;
       const voucher = await transaction.cashVoucher.create({
         data: {
           companyId,
           voucherNumber,
+          createdBy: userId,
+          createdByName: creatorName,
           date,
           beneficiary: header.beneficiary,
           category: `Règlement de l’OP ${header.orderNumber}`,
@@ -676,6 +683,7 @@ export class PaymentOrdersService {
             voucherNumber,
             amount: header.amount.toString(),
             currency: header.currency,
+            actorName: creatorName,
             approvalRequired: true,
           },
         },
@@ -841,6 +849,8 @@ export class PaymentOrdersService {
           data: {
             companyId,
             voucherNumber,
+            createdBy: userId,
+            createdByName: name,
             date,
             beneficiary: order.beneficiary,
             category: `Règlement de l’OP ${order.orderNumber}`,
@@ -883,6 +893,7 @@ export class PaymentOrdersService {
               voucherNumber,
               amount: order.amount.toString(),
               currency: order.currency,
+              actorName: name,
               approvalRequired: false,
               createdByManagerApproval: true,
             },
@@ -909,6 +920,7 @@ export class PaymentOrdersService {
             paymentOrderId: id,
             orderNumber: order.orderNumber,
             ...(voucherNumber ? { voucherNumber } : {}),
+            actorName: name,
           },
         },
       });

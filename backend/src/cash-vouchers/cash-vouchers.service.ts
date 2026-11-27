@@ -800,11 +800,17 @@ export class CashVouchersService {
         return Math.max(maximum, match ? Number(match[1]) : 0);
       }, 0);
       const voucherNumber = `BSC/${year}/${String(lastSequence + 1).padStart(4, '0')}`;
+      const creatorName = (await transaction.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      }))?.name ?? null;
 
       const voucher = await transaction.cashVoucher.create({
         data: {
           companyId,
           voucherNumber,
+          createdBy: userId,
+          createdByName: creatorName,
           date,
           beneficiary: dto.beneficiary.trim(),
           category: dto.category.trim(),
@@ -830,6 +836,7 @@ export class CashVouchersService {
             beneficiary: voucher.beneficiary,
             amount: amount.toString(),
             currency: voucher.currency,
+            actorName: creatorName,
           },
         },
       });
@@ -1024,6 +1031,10 @@ export class CashVouchersService {
     userId: string,
   ) {
     return this.prisma.$transaction(async (transaction) => {
+      const payerName = (await transaction.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      }))?.name ?? null;
       const header = await transaction.cashVoucher.findFirst({
         where: { id, companyId },
         select: { id: true, cashAccountId: true, status: true },
@@ -1085,6 +1096,7 @@ export class CashVouchersService {
         data: {
           status: 'ISSUED',
           date: paymentDate,
+          paidByName: payerName,
         },
       });
       if (approved.count !== 1) {
@@ -1114,6 +1126,7 @@ export class CashVouchersService {
           status: PaymentOrderStatus.PAID,
           paidAt: paymentDate,
           paidBy: userId,
+          paidByName: payerName,
         },
       });
       if (linkedOrderHeader && linkedOrder.count !== 1) {
@@ -1134,6 +1147,7 @@ export class CashVouchersService {
               voucherNumber: voucher.voucherNumber,
               amount: voucher.amount.toString(),
               currency: voucher.currency,
+              actorName: payerName,
             },
           },
         });
@@ -1148,6 +1162,7 @@ export class CashVouchersService {
             voucherNumber: voucher.voucherNumber,
             amount: voucher.amount.toString(),
             currency: voucher.currency,
+            actorName: payerName,
           },
         },
       });
@@ -1235,6 +1250,7 @@ export class CashVouchersService {
           managerApprovalName: managerName,
           managerApprovalBy: userId,
           managerApprovedAt: approvalDate,
+          paidByName: managerName,
         },
       });
       if (approved.count !== 1) {
@@ -1264,6 +1280,7 @@ export class CashVouchersService {
           status: PaymentOrderStatus.PAID,
           paidAt: approvalDate,
           paidBy: userId,
+          paidByName: managerName,
         },
       });
       if (linkedOrderHeader && linkedOrder.count !== 1) {
@@ -1284,6 +1301,7 @@ export class CashVouchersService {
               voucherNumber: voucher.voucherNumber,
               amount: voucher.amount.toString(),
               currency: voucher.currency,
+              actorName: managerName,
             },
           },
         });
@@ -1349,7 +1367,7 @@ export class CashVouchersService {
           companyId,
           userId,
           action: 'CASH_VOUCHER_REJECTED',
-          details: { voucherId: id, reason },
+          details: { voucherId: id, reason, actorName: managerName },
         },
       });
       const rejectedVoucher = await transaction.cashVoucher.findUniqueOrThrow({

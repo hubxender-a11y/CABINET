@@ -55,6 +55,7 @@ type PaymentOrder = {
   rejectedBy?: string | null;
   createdBy: string;
   paidAt?: string | null;
+  paidByName?: string | null;
   attachment?: {
     id: string;
     fileName: string;
@@ -990,6 +991,11 @@ export default function PaymentOrdersPage() {
                         <p className="mt-1 max-w-xl text-xs text-slate-500">
                           {order.requestingService} · {order.reason}
                         </p>
+                        {order.creatorName && (
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            Saisie par {order.creatorName}
+                          </p>
+                        )}
                       </div>
                       <span
                         className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusClass(order.status)}`}
@@ -1000,6 +1006,9 @@ export default function PaymentOrdersPage() {
                     <div className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
                       {order.managerVisaName && (
                         <span>Associé-Gérant : {order.managerVisaName}</span>
+                      )}
+                      {order.paidByName && (
+                        <span>Règlement enregistré par : {order.paidByName}</span>
                       )}
                       {order.cashVoucher && (
                         <span>

@@ -613,6 +613,9 @@ model CashVoucher {
   accountCode        String?
   reference          String?
   status             String        @default("PENDING_APPROVAL")
+  createdBy          String?       @db.Uuid
+  createdByName      String?
+  paidByName         String?
   cancellationReason String?
   cancelledAt        DateTime?
   rejectionReason    String?
@@ -695,6 +698,7 @@ model PaymentOrder {
   status               PaymentOrderStatus @default(SUBMITTED)
   paidAt               DateTime?
   paidBy               String?            @db.Uuid
+  paidByName            String?
   financeVisaName      String?
   financeVisaBy        String?            @db.Uuid
   financeVisaAt        DateTime?
@@ -705,6 +709,7 @@ model PaymentOrder {
   rejectedBy           String?
   rejectedAt           DateTime?
   createdBy            String             @db.Uuid
+  createdByName        String?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   company              Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
